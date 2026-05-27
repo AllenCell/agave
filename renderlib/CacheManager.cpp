@@ -262,6 +262,42 @@ CacheManager::getCacheDirectory() const
   return m_cacheDir;
 }
 
+bool
+CacheManager::canWriteCacheDir(const std::string& path)
+{
+  if (path.empty()) {
+    return false;
+  }
+
+  std::error_code ec;
+  std::filesystem::path dir(path);
+  if (!std::filesystem::exists(dir, ec)) {
+    if (!std::filesystem::create_directories(dir, ec) || ec) {
+      LOG_WARNING << "canWriteCacheDir: failed to create " << path << ": " << ec.message();
+      return false;
+    }
+  } else if (!std::filesystem::is_directory(dir, ec) || ec) {
+    LOG_WARNING << "canWriteCacheDir: not a directory: " << path;
+    return false;
+  }
+
+  std::filesystem::path testPath = dir / ".agave_cache_write_test";
+  {
+    std::ofstream testFile(testPath, std::ios::binary | std::ios::trunc);
+    if (!testFile.is_open()) {
+      return false;
+    }
+    testFile << "test";
+    if (!testFile.good()) {
+      testFile.close();
+      std::filesystem::remove(testPath, ec);
+      return false;
+    }
+  }
+  std::filesystem::remove(testPath, ec);
+  return !ec;
+}
+
 void
 CacheManager::setConfig(const CacheConfig& config)
 {
