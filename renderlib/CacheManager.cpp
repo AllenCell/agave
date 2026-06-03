@@ -299,6 +299,70 @@ CacheManager::canWriteCacheDir(const std::string& path)
 }
 
 void
+CacheManager::initialize(const std::string& cacheDir)
+{
+  CacheManager& mgr = instance();
+  {
+    std::scoped_lock lock(mgr.m_mutex);
+    if (mgr.m_initialized) {
+      throw std::logic_error("CacheManager::initialize() called more than once; the cache directory is fixed for the "
+                             "lifetime of the process.");
+    }
+    mgr.m_initialized = true;
+  }
+
+  // Probe writability once, here, rather than on every config-apply: the cache
+  // root is fixed for the process lifetime. If the directory can't be created
+  // or written, leave the root unset so the disk tier stays inert regardless of
+  // what any later CacheConfig requests.
+  std::string root = cacheDir;
+  if (!root.empty() && !canWriteCacheDir(root)) {
+    LOG_WARNING << "Disk cache disabled: cache directory not writable: " << root;
+    root.clear();
+  }
+  mgr.applyCacheDirectory(root);
+}
+
+void
+CacheManager::applyCacheDirectory(const std::string& dir)
+{
+  CacheConfig configCopy;
+  std::string cacheDirCopy;
+  bool rebuildDiskIndex = false;
+  {
+    std::scoped_lock lock(m_mutex);
+    if (m_cacheDir == dir) {
+      return;
+    }
+    m_cacheDir = dir;
+    // The previous root's bookkeeping no longer applies. Drop it; it will be
+    // rebuilt below (or by the next setConfig) for the new root.
+    m_diskEntries.clear();
+    m_currentDiskBytes = 0;
+    m_diskIndexRoot.clear();
+
+    if (m_config.enabled && m_config.enableDisk && !m_cacheDir.empty()) {
+      m_diskIndexRoot = m_cacheDir;
+      rebuildDiskIndex = true;
+      configCopy = m_config;
+      cacheDirCopy = m_cacheDir;
+    }
+  }
+
+  if (rebuildDiskIndex) {
+    loadDiskIndex(configCopy, cacheDirCopy);
+    evictDiskIfNeeded(configCopy, 0);
+  }
+}
+
+std::string
+CacheManager::getCacheDirectory() const
+{
+  std::scoped_lock lock(m_mutex);
+  return m_cacheDir;
+}
+
+void
 CacheManager::setConfig(const CacheConfig& config)
 {
   CacheConfig configCopy;
