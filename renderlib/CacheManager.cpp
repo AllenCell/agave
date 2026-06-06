@@ -632,6 +632,89 @@ CacheManager::getRamBytesAvailable() const
   return m_config.maxRamBytes - m_currentRamBytes;
 }
 
+void
+{
+    return;
+  }
+}
+
+void
+{
+    return;
+  }
+
+  }
+}
+
+CacheManager::clearDiskCache()
+  std::string cacheDir;
+  std::vector<std::string> knownEntryPaths;
+  {
+    std::scoped_lock lock(m_mutex);
+    cacheDir = m_cacheDir;
+
+    if (!isAgaveCacheDir(cacheDir)) {
+      LOG_WARNING << "Refusing to clear disk cache: directory missing AGAVE cache marker file (" << kCacheMarkerFilename
+                  << "): " << cacheDir;
+      return;
+    }
+
+    knownEntryPaths.reserve(m_diskEntries.size());
+    for (const auto& kv : m_diskEntries) {
+      knownEntryPaths.push_back(kv.second.path);
+    }
+    m_diskEntries.clear();
+    m_currentDiskBytes = 0;
+  }
+
+  if (cacheDir.empty()) {
+
+  // Remove the per-entry subdirectories we know about.
+  for (const auto& path : knownEntryPaths) {
+    std::error_code ec;
+    std::filesystem::remove_all(path, ec);
+  }
+
+  // Also remove any orphan per-entry subdirectories left behind by prior
+  // sessions or partial writes. We only touch subdirectories that contain a
+  // meta.json (i.e. look like cache entries we wrote) — anything else the user
+  // may have placed in the cache dir is preserved.
+  std::error_code dirEc;
+  for (auto it = std::filesystem::directory_iterator(cacheDir, dirEc);
+       it != std::filesystem::directory_iterator() && !dirEc;
+       it.increment(dirEc)) {
+    if (!it->is_directory()) {
+      continue;
+    }
+    std::filesystem::path metaPath = it->path() / "meta.json";
+    std::error_code existEc;
+    if (std::filesystem::exists(metaPath, existEc)) {
+      std::error_code rmEc;
+      std::filesystem::remove_all(it->path(), rmEc);
+    }
+  }
+CacheManager::writeCacheMarker(const std::string& path) const
+  if (path.empty()) {
+    return;
+  }
+  std::error_code ec;
+  std::filesystem::create_directories(path, ec);
+  std::filesystem::path marker = std::filesystem::path(path) / kCacheMarkerFilename;
+  std::error_code existEc;
+  if (std::filesystem::exists(marker, existEc)) {
+  std::ofstream out(marker.string(), std::ios::trunc);
+  if (out) {
+    out << "AGAVE disk cache root. Safe to delete this directory and its contents.\n";
+  }
+}
+bool
+CacheManager::isAgaveCacheDir(const std::string& path) const
+{
+  if (path.empty()) {
+    return false;
+  std::error_code ec;
+  std::filesystem::path marker = std::filesystem::path(path) / kCacheMarkerFilename;
+  return std::filesystem::exists(marker, ec);
 CacheManager::CacheStats
 CacheManager::getStats() const
 {
