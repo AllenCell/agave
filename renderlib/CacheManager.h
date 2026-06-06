@@ -78,7 +78,11 @@ public:
 
   std::shared_ptr<ImageXYZC> findImage(const LoadSpec& loadSpec);
   void storeImage(const LoadSpec& loadSpec, const std::shared_ptr<ImageXYZC>& image);
+  // Drop all entries from the in-memory cache. Disk cache is untouched.
   void clearMemoryCache();
+  // Drop all entries from the disk cache (refuses if the cache directory is
+  // missing the AGAVE marker file). Memory cache is untouched.
+  void clearDiskCache();
 
   CacheStats getStats() const;
   void resetStats();
@@ -96,6 +100,11 @@ private:
   // Precondition: caller must hold m_mutex.
   void evictIfNeededLocked(std::uint64_t incomingBytes);
   void storeImageInMemory(const CacheKey& key, const std::shared_ptr<ImageXYZC>& image);
+  // Writes a marker file to a directory we manage as our own disk cache root.
+  // clearDiskCache refuses to delete anything unless this marker is present,
+  // protecting against accidental wipes of user-typed paths (e.g. "C:\").
+  void writeCacheMarker(const std::string& path) const;
+  bool isAgaveCacheDir(const std::string& path) const;
 
   mutable std::mutex m_mutex;
   CacheConfig m_config;
@@ -113,5 +122,15 @@ private:
   };
 
   std::unordered_map<CacheKey, CacheEntry, CacheKeyHash> m_entries;
+
+  struct DiskEntry
+  {
+    std::string path;
+    std::uint64_t bytes = 0;
+    std::uint64_t lastAccess = 0;
+  };
+
+  std::unordered_map<std::string, DiskEntry> m_diskEntries;
+  std::uint64_t m_currentDiskBytes = 0;
   CacheStats m_stats;
 };
