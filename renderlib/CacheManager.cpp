@@ -8,6 +8,7 @@
 #include <chrono>
 #include <filesystem>
 #include <functional>
+#include <fstream>
 #include <memory>
 #include <stdexcept>
 
@@ -145,6 +146,42 @@ CacheManager::CacheManager(std::string cacheDir)
 {
 }
 
+bool
+CacheManager::canWriteCacheDir(const std::string& path)
+{
+  if (path.empty()) {
+    return false;
+  }
+
+  std::error_code ec;
+  std::filesystem::path dir(path);
+  if (!std::filesystem::exists(dir, ec)) {
+    if (!std::filesystem::create_directories(dir, ec) || ec) {
+      LOG_WARNING << "canWriteCacheDir: failed to create " << path << ": " << ec.message();
+      return false;
+    }
+  } else if (!std::filesystem::is_directory(dir, ec) || ec) {
+    LOG_WARNING << "canWriteCacheDir: not a directory: " << path;
+    return false;
+  }
+
+  std::filesystem::path testPath = dir / ".agave_cache_write_test";
+  {
+    std::ofstream testFile(testPath, std::ios::binary | std::ios::trunc);
+    if (!testFile.is_open()) {
+      return false;
+    }
+    testFile << "test";
+    if (!testFile.good()) {
+      testFile.close();
+      std::filesystem::remove(testPath, ec);
+      return false;
+    }
+  }
+  std::filesystem::remove(testPath, ec);
+  return !ec;
+}
+
 void
 CacheManager::initialize(const std::string& cacheDir)
 {
@@ -153,7 +190,16 @@ CacheManager::initialize(const std::string& cacheDir)
                            "lifetime of the process.");
   }
 
-  singletonSlot() = std::make_unique<CacheManager>(cacheDir);
+  // Probe writability once, here, rather than on every config-apply: the cache
+  // root is fixed for the lifetime of the process. If the directory can't be
+  // created or written, leave the root unset so the disk tier stays inert
+  // regardless of what any later CacheConfig requests.
+  std::string root = cacheDir;
+  if (!root.empty() && !canWriteCacheDir(root)) {
+    LOG_WARNING << "Disk cache disabled: cache directory not writable: " << root;
+    root.clear();
+  }
+  singletonSlot() = std::make_unique<CacheManager>(root);
 }
 
 CacheManager&

@@ -84,6 +84,12 @@ public:
   void resetStats();
 
 private:
+  // Verify that `path` is (or can be made) a writable directory. Creates the
+  // directory if it does not exist, then probes it by writing and deleting a
+  // small marker file. Returns false on any failure. Probed once, at
+  // initialize() time, since the cache root is fixed for the process lifetime.
+  static bool canWriteCacheDir(const std::string& path);
+
   CacheKey makeKey(const LoadSpec& loadSpec) const;
   std::uint64_t estimateImageBytes(const ImageXYZC& image) const;
   void touchEntry(std::list<CacheKey>::iterator it);
