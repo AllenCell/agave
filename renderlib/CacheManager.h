@@ -102,6 +102,11 @@ private:
   // Precondition: caller must hold m_mutex.
   void evictIfNeededLocked(std::uint64_t incomingBytes);
   void storeImageInMemory(const CacheKey& key, const std::shared_ptr<ImageXYZC>& image);
+  // Writes a marker file to a directory we manage as our own disk cache root.
+  // clearDiskCache refuses to delete anything unless this marker is present,
+  // protecting against accidental wipes of user-typed paths (e.g. "C:\").
+  void writeCacheMarker(const std::string& path) const;
+  bool isAgaveCacheDir(const std::string& path) const;
 
   std::shared_ptr<ImageXYZC> loadFromDisk(const CacheKey& key, const CacheConfig& config, const std::string& cacheDir);
   void storeToDisk(const CacheKey& key,
