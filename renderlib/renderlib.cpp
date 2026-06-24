@@ -5,7 +5,7 @@
 #include "Logging.h"
 #include "RenderGL.h"
 #include "RenderGLPT.h"
-#include "gfxOpenGL/Device.h"
+#include "gfxOpenGL/Backend.h"
 #include "gfxapi/Backend.h"
 
 #include <QGuiApplication>
@@ -40,7 +40,24 @@ static std::string s_assetPath = "";
 
 // Owner of the active graphics backend. Hardcoded to OpenGL while the
 // gfxapi / gfxOpenGL abstraction is being introduced incrementally.
-static gfxopengl::Device* s_graphicsDevice = nullptr;
+static std::unique_ptr<gfxApi::Backend> s_graphicsBackend;
+
+// Backend selection lives here, in renderlib, rather than in gfxapi: the
+// abstract gfxapi layer must not depend on any concrete backend. This is the
+// one place that maps a BackendKind onto a concrete implementation.
+static std::unique_ptr<gfxApi::Backend>
+createGraphicsBackend(gfxApi::BackendKind kind, const gfxApi::InitParams& params)
+{
+  switch (kind) {
+    case gfxApi::BackendKind::OpenGL:
+      return std::make_unique<gfxopengl::Backend>(params);
+    case gfxApi::BackendKind::Vulkan:
+    case gfxApi::BackendKind::WebGPU:
+    default:
+      LOG_ERROR << "createGraphicsBackend: requested backend kind is not supported in this build";
+      return nullptr;
+  }
+}
 
 #if HAS_EGL
 static EGLDisplay eglDpy = NULL;
@@ -219,11 +236,10 @@ renderlib::initialize(std::string assetPath, bool headless, bool listDevices, in
   LOG_INFO << "Renderlib startup";
 
   // TODO: backend selection. For now the only supported gfxapi backend is
-  // OpenGL; install it unconditionally so renderer code can begin migrating
-  // through gfxApi::Backend::device(). The GL context itself is still
+  // OpenGL; create it unconditionally so renderer code can begin migrating
+  // through the backend's device(). The GL context itself is still
   // initialized below via Qt / EGL.
-  s_graphicsDevice = new gfxopengl::Device();
-  gfxApi::Backend::install(s_graphicsDevice);
+  s_graphicsBackend = createGraphicsBackend(gfxApi::BackendKind::OpenGL, gfxApi::InitParams{ assetPath, headless, selectedGpu });
 
   bool enableDebug = false;
 
@@ -349,9 +365,7 @@ renderlib::cleanup()
 #endif
   }
 
-  gfxApi::Backend::shutdown();
-  delete s_graphicsDevice;
-  s_graphicsDevice = nullptr;
+  s_graphicsBackend.reset();
 
   renderLibInitialized = false;
 }

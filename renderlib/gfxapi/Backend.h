@@ -2,31 +2,36 @@
 
 #include "IGraphicsDevice.h"
 
+#include <string>
+
 namespace gfxApi {
 
-// Process-wide accessor for the active graphics backend. The backend must be
-// installed exactly once during renderlib initialization (see
-// renderlib::initialize). All renderer code should go through device() to
-// reach GPU functionality rather than touching backend-specific APIs.
+// Parameters supplied to a backend at construction time.
+struct InitParams
+{
+  // Filesystem path to renderer assets (shaders, etc.).
+  std::string assetPath;
+  // Run without an on-screen surface (offscreen / EGL rendering).
+  bool headless = false;
+  // Index of the GPU to use when more than one is available.
+  int selectedGpu = 0;
+};
+
+// Abstract graphics backend. A backend owns the concrete IGraphicsDevice and
+// any backend-global state. renderlib::initialize creates exactly one backend
+// (currently always an OpenGL backend) and holds it for the process lifetime.
+// All renderer code should reach GPU functionality through device() rather
+// than touching backend-specific APIs.
 class Backend
 {
 public:
-  // Install the backend. Asserts if called more than once with a different
-  // device, or if `device` is null.
-  static void install(IGraphicsDevice* device);
+  virtual ~Backend() = default;
 
-  // Release the backend. The caller retains ownership of the device pointer
-  // passed to install(); this only clears the registration.
-  static void shutdown();
+  // The GPU device owned by this backend.
+  virtual IGraphicsDevice& device() = 0;
 
-  // Returns the active device, or asserts if no backend has been installed.
-  static IGraphicsDevice& device();
-
-  // Returns true after install() has been called and before shutdown().
-  static bool isInstalled();
-
-  // Convenience accessor for the active backend kind.
-  static BackendKind kind();
+  // The kind of backend this is.
+  virtual BackendKind kind() const = 0;
 };
 
 } // namespace gfxApi
