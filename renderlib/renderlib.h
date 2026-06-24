@@ -10,18 +10,14 @@
 #include <memory>
 #include <string>
 
-#if defined(__APPLE__) || defined(_WIN32)
-#define HAS_EGL false
-#else
-#define HAS_EGL true
-#endif
-
 struct ImageGpu;
 class ImageXYZC;
 class IRenderWindow;
 class RenderSettings;
 
-using EGLContext = void*; // Forward declaration from EGL.h.
+namespace gfxApi {
+class Backend;
+}
 
 class renderlib
 {
@@ -50,8 +46,10 @@ public:
   static std::shared_ptr<ImageGpu> imageAllocGPU(std::shared_ptr<ImageXYZC> image, bool do_cache = true);
   static void imageDeallocGPU(std::shared_ptr<ImageXYZC> image);
 
-  static QSurfaceFormat getQSurfaceFormat(bool enableDebug = false);
-  static QOpenGLContext* createOpenGLContext();
+  // The active graphics backend (created during initialize). Null before
+  // initialize / after cleanup. Callers needing backend-specific facilities can
+  // downcast based on kind().
+  static gfxApi::Backend* graphicsBackend();
 
   enum RendererType
   {
@@ -65,42 +63,4 @@ public:
 
 private:
   static std::map<std::shared_ptr<ImageXYZC>, std::shared_ptr<ImageGpu>> sGpuImageCache;
-};
-
-class HeadlessGLContext
-{
-public:
-  HeadlessGLContext();
-  ~HeadlessGLContext();
-  void makeCurrent();
-  void doneCurrent();
-
-private:
-#if HAS_EGL
-  EGLContext m_eglCtx;
-#endif
-};
-
-// wrap a gl context intended to run on a separate thread
-// or be moved from main thread and back
-class RendererGLContext
-{
-public:
-  RendererGLContext();
-  ~RendererGLContext();
-  void configure(QOpenGLContext* glContext = nullptr);
-  void init();
-  void destroy();
-
-  void makeCurrent();
-  void doneCurrent();
-
-private:
-  bool m_ownGLContext;
-  // only one of the following two can be non-null
-  HeadlessGLContext* m_eglContext;
-  QOpenGLContext* m_glContext;
-  QOffscreenSurface* m_surface;
-
-  void initQOpenGLContext();
 };

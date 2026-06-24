@@ -5,6 +5,7 @@
 
 #include "renderlib/command.h"
 #include "renderlib/gesture/gesture.h"
+#include "renderlib/gfxOpenGL/RendererGLContext.h"
 #include "renderlib/graphics/gl/Util.h"
 #include "renderlib/graphics/GestureGraphicsGL.h"
 #include "renderlib/io/FileReader.h"
@@ -140,7 +141,7 @@ protected:
 private:
   QMutex* m_openGLMutex;
 
-  RendererGLContext m_rglContext;
+  gfxopengl::RendererGLContext m_rglContext;
 
   GLFramebufferObject* m_fbo;
 
