@@ -7,6 +7,7 @@
 #include "renderlib/RenderSettings.h"
 #include "renderlib/ScaleBarTool.h"
 #include "renderlib/SceneView.h"
+#include "renderlib/gfxOpenGL/Backend.h"
 #include "renderlib/graphics/RenderGL.h"
 #include "renderlib/graphics/RenderGLPT.h"
 #include "renderlib/io/FileReader.h"
@@ -31,7 +32,7 @@ Renderer::Renderer(const QString& id, QObject* parent, QMutex& mutex)
   , m_height(0)
   , m_openGLMutex(&mutex)
   , m_wait()
-  , m_rglContext()
+  , m_rglContext(static_cast<gfxopengl::Backend&>(*renderlib::graphicsBackend()))
 {
   this->m_totalQueueDuration = 0;
 

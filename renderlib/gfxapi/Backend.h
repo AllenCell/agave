@@ -15,6 +15,8 @@ struct InitParams
   bool headless = false;
   // Index of the GPU to use when more than one is available.
   int selectedGpu = 0;
+  // Install a GL debug logger (verbose; for development).
+  bool enableDebug = false;
 };
 
 // Abstract graphics backend. A backend owns the concrete IGraphicsDevice and

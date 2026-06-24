@@ -7,6 +7,7 @@
 #include "RenderInterface.h"
 #include "command.h"
 #include "renderlib/gesture/gesture.h"
+#include "renderlib/gfxOpenGL/RendererGLContext.h"
 #include "renderlib/graphics/IRenderWindow.h"
 #include "renderlib/graphics/GestureGraphicsGL.h"
 #include "renderlib/graphics/gl/Util.h"
@@ -121,12 +122,9 @@ protected:
   void shutDown();
 
 private:
-#if HAS_EGL
-  HeadlessGLContext* m_glContext;
-#else
-  QOpenGLContext* m_glContext;
-  QOffscreenSurface* m_surface;
-#endif
+  // GL context for this offscreen renderer (EGL headless or Qt offscreen,
+  // chosen by the backend at runtime).
+  gfxopengl::RendererGLContext m_rglContext;
 
   GLFramebufferObject* m_fbo;
 
