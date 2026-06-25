@@ -3,10 +3,10 @@
 #include "gfxOpenGL/Backend.h"
 #include "glm.h"
 
-#include "gfxOpenGL/Framebuffer.h"
 #include "ImageXYZC.h"
 #include "Logging.h"
 #include "gfxOpenGL/FSQ.h"
+#include "gfxOpenGL/GLFramebufferObject.h"
 #include "gfxOpenGL/Image3D.h"
 #include "gfxOpenGL/Util.h"
 #include "gfxOpenGL/glsl/GLCopyShader.h"
@@ -70,7 +70,7 @@ RenderGLPT::initFB(uint32_t w, uint32_t h)
 {
   cleanUpFB();
 
-  m_fbF32 = new Framebuffer(w, h, GL_RGBA32F);
+  m_fbF32 = new GLFramebufferObject(w, h, GL_RGBA32F);
   m_gpuBytes += sizeof(float) * w * h * 4;
   check_glfb("resized float pathtrace sample fb");
 
@@ -78,7 +78,7 @@ RenderGLPT::initFB(uint32_t w, uint32_t h)
   glClearColor(0.0, 0.0, 0.0, 0.0);
   glClear(GL_COLOR_BUFFER_BIT);
 
-  m_fbF32Accum = new Framebuffer(w, h, GL_RGBA32F);
+  m_fbF32Accum = new GLFramebufferObject(w, h, GL_RGBA32F);
   m_gpuBytes += sizeof(float) * w * h * 4;
   check_glfb("resized float accumulation fb");
 
@@ -104,7 +104,7 @@ RenderGLPT::initFB(uint32_t w, uint32_t h)
     free(pSeeds);
   }
 
-  m_fb = new Framebuffer(w, h, GL_RGBA8, true);
+  m_fb = new GLFramebufferObject(w, h, GL_RGBA8, true);
   m_gpuBytes += (size_t)w * (size_t)h * 4;
 
   // clear this fb to black
@@ -400,7 +400,7 @@ RenderGLPT::render(const CCamera& camera)
 }
 
 void
-RenderGLPT::renderTo(const CCamera& camera, GLFramebufferObject* fbo)
+RenderGLPT::renderTo(const CCamera& camera, gfxApi::Framebuffer* fbo)
 {
   doRender(camera);
 

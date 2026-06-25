@@ -3,6 +3,7 @@
 #include "IGraphicsDevice.h"
 #include "IGestureRenderer.h"
 #include "IRenderWindow.h"
+#include "Framebuffer.h"
 
 #include <cstdint>
 #include <memory>
@@ -49,6 +50,9 @@ public:
 
   // Main volume renderer.
   virtual std::unique_ptr<IRenderWindow> createRenderWindow(RenderWindowKind kind, RenderSettings* renderSettings) = 0;
+
+  // Backend-specific framebuffer implementation.
+  virtual std::unique_ptr<Framebuffer> createFramebuffer(const FramebufferDesc& desc) = 0;
 
   // The kind of backend this is.
   virtual BackendKind kind() const = 0;

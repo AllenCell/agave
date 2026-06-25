@@ -2,6 +2,7 @@
 
 #include "GestureRenderer.h"
 #include "GLContext.h"
+#include "GLFramebufferObject.h"
 #include "HeadlessGLContext.h"
 #include "Logging.h"
 #include "RenderGL.h"
@@ -27,6 +28,22 @@
 
 namespace gfxopengl {
 
+namespace {
+
+GLenum
+toGlInternalFormat(gfxApi::FramebufferColorFormat format)
+{
+  switch (format) {
+    case gfxApi::FramebufferColorFormat::Rgba8:
+      return GL_RGBA8;
+    case gfxApi::FramebufferColorFormat::Rgba32F:
+      return GL_RGBA32F;
+  }
+  return GL_RGBA8;
+}
+
+} // namespace
+
 std::unique_ptr<gfxApi::IGestureRenderer>
 Backend::createGestureRenderer()
 {
@@ -43,6 +60,13 @@ Backend::createRenderWindow(gfxApi::RenderWindowKind kind, RenderSettings* rende
     default:
       return std::make_unique<RenderGLPT>(renderSettings);
   }
+}
+
+std::unique_ptr<gfxApi::Framebuffer>
+Backend::createFramebuffer(const gfxApi::FramebufferDesc& desc)
+{
+  return std::make_unique<GLFramebufferObject>(
+    desc.width, desc.height, toGlInternalFormat(desc.colorFormat), desc.depthStencil);
 }
 
 #if GFXOPENGL_HAS_EGL
