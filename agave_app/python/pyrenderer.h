@@ -9,6 +9,7 @@
 #include "renderlib/gfxOpenGL/RendererGLContext.h"
 #include "renderlib/gfxOpenGL/GestureGraphicsGL.h"
 #include "renderlib/gfxOpenGL/Util.h"
+#include "renderlib/gfxapi/Framebuffer.h"
 #include "renderlib/gfxapi/IRenderWindow.h"
 #include "renderlib/renderlib.h"
 
@@ -118,7 +119,7 @@ private:
   // chosen by the backend at runtime).
   gfxopengl::RendererGLContext m_rglContext;
 
-  GLFramebufferObject* m_fbo;
+  std::unique_ptr<gfxApi::Framebuffer> m_fbo;
 
   int32_t m_width, m_height;
 

@@ -12,8 +12,8 @@
 #include <string>
 
 class BoundingBoxDrawable;
-class Framebuffer;
 class FSQ;
+class GLFramebufferObject;
 class ImageXYZC;
 class Image3D;
 class RectImage2D;
@@ -31,7 +31,7 @@ public:
 
   void initialize(uint32_t w, uint32_t h) override;
   void render(const CCamera& camera) override;
-  void renderTo(const CCamera& camera, GLFramebufferObject* fbo) override;
+  void renderTo(const CCamera& camera, gfxApi::Framebuffer* fbo) override;
   void resize(uint32_t w, uint32_t h) override;
   void getSize(uint32_t& w, uint32_t& h) override
   {
@@ -67,16 +67,16 @@ private:
   RectImage2D* m_imagequad;
 
   // the rgba8 buffer for display
-  Framebuffer* m_fb;
+  GLFramebufferObject* m_fb;
 
   FSQ* m_fsq;
 
   // the rgbaf32 buffer for rendering
-  Framebuffer* m_fbF32;
+  GLFramebufferObject* m_fbF32;
   GLPTVolumeShader* m_renderBufferShader;
 
   // the rgbaf32 accumulation buffer that holds the progressively rendered image
-  Framebuffer* m_fbF32Accum;
+  GLFramebufferObject* m_fbF32Accum;
   GLCopyShader* m_copyShader;
   GLToneMapShader* m_toneMapShader;
 

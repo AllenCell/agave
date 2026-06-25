@@ -34,6 +34,7 @@ public:
   std::unique_ptr<gfxApi::IGestureRenderer> createGestureRenderer() override;
   std::unique_ptr<gfxApi::IRenderWindow> createRenderWindow(gfxApi::RenderWindowKind kind,
                                                             RenderSettings* renderSettings) override;
+  std::unique_ptr<gfxApi::Framebuffer> createFramebuffer(const gfxApi::FramebufferDesc& desc) override;
   gfxApi::BackendKind kind() const override { return gfxApi::BackendKind::OpenGL; }
 
   // Whether this backend was created for headless (offscreen / EGL) rendering.
