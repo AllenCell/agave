@@ -2,9 +2,13 @@
 
 #include "IGraphicsDevice.h"
 #include "IGestureRenderer.h"
+#include "IRenderWindow.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
+
+class RenderSettings;
 
 namespace gfxApi {
 
@@ -19,6 +23,12 @@ struct InitParams
   int selectedGpu = 0;
   // Install a GL debug logger (verbose; for development).
   bool enableDebug = false;
+};
+
+enum class RenderWindowKind : uint8_t
+{
+  PathTrace,
+  RaymarchBlended,
 };
 
 // Abstract graphics backend. A backend owns the concrete IGraphicsDevice and
@@ -36,6 +46,9 @@ public:
 
   // Renderer for gesture/manipulator UI draw commands.
   virtual std::unique_ptr<IGestureRenderer> createGestureRenderer() = 0;
+
+  // Main volume renderer.
+  virtual std::unique_ptr<IRenderWindow> createRenderWindow(RenderWindowKind kind, RenderSettings* renderSettings) = 0;
 
   // The kind of backend this is.
   virtual BackendKind kind() const = 0;

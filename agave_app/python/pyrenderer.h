@@ -7,9 +7,9 @@
 #include "renderlib/gesture/gesture.h"
 #include "renderlib/gfxOpenGL/Backend.h"
 #include "renderlib/gfxOpenGL/RendererGLContext.h"
-#include "renderlib/graphics/IRenderWindow.h"
 #include "renderlib/gfxOpenGL/GestureGraphicsGL.h"
 #include "renderlib/gfxOpenGL/Util.h"
+#include "renderlib/gfxapi/IRenderWindow.h"
 #include "renderlib/renderlib.h"
 
 #include <QImage>
@@ -127,7 +127,7 @@ private:
   struct myVolumeData
   {
     RenderSettings* m_renderSettings;
-    IRenderWindow* m_renderer;
+    gfxApi::IRenderWindow* m_renderer;
     Scene* m_scene;
     CCamera* m_camera;
     Gesture m_gesture;
