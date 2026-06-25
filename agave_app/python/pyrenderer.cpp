@@ -12,11 +12,6 @@
 #include "renderlib/io/FileReader.h"
 #include "renderlib/renderlib.h"
 
-#include <QApplication>
-#include <QElapsedTimer>
-#include <QMessageBox>
-#include <QOpenGLFramebufferObjectFormat>
-
 OffscreenRenderer::OffscreenRenderer()
   : m_rglContext(static_cast<gfxopengl::Backend&>(*renderlib::graphicsBackend()))
   , m_fbo(nullptr)
