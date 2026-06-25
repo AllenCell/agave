@@ -6,11 +6,11 @@
 
 struct ImageGpu;
 class ImageXYZC;
-class IRenderWindow;
 class RenderSettings;
 
 namespace gfxApi {
 class Backend;
+class IRenderWindow;
 }
 
 class renderlib
@@ -51,7 +51,7 @@ public:
     RendererType_Raymarch
   };
   // factory method for creating renderers
-  static IRenderWindow* createRenderer(RendererType rendererType, RenderSettings* rs = nullptr);
+  static gfxApi::IRenderWindow* createRenderer(RendererType rendererType, RenderSettings* rs = nullptr);
   static RendererType stringToRendererType(std::string rendererTypeString);
   static std::string rendererTypeToString(RendererType rendererType);
 

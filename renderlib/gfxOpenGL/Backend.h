@@ -10,6 +10,7 @@
 class QOffscreenSurface;
 class QOpenGLContext;
 class QOpenGLDebugLogger;
+class RenderSettings;
 
 namespace gfxopengl {
 
@@ -31,6 +32,8 @@ public:
 
   gfxApi::IGraphicsDevice& device() override { return m_device; }
   std::unique_ptr<gfxApi::IGestureRenderer> createGestureRenderer() override;
+  std::unique_ptr<gfxApi::IRenderWindow> createRenderWindow(gfxApi::RenderWindowKind kind,
+                                                            RenderSettings* renderSettings) override;
   gfxApi::BackendKind kind() const override { return gfxApi::BackendKind::OpenGL; }
 
   // Whether this backend was created for headless (offscreen / EGL) rendering.

@@ -32,6 +32,10 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/ImageXyzcGpu.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RendererGLContext.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RendererGLContext.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/RenderGL.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/RenderGL.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/RenderGLPT.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/RenderGLPT.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Util.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Util.h"
 )

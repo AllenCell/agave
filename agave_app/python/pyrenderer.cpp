@@ -1,5 +1,6 @@
 #include "pyrenderer.h"
 
+#include "renderlib/AppScene.h"
 #include "renderlib/BoundingBoxTool.h"
 #include "renderlib/CCamera.h"
 #include "renderlib/Logging.h"
@@ -8,7 +9,6 @@
 #include "renderlib/TimeStampTool.h"
 #include "renderlib/gfxOpenGL/Backend.h"
 #include "renderlib/gfxOpenGL/RendererGLContext.h"
-#include "renderlib/graphics/RenderGLPT.h"
 #include "renderlib/io/FileReader.h"
 #include "renderlib/renderlib.h"
 
@@ -43,7 +43,7 @@ OffscreenRenderer::myVolumeInit()
   m_myVolumeData.m_scene->initLights();
 
   // TODO allow for all renderer types (e.g. RendererGL also)
-  m_myVolumeData.m_renderer = new RenderGLPT(m_myVolumeData.m_renderSettings);
+  m_myVolumeData.m_renderer = renderlib::createRenderer(renderlib::RendererType_Pathtrace, m_myVolumeData.m_renderSettings);
   m_myVolumeData.m_renderer->initialize(m_width, m_height);
   m_myVolumeData.m_renderer->setScene(m_myVolumeData.m_scene);
 
