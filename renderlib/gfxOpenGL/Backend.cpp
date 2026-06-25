@@ -1,5 +1,6 @@
 #include "Backend.h"
 
+#include "GestureRenderer.h"
 #include "GLContext.h"
 #include "HeadlessGLContext.h"
 #include "Logging.h"
@@ -23,6 +24,12 @@
 #include <string>
 
 namespace gfxopengl {
+
+std::unique_ptr<gfxApi::IGestureRenderer>
+Backend::createGestureRenderer()
+{
+  return std::make_unique<GestureRenderer>();
+}
 
 #if GFXOPENGL_HAS_EGL
 namespace {
