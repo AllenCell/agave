@@ -4,7 +4,7 @@
 #include "AppScene.h"
 #include "RenderSettings.h"
 
-#include "ImageXyzcGpu.h"
+#include "gfxOpenGL/ImageXyzcGpu.h"
 #include "Status.h"
 #include "Timing.h"
 

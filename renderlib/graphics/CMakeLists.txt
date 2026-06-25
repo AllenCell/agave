@@ -5,8 +5,6 @@ target_include_directories(renderlib PUBLIC
 add_subdirectory(stb)
 
 target_sources(renderlib PRIVATE
-	"${CMAKE_CURRENT_SOURCE_DIR}/ImageXyzcGpu.cpp"
-	"${CMAKE_CURRENT_SOURCE_DIR}/ImageXyzcGpu.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/IRenderWindow.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/IRenderWindow.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RenderGL.cpp"
