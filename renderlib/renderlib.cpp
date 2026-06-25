@@ -1,7 +1,7 @@
 #include "renderlib.h"
 
 #include "ImageXYZC.h"
-#include "ImageXyzcGpu.h"
+#include "gfxOpenGL/ImageXyzcGpu.h"
 #include "Logging.h"
 #include "RenderGL.h"
 #include "RenderGLPT.h"

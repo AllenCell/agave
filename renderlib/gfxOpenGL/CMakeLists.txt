@@ -28,6 +28,8 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/Image2D.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Image3D.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Image3D.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/ImageXyzcGpu.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/ImageXyzcGpu.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RendererGLContext.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RendererGLContext.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Util.cpp"
