@@ -10,3 +10,8 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/RendererGLContext.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RendererGLContext.cpp"
 )
+
+target_link_libraries(renderlib
+	Qt::Core Qt::OpenGL
+	${OPENGL_egl_LIBRARY}
+)

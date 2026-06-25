@@ -23,6 +23,8 @@ class HeadlessGLContext;
 class Backend : public gfxApi::Backend
 {
 public:
+  // Creates a bootstrap GL context (headless
+  // EGL or Qt offscreen), makes it current, and loads the GL entry points.
   explicit Backend(const gfxApi::InitParams& params);
   ~Backend() override;
 

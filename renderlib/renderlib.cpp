@@ -87,9 +87,7 @@ renderlib::initialize(std::string assetPath, bool headless, bool listDevices, in
   // Register AGAVE's GL format as the Qt default (for windowed surfaces).
   QSurfaceFormat::setDefaultFormat(gfxopengl::getSurfaceFormat());
 
-  // Create the graphics backend. It creates a bootstrap GL context (headless
-  // EGL or Qt offscreen), makes it current, and loads the GL entry points.
-  // createGraphicsBackend returns null if any of that fails.
+  // Create the graphics backend. Returns null if it fails.
   s_graphicsBackend =
     createGraphicsBackend(gfxApi::BackendKind::OpenGL, gfxApi::InitParams{ assetPath, headless, selectedGpu });
   if (!s_graphicsBackend) {

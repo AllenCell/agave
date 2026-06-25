@@ -108,11 +108,8 @@ add_subdirectory(io)
 add_subdirectory(pugixml)
 
 target_link_libraries(renderlib
-	Qt::Core Qt::OpenGL
 	${CMAKE_DL_LIBS}
 	${TIFF_LIBRARIES}
-
-	${OPENGL_egl_LIBRARY}
 	spdlog::spdlog_header_only
 )
 
