@@ -5,7 +5,7 @@
 #include "glm.h"
 #include "renderlib/CCamera.h"
 #include "renderlib/ViewerWindow.h"
-#include "renderlib/gfxOpenGL/Backend.h"
+#include "renderlib/gfxOpenGL/Backend.h" // need glad includes before Qt opengl includes
 #include "renderlib/gesture/gesture.h"
 
 #include <QOpenGLWidget>

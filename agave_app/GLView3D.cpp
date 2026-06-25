@@ -4,13 +4,12 @@
 #include "QRenderSettings.h"
 #include "ViewerState.h"
 
+#include "renderlib/AppScene.h"
 #include "renderlib/ImageXYZC.h"
 #include "renderlib/Logging.h"
 #include "renderlib/MoveTool.h"
 #include "renderlib/RotateTool.h"
 #include "renderlib/Status.h"
-#include "renderlib/gfxOpenGL/Image3D.h"
-#include "renderlib/gfxOpenGL/Util.h"
 
 #include <glm.h>
 

@@ -5,7 +5,6 @@
 #include "renderlib/gesture/gesture.h"
 #include "renderlib/gfxOpenGL/Backend.h"
 #include "renderlib/gfxOpenGL/RendererGLContext.h"
-#include "renderlib/gfxOpenGL/Util.h"
 #include "renderlib/gfxOpenGL/GestureGraphicsGL.h"
 #include "renderlib/gfxapi/Framebuffer.h"
 #include "renderlib/io/FileReader.h"
