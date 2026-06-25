@@ -367,10 +367,8 @@ Renderer::resizeGL(int width, int height)
     m_myVolumeData.m_renderer->resize(width, height);
   }
 
-  this->m_fbo = renderlib::graphicsBackend()->createFramebuffer({ static_cast<uint32_t>(width),
-                                                                  static_cast<uint32_t>(height),
-                                                                  gfxApi::FramebufferColorFormat::Rgba8,
-                                                                  true });
+  this->m_fbo = renderlib::graphicsBackend()->createFramebuffer(
+    { static_cast<uint32_t>(width), static_cast<uint32_t>(height), gfxApi::FramebufferColorFormat::Rgba8, true });
 
   glViewport(0, 0, width, height);
 
