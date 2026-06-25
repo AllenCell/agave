@@ -12,14 +12,7 @@
 #include "renderlib/gfxOpenGL/Util.h"
 #include "renderlib/renderlib.h"
 
-#include <QList>
-#include <QObject>
-
-#include <QOffscreenSurface>
-#include <QOpenGLContext>
-#include <QOpenGLFramebufferObject>
-#include <QOpenGLTexture>
-#include <QThread>
+#include <QImage>
 
 #include <memory>
 #include <string>
