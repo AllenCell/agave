@@ -5,8 +5,8 @@
 #include "renderlib/gesture/gesture.h"
 #include "renderlib/gfxOpenGL/Backend.h"
 #include "renderlib/gfxOpenGL/RendererGLContext.h"
-#include "renderlib/gfxOpenGL/GestureGraphicsGL.h"
 #include "renderlib/gfxapi/Framebuffer.h"
+#include "renderlib/gfxapi/IGestureRenderer.h"
 #include "renderlib/io/FileReader.h"
 #include "renderlib/renderlib.h"
 #include "renderrequest.h"
@@ -167,7 +167,7 @@ private:
     CCamera* m_camera;
     LoadSpec m_loadSpec;
     Gesture m_gesture;
-    GestureRendererGL m_gestureRenderer;
+    std::unique_ptr<gfxApi::IGestureRenderer> m_gestureRenderer;
 
     myVolumeData()
       : m_camera(nullptr)

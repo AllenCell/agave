@@ -35,6 +35,7 @@ public:
   std::unique_ptr<gfxApi::IRenderWindow> createRenderWindow(gfxApi::RenderWindowKind kind,
                                                             RenderSettings* renderSettings) override;
   std::unique_ptr<gfxApi::Framebuffer> createFramebuffer(const gfxApi::FramebufferDesc& desc) override;
+  void clearCurrentFramebuffer(const gfxApi::ClearColor& color) override;
   gfxApi::BackendKind kind() const override { return gfxApi::BackendKind::OpenGL; }
 
   // Whether this backend was created for headless (offscreen / EGL) rendering.

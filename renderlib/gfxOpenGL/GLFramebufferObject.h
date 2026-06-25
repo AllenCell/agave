@@ -19,6 +19,7 @@ public:
   uint32_t width() const override { return m_width; }
   uint32_t height() const override { return m_height; }
 
+  void clear(const gfxApi::ClearColor& color) override;
   void toImage(void* pixels) override;
 
   GLuint id() const { return m_id; }

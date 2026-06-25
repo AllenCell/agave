@@ -19,6 +19,23 @@
 #include <QMessageBox>
 #include <QMutexLocker>
 
+namespace {
+
+gfxApi::ClearColor
+backgroundClearColor(const Scene* scene)
+{
+  if (!scene) {
+    return {};
+  }
+
+  return { scene->m_material.m_backgroundColor[0],
+           scene->m_material.m_backgroundColor[1],
+           scene->m_material.m_backgroundColor[2],
+           0.0f };
+}
+
+} // namespace
+
 Renderer::Renderer(const QString& id, QObject* parent, QMutex& mutex)
   : QThread(parent)
   , m_id(id)
@@ -77,6 +94,8 @@ Renderer::configure(gfxApi::IRenderWindow* renderer,
     m_myVolumeData.ownRenderer = false;
     m_myVolumeData.m_renderer = renderer;
   }
+
+  m_myVolumeData.m_gestureRenderer = renderlib::graphicsBackend()->createGestureRenderer();
 
   m_rglContext.configure(glContext);
 }
@@ -332,15 +351,15 @@ Renderer::render()
   bbox.draw(sceneView, m_myVolumeData.m_gesture);
 
   m_fbo->bind();
-  clearFramebuffer(sceneView.scene);
-  m_myVolumeData.m_gestureRenderer.drawUnderlay(sceneView, nullptr, m_myVolumeData.m_gesture.graphics);
+  m_fbo->clear(backgroundClearColor(sceneView.scene));
+  m_myVolumeData.m_gestureRenderer->drawUnderlay(sceneView, m_myVolumeData.m_gesture.graphics);
   m_fbo->release();
 
   // main scene rendering
   m_myVolumeData.m_renderer->renderTo(sceneView.camera, m_fbo.get());
 
   m_fbo->bind();
-  m_myVolumeData.m_gestureRenderer.draw(sceneView, nullptr, m_myVolumeData.m_gesture.graphics);
+  m_myVolumeData.m_gestureRenderer->draw(sceneView, m_myVolumeData.m_gesture.graphics);
   m_fbo->release();
 
   std::unique_ptr<uint8_t> bytes(new uint8_t[m_fbo->width() * m_fbo->height() * 4]);
@@ -406,6 +425,7 @@ Renderer::shutDown()
   m_rglContext.makeCurrent();
 
   this->m_fbo.reset();
+  m_myVolumeData.m_gestureRenderer.reset();
 
   delete m_myVolumeData.m_captureSettings;
   m_myVolumeData.m_captureSettings = nullptr;
