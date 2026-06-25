@@ -1,5 +1,5 @@
-#include "gl/FSQ.h"
-#include "gl/Util.h"
+#include "FSQ.h"
+#include "Util.h"
 
 #include <iostream>
 

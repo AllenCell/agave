@@ -2,7 +2,6 @@ target_include_directories(renderlib PUBLIC
 	"${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
-add_subdirectory(gl)
 add_subdirectory(glsl)
 add_subdirectory(stb)
 
@@ -20,4 +19,3 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/RenderGLPT.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RenderGLPT.h"
 )
-

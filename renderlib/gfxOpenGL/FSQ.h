@@ -1,6 +1,6 @@
 #pragma once
 
-#include "gl/Image2D.h"
+#include "Image2D.h"
 
 /**
  * 2D (xy) image renderer.

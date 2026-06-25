@@ -3,7 +3,7 @@
 #include "gfxOpenGL/Backend.h"
 
 #include "CCamera.h"
-#include "gl/Util.h"
+#include "gfxOpenGL/Util.h"
 
 #include <glm.h>
 

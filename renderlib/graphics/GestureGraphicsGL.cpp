@@ -1,7 +1,7 @@
 #include "GestureGraphicsGL.h"
 
-#include "graphics/gl/FontGL.h"
-#include "graphics/gl/Util.h"
+#include "gfxOpenGL/FontGL.h"
+#include "gfxOpenGL/Util.h"
 #include "graphics/glsl/GLGuiShader.h"
 
 // a vertex buffer that is automatically allocated and then deleted when it goes out of scope
