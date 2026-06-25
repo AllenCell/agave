@@ -4,8 +4,8 @@
 #include "BoundingBox.h"
 #include "MathUtil.h"
 #include "AppScene.h"
-#include "glsl/GLFlatShader2D.h"
-#include "glsl/GLImageShader2DnoLut.h"
+#include "gfxOpenGL/glsl/GLFlatShader2D.h"
+#include "gfxOpenGL/glsl/GLImageShader2DnoLut.h"
 
 #include "glm.h"
 
