@@ -2,11 +2,10 @@
 #define OFFSCREEN_RENDERER_H
 #pragma once
 
-#include "glad/glad.h"
-
 #include "RenderInterface.h"
 #include "command.h"
 #include "renderlib/gesture/gesture.h"
+#include "renderlib/gfxOpenGL/Backend.h"
 #include "renderlib/gfxOpenGL/RendererGLContext.h"
 #include "renderlib/graphics/IRenderWindow.h"
 #include "renderlib/graphics/GestureGraphicsGL.h"

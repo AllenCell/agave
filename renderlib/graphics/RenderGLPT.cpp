@@ -1,6 +1,6 @@
 #include "RenderGLPT.h"
 
-#include "glad/glad.h"
+#include "gfxOpenGL/Backend.h"
 #include "glm.h"
 
 #include "Framebuffer.h"

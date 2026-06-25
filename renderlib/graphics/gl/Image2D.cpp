@@ -2,7 +2,7 @@
 #include "Util.h"
 
 #include "ImageXYZC.h"
-#include "glad/glad.h"
+#include "gfxOpenGL/Backend.h"
 
 #include <array>
 #include <iostream>

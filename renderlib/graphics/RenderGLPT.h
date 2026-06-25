@@ -1,8 +1,6 @@
 #pragma once
 #include "IRenderWindow.h"
 
-#include <glad/glad.h>
-
 #include "AppScene.h"
 #include "RenderSettings.h"
 

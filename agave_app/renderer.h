@@ -1,10 +1,9 @@
 #ifndef RENDERER_H
 #define RENDERER_H
 
-#include "glad/glad.h"
-
 #include "renderlib/command.h"
 #include "renderlib/gesture/gesture.h"
+#include "renderlib/gfxOpenGL/Backend.h"
 #include "renderlib/gfxOpenGL/RendererGLContext.h"
 #include "renderlib/graphics/gl/Util.h"
 #include "renderlib/graphics/GestureGraphicsGL.h"

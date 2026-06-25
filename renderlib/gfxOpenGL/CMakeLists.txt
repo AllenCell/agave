@@ -1,3 +1,9 @@
+add_subdirectory(glad/src)
+
+target_include_directories(renderlib PUBLIC
+	"${CMAKE_CURRENT_SOURCE_DIR}/glad/include"
+)
+
 target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/Backend.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Backend.cpp"

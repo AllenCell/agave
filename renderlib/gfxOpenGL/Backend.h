@@ -1,7 +1,8 @@
 #pragma once
 
-#include "Device.h"
+#include "glad/include/glad/glad.h"
 
+#include "Device.h"
 #include "gfxapi/Backend.h"
 
 #include <memory>

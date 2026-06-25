@@ -4,8 +4,6 @@
 #include "HeadlessGLContext.h"
 #include "Logging.h"
 
-#include "glad/glad.h"
-
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
 #include <QOpenGLDebugLogger>
