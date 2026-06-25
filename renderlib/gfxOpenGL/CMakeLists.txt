@@ -1,4 +1,5 @@
 add_subdirectory(glad/src)
+add_subdirectory(glsl)
 
 target_include_directories(renderlib PUBLIC
 	"${CMAKE_CURRENT_SOURCE_DIR}/glad/include"

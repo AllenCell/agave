@@ -2,8 +2,8 @@
 
 #include "gfxOpenGL/Backend.h"
 
-#include "graphics/glsl/GLGuiShader.h"
-#include "graphics/glsl/GLThickLines.h"
+#include "gfxOpenGL/glsl/GLGuiShader.h"
+#include "gfxOpenGL/glsl/GLThickLines.h"
 #include "gfxOpenGL/FontGL.h"
 #include "gesture/gesture.h"
 
