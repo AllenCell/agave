@@ -3,7 +3,7 @@
 #include "gfxOpenGL/Backend.h"
 #include "glm.h"
 
-#include "Framebuffer.h"
+#include "gfxOpenGL/Framebuffer.h"
 #include "ImageXYZC.h"
 #include "Logging.h"
 #include "gfxOpenGL/FSQ.h"
