@@ -2,10 +2,6 @@
 
 #include "glad/glad.h"
 
-#include <QOffscreenSurface>
-#include <QOpenGLContext>
-#include <QSurfaceFormat>
-
 #include <map>
 #include <memory>
 #include <string>
