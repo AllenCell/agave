@@ -2,7 +2,7 @@
 
 #include "Backend.h"
 #include "Logging.h"
-#include "graphics/gl/Util.h"
+#include "Util.h"
 
 namespace gfxopengl {
 

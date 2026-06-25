@@ -1,5 +1,5 @@
 #include "GLFlatShader2D.h"
-#include <gl/Util.h>
+#include "gfxOpenGL/Util.h"
 #include <glm.h>
 
 #include "Logging.h"

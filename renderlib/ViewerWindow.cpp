@@ -16,7 +16,7 @@
 #include "graphics/RenderGL.h"
 #include "graphics/RenderGLPT.h"
 #include "graphics/GestureGraphicsGL.h"
-#include "graphics/gl/Util.h"
+#include "gfxOpenGL/Util.h"
 #include "renderlib.h"
 
 ViewerWindow::ViewerWindow(RenderSettings* rs)

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "graphics/gl/Util.h"
+#include "gfxOpenGL/Util.h"
 
 class GLThickLinesShader
   : public GLShaderProgram

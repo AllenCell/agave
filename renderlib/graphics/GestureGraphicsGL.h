@@ -4,7 +4,7 @@
 
 #include "graphics/glsl/GLGuiShader.h"
 #include "graphics/glsl/GLThickLines.h"
-#include "graphics/gl/FontGL.h"
+#include "gfxOpenGL/FontGL.h"
 #include "gesture/gesture.h"
 
 #include <memory>

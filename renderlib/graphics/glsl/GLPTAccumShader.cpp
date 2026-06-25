@@ -4,7 +4,7 @@
 
 #include "shaders.h"
 
-#include <gl/Util.h>
+#include "gfxOpenGL/Util.h"
 #include <glm.h>
 
 #include <iostream>
