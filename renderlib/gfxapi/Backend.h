@@ -1,7 +1,9 @@
 #pragma once
 
 #include "IGraphicsDevice.h"
+#include "IGestureRenderer.h"
 
+#include <memory>
 #include <string>
 
 namespace gfxApi {
@@ -31,6 +33,9 @@ public:
 
   // The GPU device owned by this backend.
   virtual IGraphicsDevice& device() = 0;
+
+  // Renderer for gesture/manipulator UI draw commands.
+  virtual std::unique_ptr<IGestureRenderer> createGestureRenderer() = 0;
 
   // The kind of backend this is.
   virtual BackendKind kind() const = 0;

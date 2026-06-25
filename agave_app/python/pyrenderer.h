@@ -8,7 +8,7 @@
 #include "renderlib/gfxOpenGL/Backend.h"
 #include "renderlib/gfxOpenGL/RendererGLContext.h"
 #include "renderlib/graphics/IRenderWindow.h"
-#include "renderlib/graphics/GestureGraphicsGL.h"
+#include "renderlib/gfxOpenGL/GestureGraphicsGL.h"
 #include "renderlib/gfxOpenGL/Util.h"
 #include "renderlib/renderlib.h"
 

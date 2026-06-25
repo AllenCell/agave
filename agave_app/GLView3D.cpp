@@ -571,8 +571,7 @@ GLView3D::captureQimage()
   m_viewerWindow->update(m_viewerWindow->sceneView.viewport, m_viewerWindow->m_clock, m_viewerWindow->gesture);
   m_viewerWindow->m_renderer->render(m_viewerWindow->m_CCamera);
   // render and then clear out draw commands from gesture graphics
-  m_viewerWindow->m_gestureRenderer->draw(
-    m_viewerWindow->sceneView, &m_viewerWindow->m_selection, m_viewerWindow->gesture.graphics);
+  m_viewerWindow->m_gestureRenderer->draw(m_viewerWindow->sceneView, m_viewerWindow->gesture.graphics);
 
   fbo->release();
 
