@@ -1,6 +1,6 @@
 #pragma once
 
-#include "glad/glad.h"
+#include "gfxOpenGL/Backend.h"
 
 #include "graphics/glsl/GLGuiShader.h"
 #include "graphics/glsl/GLThickLines.h"

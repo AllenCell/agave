@@ -1,5 +1,3 @@
-set(GLAD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/graphics/glad/include")
-
 configure_file(
 	"${CMAKE_CURRENT_SOURCE_DIR}/version.h.in"
 	"${CMAKE_CURRENT_SOURCE_DIR}/version.h"
@@ -11,7 +9,6 @@ set_property(TARGET renderlib PROPERTY AUTOMOC ON)
 target_include_directories(renderlib PUBLIC
 	"${CMAKE_CURRENT_SOURCE_DIR}"
 	"${glm_SOURCE_DIR}"
-	${GLAD_DIR}
 )
 target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/AppScene.cpp"

@@ -1,9 +1,8 @@
 #include "Device.h"
 
+#include "Backend.h"
 #include "Logging.h"
 #include "graphics/gl/Util.h"
-
-#include "glad/glad.h"
 
 namespace gfxopengl {
 

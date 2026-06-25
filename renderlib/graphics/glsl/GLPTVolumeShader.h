@@ -1,6 +1,6 @@
 #pragma once
 
-#include "glad/glad.h"
+#include "gfxOpenGL/Backend.h"
 
 #include "CCamera.h"
 #include "gl/Util.h"

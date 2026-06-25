@@ -1,5 +1,5 @@
 #include "GLCopyShader.h"
-#include "glad/glad.h"
+#include "gfxOpenGL/Backend.h"
 
 #include "Logging.h"
 #include "shaders.h"

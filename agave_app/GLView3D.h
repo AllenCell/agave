@@ -2,11 +2,10 @@
 
 #include <memory>
 
-#include "glad/glad.h"
-
 #include "glm.h"
 #include "renderlib/CCamera.h"
 #include "renderlib/ViewerWindow.h"
+#include "renderlib/gfxOpenGL/Backend.h"
 #include "renderlib/gesture/gesture.h"
 
 #include <QOpenGLWidget>
