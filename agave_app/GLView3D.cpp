@@ -10,6 +10,7 @@
 #include "renderlib/MoveTool.h"
 #include "renderlib/RotateTool.h"
 #include "renderlib/Status.h"
+#include "renderlib/gfxOpenGL/Util.h"
 
 #include <glm.h>
 

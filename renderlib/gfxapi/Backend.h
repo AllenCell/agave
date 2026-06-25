@@ -54,6 +54,9 @@ public:
   // Backend-specific framebuffer implementation.
   virtual std::unique_ptr<Framebuffer> createFramebuffer(const FramebufferDesc& desc) = 0;
 
+  // Clear the framebuffer currently bound by the platform/windowing layer.
+  virtual void clearCurrentFramebuffer(const ClearColor& color) = 0;
+
   // The kind of backend this is.
   virtual BackendKind kind() const = 0;
 };

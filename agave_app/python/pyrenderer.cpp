@@ -8,9 +8,25 @@
 #include "renderlib/ScaleBarTool.h"
 #include "renderlib/TimeStampTool.h"
 #include "renderlib/gfxOpenGL/Backend.h"
-#include "renderlib/gfxOpenGL/RendererGLContext.h"
 #include "renderlib/io/FileReader.h"
 #include "renderlib/renderlib.h"
+
+namespace {
+
+gfxApi::ClearColor
+backgroundClearColor(const Scene* scene)
+{
+  if (!scene) {
+    return {};
+  }
+
+  return { scene->m_material.m_backgroundColor[0],
+           scene->m_material.m_backgroundColor[1],
+           scene->m_material.m_backgroundColor[2],
+           0.0f };
+}
+
+} // namespace
 
 OffscreenRenderer::OffscreenRenderer()
   : m_rglContext(static_cast<gfxopengl::Backend&>(*renderlib::graphicsBackend()))
@@ -43,9 +59,11 @@ OffscreenRenderer::myVolumeInit()
   m_myVolumeData.m_scene->initLights();
 
   // TODO allow for all renderer types (e.g. RendererGL also)
-  m_myVolumeData.m_renderer = renderlib::createRenderer(renderlib::RendererType_Pathtrace, m_myVolumeData.m_renderSettings);
+  m_myVolumeData.m_renderer =
+    renderlib::createRenderer(renderlib::RendererType_Pathtrace, m_myVolumeData.m_renderSettings);
   m_myVolumeData.m_renderer->initialize(m_width, m_height);
   m_myVolumeData.m_renderer->setScene(m_myVolumeData.m_scene);
+  m_myVolumeData.m_gestureRenderer = renderlib::graphicsBackend()->createGestureRenderer();
 
   // execution context for commands to run
   m_ec.m_renderSettings = m_myVolumeData.m_renderSettings;
@@ -112,15 +130,15 @@ OffscreenRenderer::render()
   timestamp.draw(sceneView, m_myVolumeData.m_gesture);
 
   m_fbo->bind();
-  clearFramebuffer(sceneView.scene);
-  m_myVolumeData.m_gestureRenderer.drawUnderlay(sceneView, nullptr, m_myVolumeData.m_gesture.graphics);
+  m_fbo->clear(backgroundClearColor(sceneView.scene));
+  m_myVolumeData.m_gestureRenderer->drawUnderlay(sceneView, m_myVolumeData.m_gesture.graphics);
   m_fbo->release();
 
   // main scene rendering
   m_myVolumeData.m_renderer->renderTo(sceneView.camera, m_fbo.get());
 
   m_fbo->bind();
-  m_myVolumeData.m_gestureRenderer.draw(sceneView, nullptr, m_myVolumeData.m_gesture.graphics);
+  m_myVolumeData.m_gestureRenderer->draw(sceneView, m_myVolumeData.m_gesture.graphics);
   m_fbo->release();
 
   std::unique_ptr<uint8_t> bytes(new uint8_t[vw * vh * 4]);
@@ -145,10 +163,8 @@ OffscreenRenderer::resizeGL(int width, int height)
     m_myVolumeData.m_renderer->resize(width, height);
   }
 
-  this->m_fbo = renderlib::graphicsBackend()->createFramebuffer({ static_cast<uint32_t>(width),
-                                                                  static_cast<uint32_t>(height),
-                                                                  gfxApi::FramebufferColorFormat::Rgba8,
-                                                                  true });
+  this->m_fbo = renderlib::graphicsBackend()->createFramebuffer(
+    { static_cast<uint32_t>(width), static_cast<uint32_t>(height), gfxApi::FramebufferColorFormat::Rgba8, true });
 
   glViewport(0, 0, width, height);
 
@@ -172,6 +188,7 @@ OffscreenRenderer::shutDown()
 {
   m_rglContext.makeCurrent();
   this->m_fbo.reset();
+  m_myVolumeData.m_gestureRenderer.reset();
 
   delete m_myVolumeData.m_renderSettings;
   delete m_myVolumeData.m_camera;
