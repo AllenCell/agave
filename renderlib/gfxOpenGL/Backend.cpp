@@ -186,6 +186,10 @@ logGLMessage(const QOpenGLDebugMessage& message)
 Backend::Backend(const gfxApi::InitParams& params)
   : m_params(params)
 {
+  // Register AGAVE's GL format as the Qt default before this backend creates
+  // any Qt-backed GL context or surface.
+  QSurfaceFormat::setDefaultFormat(getSurfaceFormat());
+
   bool contextOk = false;
 #if GFXOPENGL_HAS_EGL
   if (m_params.headless) {

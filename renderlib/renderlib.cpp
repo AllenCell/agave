@@ -1,10 +1,9 @@
 #include "renderlib.h"
 
 #include "ImageXYZC.h"
-#include "gfxOpenGL/ImageXyzcGpu.h"
 #include "Logging.h"
+#include "gfxOpenGL/ImageXyzcGpu.h"
 #include "gfxOpenGL/Backend.h"
-#include "gfxOpenGL/GLContext.h"
 #include "gfxapi/Backend.h"
 
 #include <string>
@@ -100,9 +99,6 @@ renderlib::initialize(std::string assetPath, bool headless, bool listDevices, in
     gfxopengl::Backend::listDevices(selectedGpu);
     return 0;
   }
-
-  // Register AGAVE's GL format as the Qt default (for windowed surfaces).
-  QSurfaceFormat::setDefaultFormat(gfxopengl::getSurfaceFormat());
 
   // Create the graphics backend. Returns null if it fails.
   s_graphicsBackend =
