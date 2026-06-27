@@ -34,6 +34,42 @@ backgroundClearColor(const Scene* scene)
            0.0f };
 }
 
+class MutexContextLocker
+{
+public:
+  explicit MutexContextLocker(QMutex* mutex, gfxopengl::RendererGLContext* context)
+    : m_mutex(mutex)
+    , m_context(context)
+  {
+    if (!m_mutex || !m_context) {
+      LOG_ERROR << "MutexContextLocker: mutex or context is null";
+      return;
+    }
+    if (m_mutex) {
+      m_mutex->lock();
+      // post-acquire logic
+      m_context->makeCurrent();
+    }
+  }
+
+  ~MutexContextLocker()
+  {
+    if (m_mutex) {
+      // pre-release logic
+      m_context->doneCurrent();
+      m_mutex->unlock();
+    }
+  }
+
+  // Disable copying
+  MutexContextLocker(const MutexContextLocker&) = delete;
+  MutexContextLocker& operator=(const MutexContextLocker&) = delete;
+
+private:
+  QMutex* m_mutex;
+  gfxopengl::RendererGLContext* m_context;
+};
+
 } // namespace
 
 Renderer::Renderer(const QString& id, QObject* parent, QMutex& mutex)
@@ -324,9 +360,7 @@ Renderer::processCommandBuffer(RenderRequest* rr)
 QImage
 Renderer::render()
 {
-  QMutexLocker locker(m_openGLMutex);
-
-  m_rglContext.makeCurrent();
+  MutexContextLocker locker(m_openGLMutex, &m_rglContext);
 
   // DRAW
   m_myVolumeData.m_camera->Update();
@@ -366,8 +400,6 @@ Renderer::render()
   m_fbo->toImage(bytes.get());
   QImage img = QImage(bytes.get(), m_fbo->width(), m_fbo->height(), QImage::Format_ARGB32).copy().mirrored();
 
-  m_rglContext.doneCurrent();
-
   return img;
 }
 
@@ -378,8 +410,7 @@ Renderer::resizeGL(int width, int height)
     return;
   }
 
-  QMutexLocker locker(m_openGLMutex);
-  m_rglContext.makeCurrent();
+  MutexContextLocker locker(m_openGLMutex, &m_rglContext);
 
   // RESIZE THE RENDER INTERFACE
   if (m_myVolumeData.m_renderer) {
@@ -398,9 +429,7 @@ Renderer::resizeGL(int width, int height)
 void
 Renderer::reset(int from)
 {
-  QMutexLocker locker(m_openGLMutex);
-
-  m_rglContext.makeCurrent();
+  MutexContextLocker locker(m_openGLMutex, &m_rglContext);
 
   glClearColor(0.0, 0.0, 0.0, 1.0);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -409,8 +438,6 @@ Renderer::reset(int from)
   glEnable(GL_LINE_SMOOTH);
 
   this->m_time.start();
-
-  m_rglContext.doneCurrent();
 }
 
 int
@@ -422,29 +449,29 @@ Renderer::getTime()
 void
 Renderer::shutDown()
 {
-  m_rglContext.makeCurrent();
+  {
+    MutexContextLocker locker(m_openGLMutex, &m_rglContext);
 
-  this->m_fbo.reset();
-  m_myVolumeData.m_gestureRenderer.reset();
+    this->m_fbo.reset();
+    m_myVolumeData.m_gestureRenderer.reset();
 
-  delete m_myVolumeData.m_captureSettings;
-  m_myVolumeData.m_captureSettings = nullptr;
+    delete m_myVolumeData.m_captureSettings;
+    m_myVolumeData.m_captureSettings = nullptr;
 
-  delete m_myVolumeData.m_renderSettings;
-  m_myVolumeData.m_renderSettings = nullptr;
+    delete m_myVolumeData.m_renderSettings;
+    m_myVolumeData.m_renderSettings = nullptr;
 
-  delete m_myVolumeData.m_camera;
-  m_myVolumeData.m_camera = nullptr;
+    delete m_myVolumeData.m_camera;
+    m_myVolumeData.m_camera = nullptr;
 
-  delete m_myVolumeData.m_scene;
-  m_myVolumeData.m_scene = nullptr;
+    delete m_myVolumeData.m_scene;
+    m_myVolumeData.m_scene = nullptr;
 
-  if (m_myVolumeData.ownRenderer) {
-    delete m_myVolumeData.m_renderer;
+    if (m_myVolumeData.ownRenderer) {
+      delete m_myVolumeData.m_renderer;
+    }
+    m_myVolumeData.m_renderer = nullptr;
   }
-  m_myVolumeData.m_renderer = nullptr;
-
-  m_rglContext.doneCurrent();
 
   m_rglContext.destroy();
 

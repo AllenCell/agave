@@ -176,13 +176,10 @@ GLView3D::resizeGL(int w, int h)
     return;
   }
   // clock tick?
-  makeCurrent();
   float dpr = devicePixelRatioF();
   m_viewerWindow->setSize(w * dpr, h * dpr);
   m_viewerWindow->forEachTool(
     [this](ManipulationTool* tool) { tool->setSize(ManipulationTool::s_manipulatorSize * devicePixelRatioF()); });
-
-  doneCurrent();
 }
 
 static Gesture::Input::ButtonId
@@ -423,7 +420,6 @@ GLView3D::keyPressEvent(QKeyEvent* event)
 void
 GLView3D::OnUpdateCamera()
 {
-  //	QMutexLocker Locker(&gSceneMutex);
   RenderSettings* rs = m_viewerWindow->m_renderSettings;
   m_viewerWindow->m_CCamera.m_Film.m_Exposure = 1.0f - m_qcamera->GetFilm().GetExposure();
   m_viewerWindow->m_CCamera.m_Film.m_ExposureIterations = m_qcamera->GetFilm().GetExposureIterations();
@@ -460,7 +456,6 @@ GLView3D::OnUpdateCamera()
 void
 GLView3D::OnUpdateQRenderSettings()
 {
-  // QMutexLocker Locker(&gSceneMutex);
   RenderSettings* rs = m_viewerWindow->m_renderSettings;
 
   rs->m_RenderSettings.m_DensityScale = m_qrendersettings->GetDensityScale();
