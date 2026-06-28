@@ -3,6 +3,7 @@
 #include "renderlib/CCamera.h"
 #include "renderlib/io/FileReader.h"
 
+#include "QtGLContext.h"
 #include "renderer.h"
 
 #include <QDialog>
