@@ -245,7 +245,7 @@ RenderDialog::RenderDialog(ViewerWindow* borrowedRenderer,
   , m_renderSettings(renderSettings)
   , m_scene(scene)
   , m_camera(ccamera)
-  , m_glContext(glContext)
+  , m_glContext(std::make_unique<QtGLContext>(glContext))
   , m_loadSpec(loadSpec)
   , m_renderThread(nullptr)
   , m_frameRenderTime(0)
@@ -764,7 +764,7 @@ RenderDialog::render()
                               m_camera,
                               m_loadSpec,
                               renderlib::RendererType_Pathtrace,
-                              m_glContext,
+                              m_glContext.get(),
                               mCaptureSettings);
 
     onZoomFitClicked();
