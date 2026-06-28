@@ -1,16 +1,11 @@
 #include "Backend.h"
 
 #include "GestureRenderer.h"
-#include "GLContext.h"
 #include "GLFramebufferObject.h"
 #include "HeadlessGLContext.h"
 #include "Logging.h"
 #include "RenderGL.h"
 #include "RenderGLPT.h"
-
-#include <QOffscreenSurface>
-#include <QOpenGLContext>
-#include <QOpenGLDebugLogger>
 
 // EGL is only available on Linux in this project.
 #if defined(__APPLE__) || defined(_WIN32)
@@ -176,20 +171,22 @@ initEGLDisplay(int selectedGpu)
 #endif // GFXOPENGL_HAS_EGL
 
 namespace {
-void
-logGLMessage(const QOpenGLDebugMessage& message)
+void APIENTRY
+logGLMessage(GLenum,
+             GLenum,
+             GLuint,
+             GLenum,
+             GLsizei,
+             const GLchar* message,
+             const void*)
 {
-  LOG_DEBUG << message.message().toStdString();
+  LOG_DEBUG << message;
 }
 } // namespace
 
 Backend::Backend(const gfxApi::InitParams& params)
   : m_params(params)
 {
-  // Register AGAVE's GL format as the Qt default before this backend creates
-  // any Qt-backed GL context or surface.
-  QSurfaceFormat::setDefaultFormat(getSurfaceFormat());
-
   bool contextOk = false;
 #if GFXOPENGL_HAS_EGL
   if (m_params.headless) {
@@ -244,45 +241,27 @@ Backend::initEGLContext()
 bool
 Backend::initWindowedContext()
 {
-  // Windowed / non-headless: create a Qt offscreen bootstrap context and make
-  // it current so GL can be loaded. Per-thread render contexts are created
-  // separately (see RendererGLContext).
-  m_dummyContext = createOpenGLContext();
-  if (!m_dummyContext || !m_dummyContext->isValid()) {
-    LOG_ERROR << "gfxopengl::Backend: failed to create an OpenGL context";
+  if (!m_params.windowedContext) {
+    LOG_ERROR << "gfxopengl::Backend: windowed initialization requires an application-provided GL context";
     return false;
   }
 
-  m_dummySurface = new QOffscreenSurface();
-  m_dummySurface->setFormat(m_dummyContext->format());
-  m_dummySurface->create();
-  if (!m_dummySurface->isValid()) {
-    LOG_ERROR << "gfxopengl::Backend: QOffscreenSurface is not valid";
+  if (!m_params.windowedContext->isValid()) {
+    LOG_ERROR << "gfxopengl::Backend: application-provided GL context is not valid";
     return false;
   }
-  LOG_INFO << "Created offscreen surface";
 
-  if (!m_dummyContext->makeCurrent(m_dummySurface)) {
-    LOG_ERROR << "gfxopengl::Backend: failed to makeCurrent on offscreen surface";
+  if (!m_params.windowedContext->makeCurrent()) {
+    LOG_ERROR << "gfxopengl::Backend: failed to make application-provided GL context current";
     return false;
   }
-  LOG_INFO << "Made context current on offscreen surface";
   return true;
 }
 
 Backend::~Backend()
 {
-  delete m_debugLogger;
-  m_debugLogger = nullptr;
-
   // Destroy the headless bootstrap context before terminating its display.
   m_headlessContext.reset();
-
-  // Destroy the windowed bootstrap context / surface.
-  delete m_dummySurface;
-  m_dummySurface = nullptr;
-  delete m_dummyContext;
-  m_dummyContext = nullptr;
 
 #if GFXOPENGL_HAS_EGL
   if (m_params.headless && m_eglDisplay) {
@@ -294,15 +273,6 @@ Backend::~Backend()
 bool
 Backend::initGL()
 {
-  if (m_params.enableDebug) {
-    m_debugLogger = new QOpenGLDebugLogger();
-    QObject::connect(m_debugLogger, &QOpenGLDebugLogger::messageLogged, logGLMessage);
-    if (m_debugLogger->initialize()) {
-      m_debugLogger->startLogging(QOpenGLDebugLogger::SynchronousLogging);
-      m_debugLogger->enableMessages();
-    }
-  }
-
   // note: there MUST be a valid current gl context in order to run this:
   if (!gladLoadGL()) {
     LOG_ERROR << "gfxopengl::Backend: failed to load GL (gladLoadGL)";
@@ -311,6 +281,12 @@ Backend::initGL()
 
   LOG_INFO << "GL_VENDOR: " << std::string((char*)glGetString(GL_VENDOR));
   LOG_INFO << "GL_RENDERER: " << std::string((char*)glGetString(GL_RENDERER));
+
+  if (m_params.enableDebug && glDebugMessageCallback) {
+    glEnable(GL_DEBUG_OUTPUT);
+    glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+    glDebugMessageCallback(logGLMessage, nullptr);
+  }
 
   return true;
 }

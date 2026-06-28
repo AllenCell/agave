@@ -1,5 +1,6 @@
 #include "renderer.h"
 
+#include "QtGLContext.h"
 #include "renderlib/AppScene.h"
 #include "renderlib/BoundingBoxTool.h"
 #include "renderlib/CCamera.h"
@@ -105,9 +106,11 @@ Renderer::configure(gfxApi::IRenderWindow* renderer,
                     const LoadSpec& loadSpec,
                     // rendererMode ignored if renderer is non-null
                     renderlib::RendererType rendererMode,
-                    QOpenGLContext* glContext,
+                    gfxApi::IGLContext* glContext,
                     const CaptureSettings* captureSettings)
 {
+  m_ownedGLContext.reset();
+
   // assumes scene is already set in renderer and everything is initialized
   m_myVolumeData.m_renderSettings = new RenderSettings(renderSettings);
   m_myVolumeData.m_camera = new CCamera(camera);
@@ -133,6 +136,17 @@ Renderer::configure(gfxApi::IRenderWindow* renderer,
 
   m_myVolumeData.m_gestureRenderer = renderlib::graphicsBackend()->createGestureRenderer();
 
+  auto& backend = static_cast<gfxopengl::Backend&>(*renderlib::graphicsBackend());
+  if (!backend.headless() && !glContext) {
+    m_ownedGLContext = std::make_unique<QtGLContext>();
+    if (m_ownedGLContext->create()) {
+      m_ownedGLContext->moveToThread(this);
+      glContext = m_ownedGLContext.get();
+    } else {
+      LOG_ERROR << "Renderer " << m_id.toStdString() << " failed to create a Qt GL context";
+    }
+  }
+
   m_rglContext.configure(glContext);
 }
 
@@ -156,11 +170,6 @@ Renderer::init()
 
   this->resizeGL(m_myVolumeData.m_camera->m_Film.m_Resolution.GetResX(),
                  m_myVolumeData.m_camera->m_Film.m_Resolution.GetResY());
-
-  int MaxSamples = 0;
-  glGetIntegerv(GL_MAX_SAMPLES, &MaxSamples);
-  LOG_INFO << m_id.toStdString() << " max samples" << MaxSamples;
-  glEnable(GL_MULTISAMPLE);
 
   reset();
 
@@ -474,6 +483,7 @@ Renderer::shutDown()
   }
 
   m_rglContext.destroy();
+  m_ownedGLContext.reset();
 
   // Stop event processing, move the thread to GUI and make sure it is deleted.
   exit();

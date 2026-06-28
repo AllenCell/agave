@@ -1,7 +1,8 @@
 #pragma once
 
-class QOpenGLContext;
-class QOffscreenSurface;
+#include "gfxapi/IGLContext.h"
+
+#include <memory>
 
 namespace gfxopengl {
 
@@ -17,22 +18,25 @@ public:
   explicit RendererGLContext(Backend& backend);
   ~RendererGLContext();
 
-  void configure(QOpenGLContext* glContext = nullptr);
+  // Install a pre-existing context. The application/windowing layer owns it.
+  void configure(gfxApi::IGLContext* glContext = nullptr);
+
+  // Create a headless EGL context or use the configured application context.
   void init();
+
+  // Destroy any context owned here. Application-provided contexts are not owned.
   void destroy();
 
   void makeCurrent();
   void doneCurrent();
 
 private:
+  // back end is used to determine whether to create a headless EGL context or a Qt offscreen context
   Backend& m_backend;
-  bool m_ownGLContext = true;
-  // only one of the following two can be non-null
-  HeadlessGLContext* m_eglContext = nullptr;
-  QOpenGLContext* m_glContext = nullptr;
-  QOffscreenSurface* m_surface = nullptr;
 
-  void initQOpenGLContext();
+  std::unique_ptr<HeadlessGLContext> m_headlessContext;
+  gfxApi::IGLContext* m_externalContext = nullptr;
+  gfxApi::IGLContext* m_context = nullptr;
 };
 
 } // namespace gfxopengl

@@ -1,7 +1,9 @@
 #include "agaveGui.h"
 
+#include "QtGLContext.h"
 #include "mainwindow.h"
 #include "renderlib/CacheManager.h"
+#include "renderlib/gfxOpenGL/Backend.h"
 #include "renderlib/Logging.h"
 #include "renderlib/io/FileReader.h"
 #include "renderlib/renderlib.h"
@@ -18,6 +20,8 @@
 #include <QRegularExpression>
 #include <QString>
 #include <QUrlQuery>
+
+#include <memory>
 
 constexpr int DEFAULT_SERVER_PORT = 1235;
 
@@ -193,6 +197,7 @@ main(int argc, char* argv[])
     QApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
     QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QApplication::setStyle("fusion");
+    QtGLContext::setDefaultSurfaceFormat();
     AgaveApplication a(argc, argv);
     AgaveApplication::setOrganizationName("Allen Institute");
     AgaveApplication::setOrganizationDomain("allencell.org");
@@ -267,7 +272,19 @@ main(int argc, char* argv[])
 
     LOG_INFO << "Assets path: " << assetsPath.toStdString();
 
-    if (0 == renderlib::initialize(assetsPath.toStdString(), isServer, listDevices, selectedGpu)) {
+    std::unique_ptr<QtGLContext> bootstrapGLContext;
+    const bool needsWindowedGLContext = !isServer || !gfxopengl::Backend::supportsHeadless();
+    if (needsWindowedGLContext) {
+      bootstrapGLContext = std::make_unique<QtGLContext>();
+      if (!bootstrapGLContext->create()) {
+        LOG_ERROR << "Failed to create the bootstrap Qt OpenGL context";
+        renderlib::cleanup();
+        return 0;
+      }
+    }
+
+    if (0 ==
+        renderlib::initialize(assetsPath.toStdString(), isServer, listDevices, selectedGpu, bootstrapGLContext.get())) {
       renderlib::cleanup();
       return 0;
     }

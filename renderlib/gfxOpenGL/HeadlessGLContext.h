@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gfxapi/IGLContext.h"
+
 namespace gfxopengl {
 
 // A windowless OpenGL context created via EGL (used for headless / offscreen
@@ -9,7 +11,7 @@ namespace gfxopengl {
 // The context is created on a caller-supplied EGLDisplay; this class does not
 // own the display and will not initialize or terminate it. The display is
 // passed as void* so this header does not need to pull in <EGL/egl.h>.
-class HeadlessGLContext
+class HeadlessGLContext : public gfxApi::IGLContext
 {
 public:
   // eglDisplay: an already-initialized EGLDisplay (an EGLDisplay value passed
@@ -18,10 +20,11 @@ public:
   ~HeadlessGLContext();
 
   // True if the underlying EGL context was created successfully.
-  bool isValid() const { return m_eglContext != nullptr; }
+  bool isValid() const override { return m_eglContext != nullptr; }
 
-  void makeCurrent();
-  void doneCurrent();
+  bool create() override { return isValid(); }
+  bool makeCurrent() override;
+  void doneCurrent() override;
 
 private:
   void* m_eglDisplay; // EGLDisplay, not owned

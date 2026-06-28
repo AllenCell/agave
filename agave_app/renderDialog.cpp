@@ -245,7 +245,7 @@ RenderDialog::RenderDialog(ViewerWindow* borrowedRenderer,
   , m_renderSettings(renderSettings)
   , m_scene(scene)
   , m_camera(ccamera)
-  , m_glContext(glContext)
+  , m_glContext(std::make_unique<QtGLContext>(glContext))
   , m_loadSpec(loadSpec)
   , m_renderThread(nullptr)
   , m_frameRenderTime(0)
@@ -741,6 +741,12 @@ RenderDialog::render()
 
     updateUIStartRendering();
 
+    if (!m_glContext->isValid() && !m_glContext->create()) {
+      LOG_ERROR << "RenderDialog: failed to prepare the Qt GL context";
+      updateUIStopRendering(false);
+      return;
+    }
+
     if (!m_renderThread) {
 
       m_renderThread = new Renderer("Render dialog render thread ", this, m_mutex);
@@ -758,7 +764,7 @@ RenderDialog::render()
                               m_camera,
                               m_loadSpec,
                               renderlib::RendererType_Pathtrace,
-                              m_glContext,
+                              m_glContext.get(),
                               mCaptureSettings);
 
     onZoomFitClicked();
@@ -953,6 +959,9 @@ RenderDialog::endRenderThread()
     m_renderThread->wakeUp();
     // we need to ensure that the render thread is not trying to make calls back into this thread
     m_renderThread->wait();
+    if (m_glContext) {
+      m_glContext->moveToThread(qApp->thread());
+    }
   }
 }
 

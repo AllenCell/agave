@@ -15,7 +15,6 @@
 #include <QList>
 #include <QMutex>
 #include <QObject>
-#include <QOpenGLContext>
 #include <QStandardPaths>
 #include <QThread>
 #include <QWaitCondition>
@@ -29,8 +28,11 @@ class RenderSettings;
 class Scene;
 
 namespace gfxApi {
+class IGLContext;
 class IRenderWindow;
 }
+
+class QtGLContext;
 
 // serialized so permanent?
 enum eRenderDurationType
@@ -101,7 +103,7 @@ public:
                  const LoadSpec& loadSpec,
                  // rendererMode ignored if renderer is non-null
                  renderlib::RendererType rendererMode = renderlib::RendererType_Pathtrace,
-                 QOpenGLContext* glContext = nullptr,
+                 gfxApi::IGLContext* glContext = nullptr,
                  const CaptureSettings* captureSettings = nullptr);
 
   void run() override;
@@ -144,6 +146,7 @@ private:
   QMutex* m_openGLMutex;
 
   gfxopengl::RendererGLContext m_rglContext;
+  std::unique_ptr<QtGLContext> m_ownedGLContext;
 
   std::unique_ptr<gfxApi::Framebuffer> m_fbo;
 

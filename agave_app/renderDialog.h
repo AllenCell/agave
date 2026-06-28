@@ -3,11 +3,14 @@
 #include "renderlib/CCamera.h"
 #include "renderlib/io/FileReader.h"
 
+#include "QtGLContext.h"
 #include "renderer.h"
 
 #include <QDialog>
 #include <QMutex>
 #include <QStandardPaths>
+
+#include <memory>
 
 class QButtonGroup;
 class QCheckBox;
@@ -107,7 +110,7 @@ private slots:
 
 private:
   QMutex m_mutex;
-  QOpenGLContext* m_glContext;
+  std::unique_ptr<QtGLContext> m_glContext;
   Renderer* m_renderThread;
   gfxApi::IRenderWindow* m_renderer;
   const RenderSettings& m_renderSettings;
