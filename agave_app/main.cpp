@@ -283,8 +283,13 @@ main(int argc, char* argv[])
       }
     }
 
-    if (0 ==
-        renderlib::initialize(assetsPath.toStdString(), isServer, listDevices, selectedGpu, bootstrapGLContext.get())) {
+    gfxApi::InitParams initParams;
+    initParams.assetPath = assetsPath.toStdString();
+    initParams.headless = isServer;
+    initParams.selectedGpu = selectedGpu;
+    initParams.windowedContext = bootstrapGLContext.get();
+
+    if (0 == renderlib::initialize(initParams, listDevices)) {
       renderlib::cleanup();
       return 0;
     }

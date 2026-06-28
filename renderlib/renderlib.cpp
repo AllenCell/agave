@@ -77,36 +77,32 @@ createGraphicsBackend(gfxApi::BackendKind kind, const gfxApi::InitParams& params
 std::map<std::shared_ptr<ImageXYZC>, std::shared_ptr<ImageGpu>> renderlib::sGpuImageCache;
 
 int
-renderlib::initialize(std::string assetPath,
-                      bool headless,
-                      bool listDevices,
-                      int selectedGpu,
-                      gfxApi::IGLContext* windowedContext)
+renderlib::initialize(const gfxApi::InitParams& initParams, bool listDevices)
 {
   if (renderLibInitialized) {
     return 1;
   }
+  gfxApi::InitParams params = initParams;
   renderLibInitialized = true;
-  s_assetPath = assetPath;
+  s_assetPath = params.assetPath;
 
   // Headless rendering requires EGL support, which the OpenGL backend only
   // provides on some platforms (not Windows / macOS).
-  if (headless && !gfxopengl::Backend::supportsHeadless()) {
-    headless = false;
+  if (params.headless && !gfxopengl::Backend::supportsHeadless()) {
+    params.headless = false;
   }
 
   LOG_INFO << "Renderlib startup";
 
   // --list-devices: enumerate the available GPUs and quit. This only needs the
   // backend's device enumeration, not a fully initialized backend.
-  if (headless && listDevices) {
-    gfxopengl::Backend::listDevices(selectedGpu);
+  if (params.headless && listDevices) {
+    gfxopengl::Backend::listDevices(params.selectedGpu);
     return 0;
   }
 
   // Create the graphics backend. Returns null if it fails.
-  s_graphicsBackend = createGraphicsBackend(
-    gfxApi::BackendKind::OpenGL, gfxApi::InitParams{ assetPath, headless, selectedGpu, false, windowedContext });
+  s_graphicsBackend = createGraphicsBackend(gfxApi::BackendKind::OpenGL, params);
   if (!s_graphicsBackend) {
     LOG_ERROR << "renderlib::initialize: failed to create the graphics backend";
     return 0;

@@ -10,18 +10,14 @@ class RenderSettings;
 
 namespace gfxApi {
 class Backend;
-class IGLContext;
 class IRenderWindow;
+struct InitParams;
 }
 
 class renderlib
 {
 public:
-  static int initialize(std::string assetPath,
-                        bool headless = false,
-                        bool listDevices = false,
-                        int selectedGpu = 0,
-                        gfxApi::IGLContext* windowedContext = nullptr);
+  static int initialize(const gfxApi::InitParams& params, bool listDevices = false);
   static void clearGpuVolumeCache();
   static void cleanup();
 
