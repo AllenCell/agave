@@ -83,12 +83,6 @@ OffscreenRenderer::init()
 
   this->resizeGL(1024, 1024);
 
-  int MaxSamples = 0;
-  glGetIntegerv(GL_MAX_SAMPLES, &MaxSamples);
-  LOG_INFO << "max samples" << MaxSamples;
-
-  glEnable(GL_MULTISAMPLE);
-
   reset();
 
   myVolumeInit();

@@ -77,7 +77,11 @@ createGraphicsBackend(gfxApi::BackendKind kind, const gfxApi::InitParams& params
 std::map<std::shared_ptr<ImageXYZC>, std::shared_ptr<ImageGpu>> renderlib::sGpuImageCache;
 
 int
-renderlib::initialize(std::string assetPath, bool headless, bool listDevices, int selectedGpu)
+renderlib::initialize(std::string assetPath,
+                      bool headless,
+                      bool listDevices,
+                      int selectedGpu,
+                      gfxApi::IGLContext* windowedContext)
 {
   if (renderLibInitialized) {
     return 1;
@@ -101,8 +105,8 @@ renderlib::initialize(std::string assetPath, bool headless, bool listDevices, in
   }
 
   // Create the graphics backend. Returns null if it fails.
-  s_graphicsBackend =
-    createGraphicsBackend(gfxApi::BackendKind::OpenGL, gfxApi::InitParams{ assetPath, headless, selectedGpu });
+  s_graphicsBackend = createGraphicsBackend(
+    gfxApi::BackendKind::OpenGL, gfxApi::InitParams{ assetPath, headless, selectedGpu, false, windowedContext });
   if (!s_graphicsBackend) {
     LOG_ERROR << "renderlib::initialize: failed to create the graphics backend";
     return 0;

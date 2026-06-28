@@ -7,9 +7,6 @@
 
 #include <memory>
 
-class QOffscreenSurface;
-class QOpenGLContext;
-class QOpenGLDebugLogger;
 class RenderSettings;
 
 namespace gfxopengl {
@@ -20,13 +17,13 @@ class HeadlessGLContext;
 // in headless mode, performs the process-wide one-time EGL initialization and
 // owns a current headless GL context for the process lifetime.
 //
-// Windowed (non-headless) GL context creation is still handled by renderlib via
-// Qt; this backend only manages the EGL / headless path.
+// Windowed (non-headless) GL context creation is handled by the application;
+// this backend only manages the EGL / headless path.
 class Backend : public gfxApi::Backend
 {
 public:
-  // Creates a bootstrap GL context (headless
-  // EGL or Qt offscreen), makes it current, and loads the GL entry points.
+  // Makes a bootstrap GL context current (application-supplied or EGL) and
+  // loads the GL entry points.
   explicit Backend(const gfxApi::InitParams& params);
   ~Backend() override;
 
@@ -70,18 +67,15 @@ public:
 private:
   // Bootstrap steps, each called once from the constructor. Return false (and
   // log) on failure.
-  bool initEGLContext();      // headless EGL display + context (EGL builds only)
-  bool initWindowedContext(); // Qt offscreen context
-  bool initGL();              // load GL entry points (glad) + optional debug logger
+  bool initEGLContext();          // headless EGL display + context (EGL builds only)
+  bool initWindowedContext();     // application-provided GL context
+  bool initGL();                  // load GL entry points (glad) + optional debug logging
 
   gfxApi::InitParams m_params;
   Device m_device;
 
   void* m_eglDisplay = nullptr;                         // EGLDisplay, owned (eglTerminate on destroy)
   std::unique_ptr<HeadlessGLContext> m_headlessContext; // bootstrap context when headless
-  QOffscreenSurface* m_dummySurface = nullptr;          // bootstrap surface when windowed, owned
-  QOpenGLContext* m_dummyContext = nullptr;             // bootstrap context when windowed, owned
-  QOpenGLDebugLogger* m_debugLogger = nullptr;          // owned; created by initGL when enableDebug
   bool m_valid = false;
 };
 

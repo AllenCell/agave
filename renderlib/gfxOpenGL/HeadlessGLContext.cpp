@@ -98,12 +98,14 @@ HeadlessGLContext::~HeadlessGLContext()
 #endif
 }
 
-void
+bool
 HeadlessGLContext::makeCurrent()
 {
 #if GFXOPENGL_HAS_EGL
-  eglMakeCurrent(
+  return eglMakeCurrent(
     static_cast<EGLDisplay>(m_eglDisplay), EGL_NO_SURFACE, EGL_NO_SURFACE, static_cast<EGLContext>(m_eglContext));
+#else
+  return false;
 #endif
 }
 

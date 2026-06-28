@@ -13,6 +13,8 @@ class RenderSettings;
 
 namespace gfxApi {
 
+class IGLContext;
+
 // Parameters supplied to a backend at construction time.
 struct InitParams
 {
@@ -24,6 +26,9 @@ struct InitParams
   int selectedGpu = 0;
   // Install a GL debug logger (verbose; for development).
   bool enableDebug = false;
+  // Non-headless OpenGL context supplied by the application/windowing layer.
+  // The backend does not own this context.
+  IGLContext* windowedContext = nullptr;
 };
 
 enum class RenderWindowKind : uint8_t

@@ -20,8 +20,6 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/GestureGraphicsGL.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/GestureRenderer.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/GestureRenderer.h"
-	"${CMAKE_CURRENT_SOURCE_DIR}/GLContext.h"
-	"${CMAKE_CURRENT_SOURCE_DIR}/GLContext.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/HeadlessGLContext.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/HeadlessGLContext.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Image2D.cpp"
@@ -41,6 +39,5 @@ target_sources(renderlib PRIVATE
 )
 
 target_link_libraries(renderlib
-	Qt::Core Qt::OpenGL
 	${OPENGL_egl_LIBRARY}
 )

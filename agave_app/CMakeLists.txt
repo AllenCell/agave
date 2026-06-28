@@ -55,6 +55,8 @@ target_sources(agaveapp PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/ObjectTransformMode.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Projection.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Projection.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/QtGLContext.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/QtGLContext.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/QRenderSettings.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/QRenderSettings.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RangeWidget.cpp"
@@ -86,7 +88,10 @@ target_sources(agaveapp PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/ViewToolbar.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/ViewToolbar.h"
 )
-add_subdirectory(python)
+option(AGAVE_ENABLE_PYRENDERER "Build the legacy unused Python offscreen renderer." OFF)
+if(AGAVE_ENABLE_PYRENDERER)
+	add_subdirectory(python)
+endif()
 
 add_subdirectory(tfeditor)
 
