@@ -1,7 +1,6 @@
 #include "renderDialog.h"
 #include "renderer.h"
 
-#include "renderlib/gfxapi/IGLContext.h"
 #include "renderlib/AppScene.h"
 #include "renderlib/Logging.h"
 #include "renderlib/RenderSettings.h"
@@ -236,7 +235,7 @@ RenderDialog::RenderDialog(ViewerWindow* borrowedRenderer,
                            const RenderSettings& renderSettings,
                            const Scene& scene,
                            const CCamera& ccamera,
-                           gfxApi::IGLContext* glContext,
+                           QtGLContext* glContext,
                            const LoadSpec& loadSpec,
                            CaptureSettings* captureSettings,
                            int viewportWidth,
