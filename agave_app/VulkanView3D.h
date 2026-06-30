@@ -2,7 +2,10 @@
 
 #if AGAVE_HAS_VULKAN
 
+#include "QtVulkanSurface.h"
+
 #include "renderlib/ViewerWindow.h"
+#include "renderlib/gfxVulkan/Swapchain.h"
 
 #include <vulkan/vulkan.h>
 
@@ -67,6 +70,8 @@ private:
   QWidget* m_container = nullptr;
   QTimer* m_timer = nullptr;
   std::unique_ptr<ViewerWindow> m_viewerWindow;
+  std::unique_ptr<QtVulkanSurface> m_surface;
+  std::unique_ptr<gfxvulkan::Swapchain> m_swapchain;
 };
 
 #endif // AGAVE_HAS_VULKAN

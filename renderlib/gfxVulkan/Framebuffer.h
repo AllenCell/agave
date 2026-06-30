@@ -12,6 +12,12 @@ class Framebuffer : public gfxApi::Framebuffer
 {
 public:
   Framebuffer(Backend& backend, const gfxApi::FramebufferDesc& desc);
+  Framebuffer(Backend& backend,
+              uint32_t width,
+              uint32_t height,
+              VkFormat colorFormat,
+              VkImage colorImage,
+              VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
   ~Framebuffer() override;
 
   void bind() override {}
@@ -39,7 +45,12 @@ private:
                    VkImage& image,
                    VkDeviceMemory& memory,
                    VkImageView& view);
-  void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory);
+  void createImageView(VkFormat format, VkImageAspectFlags aspect, VkImage image, VkImageView& view);
+  void createBuffer(VkDeviceSize size,
+                    VkBufferUsageFlags usage,
+                    VkMemoryPropertyFlags properties,
+                    VkBuffer& buffer,
+                    VkDeviceMemory& memory);
 
   Backend& m_backend;
   uint32_t m_width = 0;
@@ -51,6 +62,8 @@ private:
   VkDeviceMemory m_colorMemory = VK_NULL_HANDLE;
   VkImageView m_colorImageView = VK_NULL_HANDLE;
   VkImageLayout m_colorLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  bool m_ownsColorImage = true;
+  bool m_ownsColorMemory = true;
 
   VkImage m_depthImage = VK_NULL_HANDLE;
   VkDeviceMemory m_depthMemory = VK_NULL_HANDLE;

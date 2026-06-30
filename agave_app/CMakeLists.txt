@@ -90,6 +90,8 @@ target_sources(agaveapp PRIVATE
 )
 if(AGAVE_HAS_VULKAN)
 	target_sources(agaveapp PRIVATE
+		"${CMAKE_CURRENT_SOURCE_DIR}/QtVulkanSurface.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/QtVulkanSurface.h"
 		"${CMAKE_CURRENT_SOURCE_DIR}/VulkanView3D.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/VulkanView3D.h"
 	)
