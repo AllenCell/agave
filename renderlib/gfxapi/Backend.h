@@ -53,6 +53,10 @@ public:
   // Renderer for gesture/manipulator UI draw commands.
   virtual std::unique_ptr<IGestureRenderer> createGestureRenderer() = 0;
 
+  // GL context used by offscreen render threads. The returned object may wrap
+  // an application-owned context, or own a backend-created headless context.
+  virtual std::unique_ptr<IGLContext> createRendererContext(IGLContext* externalContext = nullptr) = 0;
+
   // Main volume renderer.
   virtual std::unique_ptr<IRenderWindow> createRenderWindow(RenderWindowKind kind, RenderSettings* renderSettings) = 0;
 
@@ -61,6 +65,9 @@ public:
 
   // Clear the framebuffer currently bound by the platform/windowing layer.
   virtual void clearCurrentFramebuffer(const ClearColor& color) = 0;
+
+  // Whether this backend was initialized for offscreen/headless rendering.
+  virtual bool isHeadless() const = 0;
 
   // The kind of backend this is.
   virtual BackendKind kind() const = 0;

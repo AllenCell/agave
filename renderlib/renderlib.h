@@ -18,6 +18,7 @@ class renderlib
 {
 public:
   static int initialize(const gfxApi::InitParams& params, bool listDevices = false);
+  static bool supportsHeadlessRendering();
   static void clearGpuVolumeCache();
   static void cleanup();
 

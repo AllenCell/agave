@@ -111,6 +111,12 @@ renderlib::initialize(const gfxApi::InitParams& initParams, bool listDevices)
   return 1;
 }
 
+bool
+renderlib::supportsHeadlessRendering()
+{
+  return gfxopengl::Backend::supportsHeadless();
+}
+
 std::string
 renderlib::assetPath()
 {

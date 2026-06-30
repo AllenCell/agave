@@ -3,8 +3,8 @@
 #include "QtGLContext.h"
 #include "mainwindow.h"
 #include "renderlib/CacheManager.h"
-#include "renderlib/gfxOpenGL/Backend.h"
 #include "renderlib/Logging.h"
+#include "renderlib/gfxapi/Backend.h"
 #include "renderlib/io/FileReader.h"
 #include "renderlib/renderlib.h"
 #include "renderlib/version.h"
@@ -273,7 +273,7 @@ main(int argc, char* argv[])
     LOG_INFO << "Assets path: " << assetsPath.toStdString();
 
     std::unique_ptr<QtGLContext> bootstrapGLContext;
-    const bool needsWindowedGLContext = !isServer || !gfxopengl::Backend::supportsHeadless();
+    const bool needsWindowedGLContext = !isServer || !renderlib::supportsHeadlessRendering();
     if (needsWindowedGLContext) {
       bootstrapGLContext = std::make_unique<QtGLContext>();
       if (!bootstrapGLContext->create()) {

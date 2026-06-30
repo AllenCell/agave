@@ -6,6 +6,7 @@
 #include "Logging.h"
 #include "RenderGL.h"
 #include "RenderGLPT.h"
+#include "RendererGLContext.h"
 
 // EGL is only available on Linux in this project.
 #if defined(__APPLE__) || defined(_WIN32)
@@ -43,6 +44,12 @@ std::unique_ptr<gfxApi::IGestureRenderer>
 Backend::createGestureRenderer()
 {
   return std::make_unique<GestureRenderer>();
+}
+
+std::unique_ptr<gfxApi::IGLContext>
+Backend::createRendererContext(gfxApi::IGLContext* externalContext)
+{
+  return std::make_unique<RendererGLContext>(*this, externalContext);
 }
 
 std::unique_ptr<gfxApi::IRenderWindow>

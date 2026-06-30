@@ -84,6 +84,8 @@ RenderGL::renderTo(const CCamera& camera, gfxApi::Framebuffer* fbo)
   int vw = fbo->width();
   int vh = fbo->height();
   glViewport(0, 0, vw, vh);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
   if (haveScene) {
     drawSceneObjects(camera);

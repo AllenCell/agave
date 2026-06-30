@@ -10,15 +10,15 @@
 #include "renderlib/MoveTool.h"
 #include "renderlib/RotateTool.h"
 #include "renderlib/Status.h"
-#include "renderlib/gfxOpenGL/Util.h"
+#include "renderlib/gfxapi/Backend.h"
+#include "renderlib/gfxapi/Framebuffer.h"
+#include "renderlib/renderlib.h"
 
 #include <glm.h>
 
 #include <QApplication>
 #include <QGuiApplication>
 #include <QMouseEvent>
-#include <QOpenGLFramebufferObject>
-#include <QOpenGLFramebufferObjectFormat>
 #include <QScreen>
 #include <QTimer>
 #include <QWindow>
@@ -30,6 +30,23 @@
 #ifdef _MSVC_VER
 #pragma warning(disable : 4351)
 #endif
+
+namespace {
+
+gfxApi::ClearColor
+backgroundClearColor(const Scene* scene)
+{
+  if (!scene) {
+    return {};
+  }
+
+  return { scene->m_material.m_backgroundColor[0],
+           scene->m_material.m_backgroundColor[1],
+           scene->m_material.m_backgroundColor[2],
+           1.0f };
+}
+
+} // namespace
 
 GLView3D::GLView3D(QCamera* cam, QRenderSettings* qrs, RenderSettings* rs, QWidget* parent)
   : QOpenGLWidget(parent)
@@ -128,7 +145,6 @@ GLView3D::onNewImage(Scene* scene)
 GLView3D::~GLView3D()
 {
   makeCurrent();
-  check_gl("view dtor makecurrent");
   // doneCurrent();
 }
 
@@ -539,40 +555,47 @@ GLView3D::captureQimage()
 
   makeCurrent();
 
-  // Create a one-time FBO to receive the image
-  QOpenGLFramebufferObjectFormat fboFormat;
-  fboFormat.setAttachment(QOpenGLFramebufferObject::NoAttachment);
-  fboFormat.setMipmap(false);
-  fboFormat.setSamples(0);
-  fboFormat.setTextureTarget(GL_TEXTURE_2D);
-
-  // NOTE NO ALPHA. if alpha then this will get premultiplied and wash out colors
-  // TODO : allow user option for transparent qimage, and then put GL_RGBA8 back here
-  fboFormat.setInternalTextureFormat(GL_RGB8);
-  check_gl("pre screen capture");
-
   const float dpr = devicePixelRatioF();
-  QOpenGLFramebufferObject* fbo = new QOpenGLFramebufferObject(width() * dpr, height() * dpr, fboFormat);
-  check_gl("create fbo");
+  const uint32_t captureWidth = static_cast<uint32_t>(width() * dpr);
+  const uint32_t captureHeight = static_cast<uint32_t>(height() * dpr);
+
+  std::unique_ptr<gfxApi::Framebuffer> fbo = renderlib::graphicsBackend()->createFramebuffer(
+    { captureWidth, captureHeight, gfxApi::FramebufferColorFormat::Rgba8, true });
+
+  uint32_t rendererWidth = 0;
+  uint32_t rendererHeight = 0;
+  m_viewerWindow->m_renderer->getSize(rendererWidth, rendererHeight);
+  if (rendererWidth != captureWidth || rendererHeight != captureHeight) {
+    m_viewerWindow->m_renderer->resize(captureWidth, captureHeight);
+  }
+
+  SceneView& sceneView = m_viewerWindow->sceneView;
+  sceneView.viewport.region = { { 0, 0 }, { static_cast<int>(captureWidth), static_cast<int>(captureHeight) } };
+  sceneView.camera = m_viewerWindow->m_CCamera;
+  sceneView.scene = m_viewerWindow->m_renderer->scene();
+  sceneView.renderSettings = m_viewerWindow->m_renderSettings;
+
+  m_viewerWindow->m_gestureRenderer->updateSelectionBuffer(captureWidth, captureHeight);
+  m_viewerWindow->update(sceneView.viewport, m_viewerWindow->m_clock, m_viewerWindow->gesture);
 
   fbo->bind();
-  check_glfb("bind framebuffer for screen capture");
-
-  // do a render into the temp framebuffer
-  glViewport(0, 0, fbo->width(), fbo->height());
-
-  // fill gesture graphics with draw commands
-  m_viewerWindow->update(m_viewerWindow->sceneView.viewport, m_viewerWindow->m_clock, m_viewerWindow->gesture);
-  m_viewerWindow->m_renderer->render(m_viewerWindow->m_CCamera);
-  // render and then clear out draw commands from gesture graphics
-  m_viewerWindow->m_gestureRenderer->draw(m_viewerWindow->sceneView, m_viewerWindow->gesture.graphics);
-
+  fbo->clear(backgroundClearColor(sceneView.scene));
+  m_viewerWindow->m_gestureRenderer->drawUnderlay(sceneView, m_viewerWindow->gesture.graphics);
   fbo->release();
 
-  QImage img(fbo->toImage());
-  delete fbo;
+  m_viewerWindow->m_renderer->renderTo(sceneView.camera, fbo.get());
 
-  return img;
+  fbo->bind();
+  m_viewerWindow->m_gestureRenderer->draw(sceneView, m_viewerWindow->gesture.graphics);
+  fbo->release();
+
+  std::unique_ptr<uint8_t> bytes(new uint8_t[captureWidth * captureHeight * 4]);
+  fbo->toImage(bytes.get());
+
+  return QImage(bytes.get(), captureWidth, captureHeight, QImage::Format_ARGB32)
+    .copy()
+    .mirrored()
+    .convertToFormat(QImage::Format_RGB32);
 }
 
 void

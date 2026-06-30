@@ -3,9 +3,8 @@
 
 #include "renderlib/command.h"
 #include "renderlib/gesture/gesture.h"
-#include "renderlib/gfxOpenGL/Backend.h"
-#include "renderlib/gfxOpenGL/RendererGLContext.h"
 #include "renderlib/gfxapi/Framebuffer.h"
+#include "renderlib/gfxapi/IGLContext.h"
 #include "renderlib/gfxapi/IGestureRenderer.h"
 #include "renderlib/io/FileReader.h"
 #include "renderlib/renderlib.h"
@@ -145,7 +144,7 @@ protected:
 private:
   QMutex* m_openGLMutex;
 
-  gfxopengl::RendererGLContext m_rglContext;
+  std::unique_ptr<gfxApi::IGLContext> m_renderContext;
   std::unique_ptr<QtGLContext> m_ownedGLContext;
 
   std::unique_ptr<gfxApi::Framebuffer> m_fbo;
