@@ -30,6 +30,9 @@ VulkanView3D::VulkanView3D(QCamera* cam, QRenderSettings* qrs, RenderSettings* r
   m_window->setTitle("AGAVE Vulkan View");
   m_window->create();
 
+  m_surface = std::make_unique<QtVulkanSurface>(m_window);
+  m_swapchain = std::make_unique<gfxvulkan::Swapchain>(m_surface.get());
+
   m_container = QWidget::createWindowContainer(m_window, this);
   m_container->setFocusPolicy(Qt::StrongFocus);
   m_container->setMinimumSize(256, 256);
@@ -203,15 +206,18 @@ VulkanView3D::resizeEvent(QResizeEvent* event)
   if (m_viewerWindow->m_renderer) {
     m_viewerWindow->m_renderer->resize(m_viewerWindow->width(), m_viewerWindow->height());
   }
+  if (m_swapchain) {
+    m_swapchain->requestRecreate();
+  }
 }
 
 void
 VulkanView3D::renderFrame()
 {
-  if (!isEnabled() || !m_viewerWindow || !m_viewerWindow->m_renderer) {
+  if (!isEnabled() || !m_viewerWindow || !m_viewerWindow->m_renderer || !m_swapchain) {
     return;
   }
-  m_viewerWindow->redraw();
+  m_swapchain->render(*m_viewerWindow);
 }
 
 #endif // AGAVE_HAS_VULKAN

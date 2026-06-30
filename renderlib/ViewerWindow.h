@@ -3,6 +3,7 @@
 #include "CCamera.h"
 #include "Manipulator.h"
 #include "Timing.h"
+#include "gfxapi/Framebuffer.h"
 #include "gfxapi/IGestureRenderer.h"
 #include "gfxapi/IRenderWindow.h"
 #include "gesture/gesture.h"
@@ -23,6 +24,7 @@ public:
   int height() const { return sceneView.viewport.region.upper.y - sceneView.viewport.region.lower.y; }
 
   void redraw();
+  void redrawTo(gfxApi::Framebuffer* framebuffer);
 
   void update(const SceneView::Viewport& viewport, const Clock& clock, Gesture& gesture);
 

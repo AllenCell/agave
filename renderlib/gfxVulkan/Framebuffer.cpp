@@ -37,6 +37,8 @@ stageForLayout(VkImageLayout layout)
       return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
       return VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+      return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
     default:
       return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
   }
@@ -54,6 +56,8 @@ accessForLayout(VkImageLayout layout)
       return VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
       return VK_ACCESS_SHADER_READ_BIT;
+    case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+      return 0;
     default:
       return 0;
   }
@@ -69,6 +73,26 @@ Framebuffer::Framebuffer(Backend& backend, const gfxApi::FramebufferDesc& desc)
   resize(desc.width, desc.height);
 }
 
+Framebuffer::Framebuffer(Backend& backend,
+                         uint32_t width,
+                         uint32_t height,
+                         VkFormat colorFormat,
+                         VkImage colorImage,
+                         VkImageLayout initialLayout)
+  : m_backend(backend)
+  , m_width(width)
+  , m_height(height)
+  , m_colorFormat(colorFormat)
+  , m_colorImage(colorImage)
+  , m_colorLayout(initialLayout)
+  , m_ownsColorImage(false)
+  , m_ownsColorMemory(false)
+{
+  if (m_colorImage != VK_NULL_HANDLE && m_width > 0 && m_height > 0) {
+    createImageView(m_colorFormat, VK_IMAGE_ASPECT_COLOR_BIT, m_colorImage, m_colorImageView);
+  }
+}
+
 Framebuffer::~Framebuffer()
 {
   destroy();
@@ -77,6 +101,11 @@ Framebuffer::~Framebuffer()
 void
 Framebuffer::resize(uint32_t width, uint32_t height)
 {
+  if (!m_ownsColorImage || !m_ownsColorMemory) {
+    LOG_ERROR << "Cannot resize a Vulkan framebuffer that wraps an externally owned image";
+    return;
+  }
+
   if (width == m_width && height == m_height) {
     return;
   }
@@ -162,6 +191,16 @@ Framebuffer::createImage(VkFormat format,
 
   vkBindImageMemory(device, image, memory, 0);
 
+  createImageView(format, aspect, image, view);
+}
+
+void
+Framebuffer::createImageView(VkFormat format, VkImageAspectFlags aspect, VkImage image, VkImageView& view)
+{
+  if (image == VK_NULL_HANDLE) {
+    return;
+  }
+
   VkImageViewCreateInfo viewInfo = {};
   viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
   viewInfo.image = image;
@@ -173,7 +212,8 @@ Framebuffer::createImage(VkFormat format,
   viewInfo.subresourceRange.baseArrayLayer = 0;
   viewInfo.subresourceRange.layerCount = 1;
 
-  result = vkCreateImageView(device, &viewInfo, nullptr, &view);
+  VkDevice device = m_backend.logicalDevice();
+  VkResult result = vkCreateImageView(device, &viewInfo, nullptr, &view);
   if (result != VK_SUCCESS) {
     LOG_ERROR << "vkCreateImageView failed with VkResult " << result;
   }
@@ -204,14 +244,14 @@ Framebuffer::destroy()
     vkDestroyImageView(device, m_colorImageView, nullptr);
     m_colorImageView = VK_NULL_HANDLE;
   }
-  if (m_colorImage != VK_NULL_HANDLE) {
+  if (m_colorImage != VK_NULL_HANDLE && m_ownsColorImage) {
     vkDestroyImage(device, m_colorImage, nullptr);
-    m_colorImage = VK_NULL_HANDLE;
   }
-  if (m_colorMemory != VK_NULL_HANDLE) {
+  m_colorImage = VK_NULL_HANDLE;
+  if (m_colorMemory != VK_NULL_HANDLE && m_ownsColorMemory) {
     vkFreeMemory(device, m_colorMemory, nullptr);
-    m_colorMemory = VK_NULL_HANDLE;
   }
+  m_colorMemory = VK_NULL_HANDLE;
 
   m_width = 0;
   m_height = 0;
