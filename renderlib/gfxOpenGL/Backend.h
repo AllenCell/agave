@@ -29,10 +29,12 @@ public:
 
   gfxApi::IGraphicsDevice& device() override { return m_device; }
   std::unique_ptr<gfxApi::IGestureRenderer> createGestureRenderer() override;
+  std::unique_ptr<gfxApi::IGLContext> createRendererContext(gfxApi::IGLContext* externalContext = nullptr) override;
   std::unique_ptr<gfxApi::IRenderWindow> createRenderWindow(gfxApi::RenderWindowKind kind,
                                                             RenderSettings* renderSettings) override;
   std::unique_ptr<gfxApi::Framebuffer> createFramebuffer(const gfxApi::FramebufferDesc& desc) override;
   void clearCurrentFramebuffer(const gfxApi::ClearColor& color) override;
+  bool isHeadless() const override { return headless(); }
   gfxApi::BackendKind kind() const override { return gfxApi::BackendKind::OpenGL; }
 
   // Whether this backend was created for headless (offscreen / EGL) rendering.

@@ -8,7 +8,8 @@
 #include "renderlib/RenderSettings.h"
 #include "renderlib/ScaleBarTool.h"
 #include "renderlib/SceneView.h"
-#include "renderlib/gfxOpenGL/Backend.h"
+#include "renderlib/gfxapi/Backend.h"
+#include "renderlib/gfxapi/IGLContext.h"
 #include "renderlib/gfxapi/IRenderWindow.h"
 #include "renderlib/io/FileReader.h"
 
@@ -38,7 +39,7 @@ backgroundClearColor(const Scene* scene)
 class MutexContextLocker
 {
 public:
-  explicit MutexContextLocker(QMutex* mutex, gfxopengl::RendererGLContext* context)
+  explicit MutexContextLocker(QMutex* mutex, gfxApi::IGLContext* context)
     : m_mutex(mutex)
     , m_context(context)
   {
@@ -48,15 +49,14 @@ public:
     }
     if (m_mutex) {
       m_mutex->lock();
-      // post-acquire logic
+      m_locked = true;
       m_context->makeCurrent();
     }
   }
 
   ~MutexContextLocker()
   {
-    if (m_mutex) {
-      // pre-release logic
+    if (m_locked) {
       m_context->doneCurrent();
       m_mutex->unlock();
     }
@@ -68,7 +68,8 @@ public:
 
 private:
   QMutex* m_mutex;
-  gfxopengl::RendererGLContext* m_context;
+  gfxApi::IGLContext* m_context;
+  bool m_locked = false;
 };
 
 } // namespace
@@ -84,7 +85,6 @@ Renderer::Renderer(const QString& id, QObject* parent, QMutex& mutex)
   , m_height(0)
   , m_openGLMutex(&mutex)
   , m_wait()
-  , m_rglContext(static_cast<gfxopengl::Backend&>(*renderlib::graphicsBackend()))
 {
   this->m_totalQueueDuration = 0;
 
@@ -136,8 +136,8 @@ Renderer::configure(gfxApi::IRenderWindow* renderer,
 
   m_myVolumeData.m_gestureRenderer = renderlib::graphicsBackend()->createGestureRenderer();
 
-  auto& backend = static_cast<gfxopengl::Backend&>(*renderlib::graphicsBackend());
-  if (!backend.headless() && !glContext) {
+  gfxApi::Backend* backend = renderlib::graphicsBackend();
+  if (!backend->isHeadless() && !glContext) {
     m_ownedGLContext = std::make_unique<QtGLContext>();
     if (m_ownedGLContext->create()) {
       m_ownedGLContext->moveToThread(this);
@@ -147,17 +147,15 @@ Renderer::configure(gfxApi::IRenderWindow* renderer,
     }
   }
 
-  m_rglContext.configure(glContext);
+  m_renderContext = backend->createRendererContext(glContext);
 }
 
 void
 Renderer::init()
 {
-  m_rglContext.init();
-
-  int status = gladLoadGL();
-  if (!status) {
-    LOG_INFO << m_id.toStdString() << " COULD NOT LOAD GL ON THREAD";
+  if (!m_renderContext || !m_renderContext->create()) {
+    LOG_ERROR << "Renderer " << m_id.toStdString() << " failed to create a render GL context";
+    return;
   }
 
   ///////////////////////////////////
@@ -173,7 +171,7 @@ Renderer::init()
 
   reset();
 
-  m_rglContext.doneCurrent();
+  m_renderContext->doneCurrent();
 }
 
 void
@@ -181,7 +179,9 @@ Renderer::run()
 {
   this->init();
 
-  m_rglContext.makeCurrent();
+  if (m_renderContext) {
+    m_renderContext->makeCurrent();
+  }
 
   while (!this->isInterruptionRequested()) {
     this->processRequest();
@@ -190,7 +190,9 @@ Renderer::run()
     QApplication::processEvents();
   }
 
-  m_rglContext.makeCurrent();
+  if (m_renderContext) {
+    m_renderContext->makeCurrent();
+  }
   if (m_myVolumeData.ownRenderer) {
     m_myVolumeData.m_renderer->cleanUpResources();
   }
@@ -345,7 +347,9 @@ Renderer::processRequest()
 void
 Renderer::processCommandBuffer(RenderRequest* rr)
 {
-  m_rglContext.makeCurrent();
+  if (m_renderContext) {
+    m_renderContext->makeCurrent();
+  }
 
   std::vector<Command*> cmds = rr->getParameters();
   if (!cmds.empty()) {
@@ -369,7 +373,7 @@ Renderer::processCommandBuffer(RenderRequest* rr)
 QImage
 Renderer::render()
 {
-  MutexContextLocker locker(m_openGLMutex, &m_rglContext);
+  MutexContextLocker locker(m_openGLMutex, m_renderContext.get());
 
   // DRAW
   m_myVolumeData.m_camera->Update();
@@ -419,7 +423,7 @@ Renderer::resizeGL(int width, int height)
     return;
   }
 
-  MutexContextLocker locker(m_openGLMutex, &m_rglContext);
+  MutexContextLocker locker(m_openGLMutex, m_renderContext.get());
 
   // RESIZE THE RENDER INTERFACE
   if (m_myVolumeData.m_renderer) {
@@ -429,8 +433,6 @@ Renderer::resizeGL(int width, int height)
   this->m_fbo = renderlib::graphicsBackend()->createFramebuffer(
     { static_cast<uint32_t>(width), static_cast<uint32_t>(height), gfxApi::FramebufferColorFormat::Rgba8, true });
 
-  glViewport(0, 0, width, height);
-
   m_width = width;
   m_height = height;
 }
@@ -438,14 +440,7 @@ Renderer::resizeGL(int width, int height)
 void
 Renderer::reset(int from)
 {
-  MutexContextLocker locker(m_openGLMutex, &m_rglContext);
-
-  glClearColor(0.0, 0.0, 0.0, 1.0);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  // glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA, GL_ONE);
-  glEnable(GL_BLEND);
-  glEnable(GL_LINE_SMOOTH);
-
+  (void)from;
   this->m_time.start();
 }
 
@@ -459,7 +454,7 @@ void
 Renderer::shutDown()
 {
   {
-    MutexContextLocker locker(m_openGLMutex, &m_rglContext);
+    MutexContextLocker locker(m_openGLMutex, m_renderContext.get());
 
     this->m_fbo.reset();
     m_myVolumeData.m_gestureRenderer.reset();
@@ -482,7 +477,7 @@ Renderer::shutDown()
     m_myVolumeData.m_renderer = nullptr;
   }
 
-  m_rglContext.destroy();
+  m_renderContext.reset();
   m_ownedGLContext.reset();
 
   // Stop event processing, move the thread to GUI and make sure it is deleted.

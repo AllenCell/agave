@@ -9,14 +9,14 @@ namespace gfxopengl {
 class Backend;
 class HeadlessGLContext;
 
-// Wrap a GL context intended to run on a separate thread (or be moved from the
-// main thread and back). Backed by an EGL headless context when the backend is
-// headless, otherwise by a Qt offscreen context.
-class RendererGLContext
+// Wrap a GL context intended to run on a separate render thread. Backed by an
+// EGL headless context when the backend is headless, otherwise by an
+// application-supplied context.
+class RendererGLContext : public gfxApi::IGLContext
 {
 public:
-  explicit RendererGLContext(Backend& backend);
-  ~RendererGLContext();
+  explicit RendererGLContext(Backend& backend, gfxApi::IGLContext* externalContext = nullptr);
+  ~RendererGLContext() override;
 
   // Install a pre-existing context. The application/windowing layer owns it.
   void configure(gfxApi::IGLContext* glContext = nullptr);
@@ -24,14 +24,17 @@ public:
   // Create a headless EGL context or use the configured application context.
   void init();
 
+  bool create() override;
+  bool isValid() const override;
+  bool makeCurrent() override;
+  void doneCurrent() override;
+
   // Destroy any context owned here. Application-provided contexts are not owned.
   void destroy();
 
-  void makeCurrent();
-  void doneCurrent();
-
 private:
-  // back end is used to determine whether to create a headless EGL context or a Qt offscreen context
+  // Backend determines whether to create a headless EGL context or use the
+  // application-supplied context.
   Backend& m_backend;
 
   std::unique_ptr<HeadlessGLContext> m_headlessContext;
