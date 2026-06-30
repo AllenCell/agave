@@ -19,9 +19,13 @@ class IGLContext;
 // Parameters supplied to a backend at construction time.
 struct InitParams
 {
-  // Graphics backend requested by the application. OpenGL remains the default
-  // so existing GUI/server startup paths are unchanged.
-  BackendKind backendKind = BackendKind::OpenGL;
+  // Graphics backend requested by the application.
+  BackendKind backendKind =
+#if AGAVE_HAS_VULKAN
+    BackendKind::Vulkan;
+#else
+    BackendKind::OpenGL;
+#endif
   // Filesystem path to renderer assets (shaders, etc.).
   std::string assetPath;
   // Run without an on-screen surface (offscreen / EGL rendering).
@@ -46,7 +50,7 @@ enum class RenderWindowKind : uint8_t
 
 // Abstract graphics backend. A backend owns the concrete IGraphicsDevice and
 // any backend-global state. renderlib::initialize creates exactly one backend
-// (currently always an OpenGL backend) and holds it for the process lifetime.
+// and holds it for the process lifetime.
 // All renderer code should reach GPU functionality through device() rather
 // than touching backend-specific APIs.
 class Backend
