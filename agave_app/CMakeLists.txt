@@ -88,6 +88,12 @@ target_sources(agaveapp PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/ViewToolbar.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/ViewToolbar.h"
 )
+if(AGAVE_HAS_VULKAN)
+	target_sources(agaveapp PRIVATE
+		"${CMAKE_CURRENT_SOURCE_DIR}/VulkanView3D.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/VulkanView3D.h"
+	)
+endif()
 option(AGAVE_ENABLE_PYRENDERER "Build the legacy unused Python offscreen renderer." OFF)
 if(AGAVE_ENABLE_PYRENDERER)
 	add_subdirectory(python)
