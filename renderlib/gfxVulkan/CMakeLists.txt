@@ -18,6 +18,8 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/RenderVkPT.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RendererVkContext.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RendererVkContext.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/Swapchain.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/Swapchain.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/VolumeTextureVk.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/VolumeTextureVk.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/VulkanUtil.cpp"
@@ -65,9 +67,22 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/make_spirv.py"
 )
 
+if(APPLE)
+	target_sources(renderlib PRIVATE
+		"${CMAKE_CURRENT_SOURCE_DIR}/Swapchain_mac.mm"
+	)
+endif()
+
 target_compile_definitions(renderlib PUBLIC AGAVE_HAS_VULKAN=1)
 target_link_libraries(renderlib
 	Vulkan::Vulkan
 	${AGAVE_VULKAN_RUNTIME_LIBRARY}
 	Vulkan::shaderc_combined
 )
+
+if(APPLE)
+	target_link_libraries(renderlib
+		"-framework AppKit"
+		"-framework QuartzCore"
+	)
+endif()
