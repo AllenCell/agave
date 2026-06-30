@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 class RenderSettings;
 
@@ -18,6 +19,9 @@ class IGLContext;
 // Parameters supplied to a backend at construction time.
 struct InitParams
 {
+  // Graphics backend requested by the application. OpenGL remains the default
+  // so existing GUI/server startup paths are unchanged.
+  BackendKind backendKind = BackendKind::OpenGL;
   // Filesystem path to renderer assets (shaders, etc.).
   std::string assetPath;
   // Run without an on-screen surface (offscreen / EGL rendering).
@@ -29,6 +33,9 @@ struct InitParams
   // Non-headless OpenGL context supplied by the application/windowing layer.
   // The backend does not own this context.
   IGLContext* windowedContext = nullptr;
+  // Additional Vulkan instance extensions required by the windowing layer.
+  // Vulkan backends always add their own required portability/debug extensions.
+  std::vector<std::string> vulkanInstanceExtensions;
 };
 
 enum class RenderWindowKind : uint8_t

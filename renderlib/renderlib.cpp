@@ -1,11 +1,13 @@
 #include "renderlib.h"
 
-#include "ImageXYZC.h"
 #include "Logging.h"
-#include "gfxOpenGL/ImageXyzcGpu.h"
 #include "gfxOpenGL/Backend.h"
 #include "gfxapi/Backend.h"
+#if AGAVE_HAS_VULKAN
+#include "gfxVulkan/Backend.h"
+#endif
 
+#include <memory>
 #include <string>
 
 #if defined(_WIN32) || defined(_WIN64)
@@ -67,14 +69,26 @@ createGraphicsBackend(gfxApi::BackendKind kind, const gfxApi::InitParams& params
       return backend;
     }
     case gfxApi::BackendKind::Vulkan:
+#if AGAVE_HAS_VULKAN
+    {
+      auto backend = std::make_unique<gfxvulkan::Backend>(params);
+      if (!backend->isValid()) {
+        LOG_ERROR << "createGraphicsBackend: Vulkan backend initialization failed";
+        return nullptr;
+      }
+      LOG_INFO << "createGraphicsBackend: Vulkan backend initialized successfully";
+      return backend;
+    }
+#else
+      LOG_ERROR << "createGraphicsBackend: Vulkan backend requested, but this build does not include Vulkan support";
+      return nullptr;
+#endif
     case gfxApi::BackendKind::WebGPU:
     default:
       LOG_ERROR << "createGraphicsBackend: requested backend kind is not supported in this build";
       return nullptr;
   }
 }
-
-std::map<std::shared_ptr<ImageXYZC>, std::shared_ptr<ImageGpu>> renderlib::sGpuImageCache;
 
 int
 renderlib::initialize(const gfxApi::InitParams& initParams, bool listDevices)
@@ -88,7 +102,7 @@ renderlib::initialize(const gfxApi::InitParams& initParams, bool listDevices)
 
   // Headless rendering requires EGL support, which the OpenGL backend only
   // provides on some platforms (not Windows / macOS).
-  if (params.headless && !gfxopengl::Backend::supportsHeadless()) {
+  if (params.backendKind == gfxApi::BackendKind::OpenGL && params.headless && !gfxopengl::Backend::supportsHeadless()) {
     params.headless = false;
   }
 
@@ -96,13 +110,21 @@ renderlib::initialize(const gfxApi::InitParams& initParams, bool listDevices)
 
   // --list-devices: enumerate the available GPUs and quit. This only needs the
   // backend's device enumeration, not a fully initialized backend.
-  if (params.headless && listDevices) {
-    gfxopengl::Backend::listDevices(params.selectedGpu);
+  if (listDevices) {
+    if (params.backendKind == gfxApi::BackendKind::Vulkan) {
+#if AGAVE_HAS_VULKAN
+      gfxvulkan::Backend::listDevices(params.selectedGpu);
+#else
+      LOG_ERROR << "renderlib::initialize: Vulkan device listing requested, but Vulkan support is not built";
+#endif
+    } else if (params.headless) {
+      gfxopengl::Backend::listDevices(params.selectedGpu);
+    }
     return 0;
   }
 
   // Create the graphics backend. Returns null if it fails.
-  s_graphicsBackend = createGraphicsBackend(gfxApi::BackendKind::OpenGL, params);
+  s_graphicsBackend = createGraphicsBackend(params.backendKind, params);
   if (!s_graphicsBackend) {
     LOG_ERROR << "renderlib::initialize: failed to create the graphics backend";
     return 0;
@@ -130,16 +152,6 @@ renderlib::graphicsBackend()
 }
 
 void
-renderlib::clearGpuVolumeCache()
-{
-  // clean up the shared gpu buffer cache
-  for (auto i : sGpuImageCache) {
-    i.second->deallocGpu();
-  }
-  sGpuImageCache.clear();
-}
-
-void
 renderlib::cleanup()
 {
   if (!renderLibInitialized) {
@@ -147,45 +159,12 @@ renderlib::cleanup()
   }
   LOG_INFO << "Renderlib shutdown";
 
-  clearGpuVolumeCache();
-
   // The OpenGL backend owns all GL contexts (headless / windowed bootstrap),
   // the EGL display, and the debug logger, and tears them down in its destructor.
   s_graphicsBackend.reset();
   LOG_INFO << "graphicsBackend teardown successful";
 
   renderLibInitialized = false;
-}
-
-std::shared_ptr<ImageGpu>
-renderlib::imageAllocGPU(std::shared_ptr<ImageXYZC> image, bool do_cache)
-{
-  auto cached = sGpuImageCache.find(image);
-  if (cached != sGpuImageCache.end()) {
-    return cached->second;
-  }
-
-  ImageGpu* cimg = new ImageGpu;
-  cimg->allocGpuInterleaved(image.get());
-  std::shared_ptr<ImageGpu> shared(cimg);
-
-  if (do_cache) {
-    sGpuImageCache[image] = shared;
-  }
-
-  return shared;
-}
-
-void
-renderlib::imageDeallocGPU(std::shared_ptr<ImageXYZC> image)
-{
-  auto cached = sGpuImageCache.find(image);
-  if (cached != sGpuImageCache.end()) {
-    // cached->second is a ImageGpu.
-    // outstanding shared refs to cached->second will be deallocated!?!?!?!
-    cached->second->deallocGpu();
-    sGpuImageCache.erase(image);
-  }
 }
 
 gfxApi::IRenderWindow*

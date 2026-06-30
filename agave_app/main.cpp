@@ -90,8 +90,7 @@ preloadFiles(const QStringList& preloadlist)
       loadSpec.scene = 0;
       loadSpec.time = 0;
 
-      auto img = FileReader::loadAndCache(loadSpec);
-      renderlib::imageAllocGPU(img);
+      FileReader::loadAndCache(loadSpec);
     } else {
       LOG_INFO << "Could not load " << s.toStdString();
     }
@@ -229,9 +228,15 @@ main(int argc, char* argv[])
     QCommandLineOption listDevicesOption(
       "list_devices", QCoreApplication::translate("main", "Log the known EGL devices (only valid in --server mode)."));
     parser.addOption(listDevicesOption);
+    QCommandLineOption graphicsBackendOption(
+      "graphics_backend",
+      QCoreApplication::translate("main", "Graphics backend to use: opengl or vulkan."),
+      QCoreApplication::translate("main", "backend"),
+      "opengl");
+    parser.addOption(graphicsBackendOption);
     QCommandLineOption selectGpuOption(
       "gpu",
-      QCoreApplication::translate("main", "Select EGL device by index (only valid in --server mode)."),
+      QCoreApplication::translate("main", "Select GPU/device by index."),
       QCoreApplication::translate("main", "gpu"),
       "0");
     parser.addOption(selectGpuOption);
@@ -249,6 +254,14 @@ main(int argc, char* argv[])
     int port = parser.value(serverPortOption).toInt();
     bool listDevices = parser.isSet(listDevicesOption);
     int selectedGpu = parser.value(selectGpuOption).toInt();
+    gfxApi::BackendKind backendKind = gfxApi::BackendKind::OpenGL;
+    const QString backendString = parser.value(graphicsBackendOption).toLower();
+    if (backendString == "vulkan") {
+      backendKind = gfxApi::BackendKind::Vulkan;
+    } else if (backendString != "opengl") {
+      LOG_ERROR << "Unknown graphics backend: " << backendString.toStdString();
+      return 0;
+    }
     QString fileInput = parser.value(loadOption);
     std::string fileToLoad;
     static const QString kAgaveUrlPrefix("agave://");
@@ -273,7 +286,8 @@ main(int argc, char* argv[])
     LOG_INFO << "Assets path: " << assetsPath.toStdString();
 
     std::unique_ptr<QtGLContext> bootstrapGLContext;
-    const bool needsWindowedGLContext = !isServer || !renderlib::supportsHeadlessRendering();
+    const bool needsWindowedGLContext =
+      backendKind == gfxApi::BackendKind::OpenGL && (!isServer || !renderlib::supportsHeadlessRendering());
     if (needsWindowedGLContext) {
       bootstrapGLContext = std::make_unique<QtGLContext>();
       if (!bootstrapGLContext->create()) {
@@ -284,6 +298,7 @@ main(int argc, char* argv[])
     }
 
     gfxApi::InitParams initParams;
+    initParams.backendKind = backendKind;
     initParams.assetPath = assetsPath.toStdString();
     initParams.headless = isServer;
     initParams.selectedGpu = selectedGpu;
