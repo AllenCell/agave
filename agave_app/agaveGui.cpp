@@ -5,13 +5,17 @@
 
 #include "agaveGui.h"
 
+#include "VulkanView3D.h"
+
 #include "renderlib/AppScene.h"
 #include "renderlib/ImageXYZC.h"
 #include "renderlib/Logging.h"
 #include "renderlib/Status.h"
 #include "renderlib/VolumeDimensions.h"
 #include "renderlib/CacheManager.h"
+#include "renderlib/gfxapi/Backend.h"
 #include "renderlib/io/FileReader.h"
+#include "renderlib/renderlib.h"
 #include "renderlib/version.hpp"
 
 #include "AppearanceDockWidget.h"
@@ -139,14 +143,24 @@ agaveGui::agaveGui(QWidget* parent)
     m_appearanceDockWidget->onTimeChanged(newTime);
   });
 
-  // add the single gl view as a tab
-  m_glView = new GLView3D(&m_qcamera, &m_qrendersettings, &m_renderSettings, this);
-  QObject::connect(m_glView, SIGNAL(ChangedRenderer()), this, SLOT(OnUpdateRenderer()));
+  // add the single 3d view as a tab. Use the view that matches the active
+  // graphics backend: the Vulkan swapchain view when running on Vulkan, the
+  // QOpenGLWidget view otherwise.
+#if AGAVE_HAS_VULKAN
+  gfxApi::Backend* backend = renderlib::graphicsBackend();
+  if (backend && backend->kind() == gfxApi::BackendKind::Vulkan) {
+    m_view = new VulkanView3D(&m_qcamera, &m_qrendersettings, &m_renderSettings, this);
+  } else
+#endif
+  {
+    m_view = new GLView3D(&m_qcamera, &m_qrendersettings, &m_renderSettings, this);
+  }
+  QObject::connect(m_view->asWidget(), SIGNAL(ChangedRenderer()), this, SLOT(OnUpdateRenderer()));
 
-  m_glView->setObjectName("glcontainer");
+  m_view->asWidget()->setObjectName("glcontainer");
   // We need a minimum size or else the size defaults to zero.
-  m_glView->setMinimumSize(256, 512);
-  m_glView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  m_view->asWidget()->setMinimumSize(256, 512);
+  m_view->asWidget()->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
   // TODO can make this a custom widget that exposes the toolbar and the view
   m_viewWithToolbar = new QWidget(this);
@@ -165,7 +179,7 @@ agaveGui::agaveGui(QWidget* parent)
   connect(m_viewToolbar->orthoViewButton, &QPushButton::clicked, this, &agaveGui::view_toggleProjection);
   connect(m_viewToolbar->axisHelperButton, &QPushButton::clicked, this, &agaveGui::showAxisHelper);
   vlayout->addWidget(m_viewToolbar);
-  vlayout->addWidget(m_glView, 1);
+  vlayout->addWidget(m_view->asWidget(), 1);
 
   m_viewWithToolbar->setLayout(vlayout);
 
@@ -189,7 +203,7 @@ agaveGui::agaveGui(QWidget* parent)
 void
 agaveGui::OnUpdateRenderer()
 {
-  std::shared_ptr<CStatus> s = m_glView->getStatus();
+  std::shared_ptr<CStatus> s = m_view->getStatus();
   m_statisticsDockWidget->setStatus(s);
   // s->onNewImage(info.fileName(), &m_appScene);
 }
@@ -286,7 +300,7 @@ agaveGui::createActions()
   addAction(m_toggleRotateControlsAction);
   connect(m_toggleRotateControlsAction, &QAction::triggered, [this](bool checked) {
     // TODO restore to use checked state again when the action becomes more global
-    this->m_glView->showRotateControls(true);
+    this->m_view->showRotateControls(true);
   });
 
   m_toggleTranslateControlsAction = new QAction(tr("&Rotate controls"), this);
@@ -299,7 +313,7 @@ agaveGui::createActions()
   addAction(m_toggleTranslateControlsAction);
   connect(m_toggleTranslateControlsAction, &QAction::triggered, [this](bool checked) {
     // TODO restore to use checked state again when the action becomes more global
-    this->m_glView->showTranslateControls(true);
+    this->m_view->showTranslateControls(true);
   });
 
   m_manipulatorModeGroup = new QActionGroup(this);
@@ -573,7 +587,7 @@ agaveGui::saveImage()
     QFileDialog::getSaveFileName(this, tr("Save Image"), QString(), allSupportedFormatsFilter, nullptr, options);
   if (!file.isEmpty()) {
     // capture the viewport
-    QImage im = m_glView->captureQimage();
+    QImage im = m_view->captureQimage();
     im.save(file);
   }
 }
@@ -620,17 +634,25 @@ agaveGui::onRenderAction()
   // TODO keep this loadspec time in sync with the timeline and the render dialog's time
   m_loadSpec.time = m_appScene.m_timeLine.currentTime();
 
+  // The offscreen render dialog is built on the OpenGL backend (it borrows the
+  // view's QOpenGLContext). It is not yet supported when running on Vulkan.
+  GLView3D* glView = dynamic_cast<GLView3D*>(m_view->asWidget());
+  if (!glView) {
+    LOG_WARNING << "Offscreen render is not yet supported with the Vulkan backend";
+    return;
+  }
+
   // if we are disabling the 3d view then might consider just making this modal
-  m_glView->pauseRenderLoop();
-  // QImage im = m_glView->captureQimage();
+  m_view->pauseRenderLoop();
+  // QImage im = m_view->captureQimage();
   // QImage* imcopy = new QImage(im);
-  m_glView->doneCurrent();
-  m_glView->setEnabled(false);
-  m_glView->setUpdatesEnabled(false);
+  glView->doneCurrent();
+  m_view->asWidget()->setEnabled(false);
+  m_view->asWidget()->setUpdatesEnabled(false);
   m_cacheSettingsDockWidget->setEnabled(false);
   if (m_captureSettings.width == 0 && m_captureSettings.height == 0) {
-    m_captureSettings.width = m_glView->width();
-    m_captureSettings.height = m_glView->height();
+    m_captureSettings.width = m_view->asWidget()->width();
+    m_captureSettings.height = m_view->asWidget()->height();
   }
 
   // TODO should we reuse the last settings for capture start and end time?
@@ -639,12 +661,12 @@ agaveGui::onRenderAction()
   m_captureSettings.endTime = m_appScene.m_timeLine.currentTime();
 
   // copy of camera
-  CCamera camera = m_glView->getCamera();
+  CCamera camera = m_view->getCamera();
   // extract ViewerWindow from GLView3D to hand to RenderDialog
-  ViewerWindow* renderer = m_glView->borrowRenderer();
+  ViewerWindow* renderer = m_view->borrowRenderer();
 
   if (!m_glContext) {
-    m_glContext = std::make_unique<QtGLContext>(m_glView->context());
+    m_glContext = std::make_unique<QtGLContext>(glView->context());
   }
   RenderDialog* rdialog = new RenderDialog(renderer,
                                            m_renderSettings,
@@ -653,12 +675,12 @@ agaveGui::onRenderAction()
                                            m_glContext.get(),
                                            m_loadSpec,
                                            &m_captureSettings,
-                                           m_glView->width(),
-                                           m_glView->height(),
+                                           m_view->asWidget()->width(),
+                                           m_view->asWidget()->height(),
                                            this);
   rdialog->resize(geometry().width(), m_tabs->height());
   rdialog->move(geometry().x(), geometry().y());
-  connect(rdialog, &QDialog::finished, this, [this, &rdialog](int result) {
+  connect(rdialog, &QDialog::finished, this, [this, glView](int result) {
     // get renderer from RenderDialog and hand it back to GLView3D
     LOG_DEBUG << "RenderDialog finished with result " << result;
     m_renderSettings.m_DirtyFlags.SetFlag(CameraDirty);
@@ -666,10 +688,10 @@ agaveGui::onRenderAction()
     m_renderSettings.m_DirtyFlags.SetFlag(RenderParamsDirty);
     m_renderSettings.m_DirtyFlags.SetFlag(TransferFunctionDirty);
     m_cacheSettingsDockWidget->setEnabled(true);
-    m_glView->setEnabled(true);
-    m_glView->resizeGL(m_glView->width(), m_glView->height());
-    m_glView->setUpdatesEnabled(true);
-    m_glView->restartRenderLoop();
+    m_view->asWidget()->setEnabled(true);
+    glView->resizeGL(glView->width(), glView->height());
+    m_view->asWidget()->setUpdatesEnabled(true);
+    m_view->restartRenderLoop();
     // refresh timeline to current time
     m_timelinedock->setTime(m_appScene.m_timeLine.currentTime());
   });
@@ -744,9 +766,9 @@ agaveGui::onImageLoaded(std::shared_ptr<ImageXYZC> image,
   m_appScene.initBoundsFromImg(image);
   if (!keepCurrentUISettings || !wasVolumeLoaded) {
     m_appScene.initSceneFromImg(image);
-    m_glView->initCameraFromImage(&m_appScene);
+    m_view->initCameraFromImage(&m_appScene);
   } else {
-    m_glView->retargetCameraForNewVolume(&m_appScene);
+    m_view->retargetCameraForNewVolume(&m_appScene);
   }
 
   // initialize _appScene from ViewerState
@@ -756,7 +778,7 @@ agaveGui::onImageLoaded(std::shared_ptr<ImageXYZC> image,
 
   // tell the 3d view to update.
   // it causes a new renderer which owns the CStatus used below
-  m_glView->onNewImage(&m_appScene);
+  m_view->onNewImage(&m_appScene);
   // everything after the last / (or \ ???) is the filename.
 
   std::string filename = loadSpec.getFilename();
@@ -766,7 +788,7 @@ agaveGui::onImageLoaded(std::shared_ptr<ImageXYZC> image,
   m_timelinedock->onNewImage(&m_appScene, loadSpec, reader);
 
   // set up status view with some stats.
-  std::shared_ptr<CStatus> s = m_glView->getStatus();
+  std::shared_ptr<CStatus> s = m_view->getStatus();
   // set up the m_statisticsDockWidget as a CStatus  IStatusObserver
   m_statisticsDockWidget->setStatus(s);
   s->onNewImage(filename, &m_appScene);
@@ -897,31 +919,31 @@ agaveGui::openMesh(const QString& file)
 }
 
 void
-agaveGui::viewFocusChanged(GLView3D* newGlView)
+agaveGui::viewFocusChanged(IAppView3D* newView)
 {
-  if (m_glView == newGlView)
+  if (m_view == newView)
     return;
 
   m_viewResetAction->setEnabled(false);
 
-  bool enable = (newGlView != nullptr);
+  bool enable = (newView != nullptr);
 
   m_viewResetAction->setEnabled(enable);
 
-  m_glView = newGlView;
+  m_view = newView;
 }
 
 void
 agaveGui::tabChanged(int index)
 {
-  GLView3D* current = nullptr;
+  IAppView3D* current = nullptr;
   if (index >= 0) {
     QWidget* w = m_tabs->currentWidget();
     if (w) {
       QLayout* layout = w->layout();
-      // ASSUMES THAT THE GLVIEW IS THE SECOND WIDGET IN THE LAYOUT
-      // TODO could use a QWidget wrapper class to get the glview out
-      current = static_cast<GLView3D*>(layout->itemAt(1)->widget());
+      // ASSUMES THAT THE 3D VIEW IS THE SECOND WIDGET IN THE LAYOUT
+      // TODO could use a QWidget wrapper class to get the view out
+      current = dynamic_cast<IAppView3D*>(layout->itemAt(1)->widget());
     }
   }
   viewFocusChanged(current);
@@ -936,18 +958,18 @@ agaveGui::quit()
 void
 agaveGui::view_reset()
 {
-  m_glView->initCameraFromImage(&m_appScene);
+  m_view->initCameraFromImage(&m_appScene);
 }
 void
 agaveGui::view_frame()
 {
-  m_glView->FitToScene();
+  m_view->FitToScene();
 }
 
 void
 agaveGui::setViewMode(EViewMode mode)
 {
-  ViewerWindow* vw = m_glView->borrowRenderer();
+  ViewerWindow* vw = m_view->borrowRenderer();
   vw->beginCameraChange();
   vw->m_CCamera.SetViewMode(mode);
   vw->endCameraChange();
@@ -988,7 +1010,7 @@ agaveGui::view_right()
 void
 agaveGui::view_toggleProjection()
 {
-  m_glView->toggleCameraProjection();
+  m_view->toggleCameraProjection();
 }
 
 void
@@ -1165,8 +1187,8 @@ agaveGui::viewerStateToApp(const Serialize::ViewerState& v)
   // ASSUME THAT IMAGE IS LOADED AND APPSCENE INITIALIZED
 
   // position camera
-  m_glView->fromViewerState(v);
-  m_viewToolbar->initFromCamera(m_glView->getCamera());
+  m_view->fromViewerState(v);
+  m_viewToolbar->initFromCamera(m_view->getCamera());
 
   m_appScene.m_roi.SetMinP(glm::vec3(v.clipRegion[0][0], v.clipRegion[1][0], v.clipRegion[2][0]));
   m_appScene.m_roi.SetMaxP(glm::vec3(v.clipRegion[0][1], v.clipRegion[1][1], v.clipRegion[2][1]));
@@ -1321,21 +1343,21 @@ agaveGui::appToViewerState()
   v.clipPlane.transform.rotation[3] = m_appScene.m_clipPlane->m_transform.m_rotation[3];
   v.clipPlane.enabled = m_appScene.m_clipPlane->m_enabled;
 
-  v.camera.eye[0] = m_glView->getCamera().m_From.x;
-  v.camera.eye[1] = m_glView->getCamera().m_From.y;
-  v.camera.eye[2] = m_glView->getCamera().m_From.z;
+  v.camera.eye[0] = m_view->getCamera().m_From.x;
+  v.camera.eye[1] = m_view->getCamera().m_From.y;
+  v.camera.eye[2] = m_view->getCamera().m_From.z;
 
-  v.camera.target[0] = m_glView->getCamera().m_Target.x;
-  v.camera.target[1] = m_glView->getCamera().m_Target.y;
-  v.camera.target[2] = m_glView->getCamera().m_Target.z;
+  v.camera.target[0] = m_view->getCamera().m_Target.x;
+  v.camera.target[1] = m_view->getCamera().m_Target.y;
+  v.camera.target[2] = m_view->getCamera().m_Target.z;
 
-  v.camera.up[0] = m_glView->getCamera().m_Up.x;
-  v.camera.up[1] = m_glView->getCamera().m_Up.y;
-  v.camera.up[2] = m_glView->getCamera().m_Up.z;
+  v.camera.up[0] = m_view->getCamera().m_Up.x;
+  v.camera.up[1] = m_view->getCamera().m_Up.y;
+  v.camera.up[2] = m_view->getCamera().m_Up.z;
 
-  v.camera.projection = m_glView->getCamera().m_Projection == PERSPECTIVE ? Serialize::Projection_PID::PERSPECTIVE
+  v.camera.projection = m_view->getCamera().m_Projection == PERSPECTIVE ? Serialize::Projection_PID::PERSPECTIVE
                                                                           : Serialize::Projection_PID::ORTHOGRAPHIC;
-  v.camera.orthoScale = m_glView->getCamera().m_OrthoScale;
+  v.camera.orthoScale = m_view->getCamera().m_OrthoScale;
   v.camera.fovY = m_qcamera.GetProjection().GetFieldOfView();
 
   v.camera.exposure = m_qcamera.GetFilm().GetExposure();
@@ -1379,7 +1401,7 @@ agaveGui::appToViewerState()
 
   // capture settings
 
-  v.capture = fromCaptureSettings(m_captureSettings, m_glView->width(), m_glView->height());
+  v.capture = fromCaptureSettings(m_captureSettings, m_view->asWidget()->width(), m_view->asWidget()->height());
 
   return v;
 }

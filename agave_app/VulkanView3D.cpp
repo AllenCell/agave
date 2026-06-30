@@ -4,20 +4,77 @@
 
 #include "Camera.h"
 #include "QRenderSettings.h"
+#include "ViewerState.h"
 
 #include "renderlib/AppScene.h"
 #include "renderlib/Logging.h"
+#include "renderlib/MoveTool.h"
 #include "renderlib/RenderSettings.h"
+#include "renderlib/RotateTool.h"
+#include "renderlib/Status.h"
 #include "renderlib/gfxVulkan/Backend.h"
+#include "renderlib/gfxapi/Backend.h"
+#include "renderlib/gfxapi/Framebuffer.h"
 #include "renderlib/renderlib.h"
 
 #include <QApplication>
+#include <QKeyEvent>
+#include <QMouseEvent>
 #include <QResizeEvent>
 #include <QSizePolicy>
-#include <QSurface>
 #include <QTimer>
-#include <QVBoxLayout>
-#include <QWindow>
+#include <QWheelEvent>
+
+namespace {
+
+gfxApi::ClearColor
+backgroundClearColor(const Scene* scene)
+{
+  if (!scene) {
+    return {};
+  }
+
+  return { scene->m_material.m_backgroundColor[0],
+           scene->m_material.m_backgroundColor[1],
+           scene->m_material.m_backgroundColor[2],
+           1.0f };
+}
+
+Gesture::Input::ButtonId
+getButton(QMouseEvent* event)
+{
+  switch (event->button()) {
+    case Qt::LeftButton:
+      return Gesture::Input::ButtonId::kButtonLeft;
+    case Qt::RightButton:
+      return Gesture::Input::ButtonId::kButtonRight;
+    case Qt::MiddleButton:
+      return Gesture::Input::ButtonId::kButtonMiddle;
+    default:
+      return Gesture::Input::ButtonId::kButtonLeft;
+  }
+}
+
+int
+getGestureMods(QMouseEvent* event)
+{
+  int mods = 0;
+  if (event->modifiers() & Qt::ShiftModifier) {
+    mods |= Gesture::Input::Mods::kShift;
+  }
+  if (event->modifiers() & Qt::ControlModifier) {
+    mods |= Gesture::Input::Mods::kCtrl;
+  }
+  if (event->modifiers() & Qt::AltModifier) {
+    mods |= Gesture::Input::Mods::kAlt;
+  }
+  if (event->modifiers() & Qt::MetaModifier) {
+    mods |= Gesture::Input::Mods::kSuper;
+  }
+  return mods;
+}
+
+} // namespace
 
 VulkanView3D::VulkanView3D(QCamera* cam, QRenderSettings* qrs, RenderSettings* rs, QWidget* parent)
   : QWidget(parent)
@@ -25,23 +82,20 @@ VulkanView3D::VulkanView3D(QCamera* cam, QRenderSettings* qrs, RenderSettings* r
   , m_qrendersettings(qrs)
   , m_viewerWindow(std::make_unique<ViewerWindow>(rs))
 {
-  m_window = new QWindow();
-  m_window->setSurfaceType(QSurface::VulkanSurface);
-  m_window->setTitle("AGAVE Vulkan View");
-  m_window->create();
+  // Render directly into this widget's own native surface. Qt lays out a native
+  // widget exactly like any other, so the Vulkan content aligns with its place
+  // in the layout (unlike a separate QWindow embedded via createWindowContainer,
+  // which is offset by sibling/ancestor geometry on macOS).
+  setAttribute(Qt::WA_NativeWindow);
+  setAttribute(Qt::WA_PaintOnScreen);
+  setAttribute(Qt::WA_NoSystemBackground);
+  setAutoFillBackground(false);
+  setFocusPolicy(Qt::StrongFocus);
+  setMinimumSize(256, 256);
+  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
-  m_surface = std::make_unique<QtVulkanSurface>(m_window);
+  m_surface = std::make_unique<QtVulkanSurface>(this);
   m_swapchain = std::make_unique<gfxvulkan::Swapchain>(m_surface.get());
-
-  m_container = QWidget::createWindowContainer(m_window, this);
-  m_container->setFocusPolicy(Qt::StrongFocus);
-  m_container->setMinimumSize(256, 256);
-  m_container->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-
-  auto* layout = new QVBoxLayout(this);
-  layout->setContentsMargins(0, 0, 0, 0);
-  layout->addWidget(m_container);
-  setLayout(layout);
 
   m_viewerWindow->gesture.input.setDoubleClickTime(static_cast<double>(QApplication::doubleClickInterval()) / 1000.0);
   m_qrendersettings->setRenderSettings(*rs);
@@ -81,12 +135,6 @@ VulkanView3D::vkInstance() const
     return VK_NULL_HANDLE;
   }
   return static_cast<gfxvulkan::Backend*>(backend)->instance();
-}
-
-WId
-VulkanView3D::nativeWindowId() const
-{
-  return m_window ? m_window->winId() : 0;
 }
 
 void
@@ -135,6 +183,143 @@ VulkanView3D::onNewImage(Scene* scene)
   rs->m_DirtyFlags.SetFlag(RenderParamsDirty);
   rs->m_DirtyFlags.SetFlag(TransferFunctionDirty);
   rs->m_DirtyFlags.SetFlag(LightsDirty);
+}
+
+void
+VulkanView3D::setManipulatorMode(MANIPULATOR_MODE mode)
+{
+  if (m_manipulatorMode == mode) {
+    return;
+  }
+  m_manipulatorMode = mode;
+  switch (mode) {
+    case MANIPULATOR_MODE::NONE:
+      m_viewerWindow->setTool(nullptr);
+      break;
+    case MANIPULATOR_MODE::ROT:
+      m_viewerWindow->setTool(new RotateTool(m_viewerWindow->m_toolsUseLocalSpace,
+                                             ManipulationTool::s_manipulatorSize * devicePixelRatioF()));
+      m_viewerWindow->forEachTool(
+        [this](ManipulationTool* tool) { tool->setUseLocalSpace(m_viewerWindow->m_toolsUseLocalSpace); });
+      break;
+    case MANIPULATOR_MODE::TRANS:
+      m_viewerWindow->setTool(
+        new MoveTool(m_viewerWindow->m_toolsUseLocalSpace, ManipulationTool::s_manipulatorSize * devicePixelRatioF()));
+      m_viewerWindow->forEachTool(
+        [this](ManipulationTool* tool) { tool->setUseLocalSpace(m_viewerWindow->m_toolsUseLocalSpace); });
+      break;
+    default:
+      break;
+  }
+}
+
+void
+VulkanView3D::showRotateControls(bool show)
+{
+  setManipulatorMode(show ? MANIPULATOR_MODE::ROT : MANIPULATOR_MODE::NONE);
+}
+
+void
+VulkanView3D::showTranslateControls(bool show)
+{
+  setManipulatorMode(show ? MANIPULATOR_MODE::TRANS : MANIPULATOR_MODE::NONE);
+}
+
+void
+VulkanView3D::FitToScene(float transitionDurationSeconds)
+{
+  Scene* sc = m_viewerWindow->m_renderer->scene();
+  if (!sc) {
+    return;
+  }
+
+  glm::vec3 newPosition, newTarget;
+  m_viewerWindow->m_CCamera.ComputeFitToBounds(sc->m_boundingBox, newPosition, newTarget);
+  CameraAnimation anim = {};
+  anim.duration = transitionDurationSeconds;
+  anim.mod.position = newPosition - m_viewerWindow->m_CCamera.m_From;
+  anim.mod.target = newTarget - m_viewerWindow->m_CCamera.m_Target;
+  m_viewerWindow->m_cameraAnim.push_back(anim);
+}
+
+void
+VulkanView3D::fromViewerState(const Serialize::ViewerState& s)
+{
+  m_qrendersettings->SetRendererType(s.rendererType == Serialize::RendererType_PID::PATHTRACE ? 1 : 0);
+
+  CCamera& camera = m_viewerWindow->m_CCamera;
+
+  camera.m_From = glm::vec3(s.camera.eye[0], s.camera.eye[1], s.camera.eye[2]);
+  camera.m_Target = glm::vec3(s.camera.target[0], s.camera.target[1], s.camera.target[2]);
+  camera.m_Up = glm::vec3(s.camera.up[0], s.camera.up[1], s.camera.up[2]);
+  camera.m_FovV = s.camera.fovY;
+  camera.SetProjectionMode(s.camera.projection == Serialize::Projection_PID::PERSPECTIVE ? PERSPECTIVE : ORTHOGRAPHIC);
+  camera.m_OrthoScale = s.camera.orthoScale;
+
+  camera.m_Film.m_Exposure = s.camera.exposure;
+  camera.m_Aperture.m_Size = s.camera.aperture;
+  camera.m_Focus.m_FocalDistance = s.camera.focalDistance;
+
+  m_qcamera->GetProjection().SetFieldOfView(s.camera.fovY);
+  m_qcamera->GetFilm().SetExposure(s.camera.exposure);
+  m_qcamera->GetAperture().SetSize(s.camera.aperture);
+  m_qcamera->GetFocus().SetFocalDistance(s.camera.focalDistance);
+}
+
+std::shared_ptr<CStatus>
+VulkanView3D::getStatus()
+{
+  return m_viewerWindow->m_renderer->getStatusInterface();
+}
+
+QImage
+VulkanView3D::captureQimage()
+{
+  if (!isEnabled()) {
+    return QImage();
+  }
+
+  const float dpr = devicePixelRatioF();
+  const uint32_t captureWidth = static_cast<uint32_t>(width() * dpr);
+  const uint32_t captureHeight = static_cast<uint32_t>(height() * dpr);
+
+  std::unique_ptr<gfxApi::Framebuffer> fbo = renderlib::graphicsBackend()->createFramebuffer(
+    { captureWidth, captureHeight, gfxApi::FramebufferColorFormat::Rgba8, true });
+
+  uint32_t rendererWidth = 0;
+  uint32_t rendererHeight = 0;
+  m_viewerWindow->m_renderer->getSize(rendererWidth, rendererHeight);
+  if (rendererWidth != captureWidth || rendererHeight != captureHeight) {
+    m_viewerWindow->m_renderer->resize(captureWidth, captureHeight);
+  }
+
+  SceneView& sceneView = m_viewerWindow->sceneView;
+  sceneView.viewport.region = { { 0, 0 }, { static_cast<int>(captureWidth), static_cast<int>(captureHeight) } };
+  sceneView.camera = m_viewerWindow->m_CCamera;
+  sceneView.scene = m_viewerWindow->m_renderer->scene();
+  sceneView.renderSettings = m_viewerWindow->m_renderSettings;
+
+  m_viewerWindow->m_gestureRenderer->updateSelectionBuffer(captureWidth, captureHeight);
+  m_viewerWindow->update(sceneView.viewport, m_viewerWindow->m_clock, m_viewerWindow->gesture);
+
+  fbo->bind();
+  fbo->clear(backgroundClearColor(sceneView.scene));
+  m_viewerWindow->m_gestureRenderer->drawUnderlay(sceneView, m_viewerWindow->gesture.graphics);
+  fbo->release();
+
+  m_viewerWindow->m_renderer->renderTo(sceneView.camera, fbo.get());
+
+  fbo->bind();
+  m_viewerWindow->m_gestureRenderer->draw(sceneView, m_viewerWindow->gesture.graphics);
+  fbo->release();
+
+  std::unique_ptr<uint8_t> bytes(new uint8_t[captureWidth * captureHeight * 4]);
+  fbo->toImage(bytes.get());
+
+  return QImage(bytes.get(), captureWidth, captureHeight, QImage::Format_ARGB32)
+    .copy()
+    .mirrored()
+    .convertToFormat(QImage::Format_RGB32);
 }
 
 void
@@ -212,12 +397,82 @@ VulkanView3D::resizeEvent(QResizeEvent* event)
 }
 
 void
+VulkanView3D::mousePressEvent(QMouseEvent* event)
+{
+  if (!isEnabled()) {
+    return;
+  }
+  const double time = Clock::now();
+  const float dpr = devicePixelRatioF();
+  m_viewerWindow->gesture.input.setButtonEvent(getButton(event),
+                                               Gesture::Input::Action::kPress,
+                                               getGestureMods(event),
+                                               glm::vec2(event->position().x() * dpr, event->position().y() * dpr),
+                                               time);
+}
+
+void
+VulkanView3D::mouseReleaseEvent(QMouseEvent* event)
+{
+  if (!isEnabled()) {
+    return;
+  }
+  const double time = Clock::now();
+  const float dpr = devicePixelRatioF();
+  m_viewerWindow->gesture.input.setButtonEvent(getButton(event),
+                                               Gesture::Input::Action::kRelease,
+                                               getGestureMods(event),
+                                               glm::vec2(event->position().x() * dpr, event->position().y() * dpr),
+                                               time);
+}
+
+void
+VulkanView3D::mouseMoveEvent(QMouseEvent* event)
+{
+  if (!isEnabled()) {
+    return;
+  }
+  const float dpr = devicePixelRatioF();
+  m_viewerWindow->gesture.input.setPointerPosition(
+    glm::vec2(event->position().x() * dpr, event->position().y() * dpr));
+}
+
+void
+VulkanView3D::wheelEvent(QWheelEvent* event)
+{
+  (void)event;
+}
+
+void
+VulkanView3D::keyPressEvent(QKeyEvent* event)
+{
+  if (event->key() == Qt::Key_A) {
+    FitToScene(0.5f);
+  } else if (event->key() == Qt::Key_L) {
+    m_viewerWindow->m_toolsUseLocalSpace = !m_viewerWindow->m_toolsUseLocalSpace;
+    m_viewerWindow->forEachTool(
+      [this](ManipulationTool* tool) { tool->setUseLocalSpace(m_viewerWindow->m_toolsUseLocalSpace); });
+  } else {
+    QWidget::keyPressEvent(event);
+  }
+}
+
+void
 VulkanView3D::renderFrame()
 {
   if (!isEnabled() || !m_viewerWindow || !m_viewerWindow->m_renderer || !m_swapchain) {
     return;
   }
   m_swapchain->render(*m_viewerWindow);
+
+  // TODO(diagnostic): remove once accumulation is verified. Log the running
+  // sample count periodically so we can see whether it grows (accumulating) or
+  // is stuck (reset every frame).
+  static int s_diagCount = 0;
+  if (m_viewerWindow->m_renderSettings && (s_diagCount++ % 60) == 0) {
+    LOG_INFO << "VulkanView3D frame " << s_diagCount
+             << " NoIterations=" << m_viewerWindow->m_renderSettings->GetNoIterations();
+  }
 }
 
 #endif // AGAVE_HAS_VULKAN
