@@ -28,6 +28,7 @@ public:
   VkImageView colorImageView() const { return m_colorImageView; }
   VkFormat colorFormat() const { return m_colorFormat; }
   VkImageLayout colorLayout() const { return m_colorLayout; }
+  void transitionColorImage(VkCommandBuffer commandBuffer, VkImageLayout newLayout);
 
 private:
   void destroy();
@@ -38,7 +39,6 @@ private:
                    VkImage& image,
                    VkDeviceMemory& memory,
                    VkImageView& view);
-  void transitionColorImage(VkCommandBuffer commandBuffer, VkImageLayout newLayout);
   void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& memory);
 
   Backend& m_backend;

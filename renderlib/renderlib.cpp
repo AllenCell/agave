@@ -28,8 +28,7 @@ static bool renderLibInitialized = false;
 
 static std::string s_assetPath = "";
 
-// Owner of the active graphics backend. Hardcoded to OpenGL while the
-// gfxapi / gfxOpenGL abstraction is being introduced incrementally.
+// Owner of the active graphics backend selected at process startup.
 static std::unique_ptr<gfxApi::Backend> s_graphicsBackend;
 
 namespace {

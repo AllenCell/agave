@@ -4,6 +4,7 @@
 #include "GestureRenderer.h"
 #include "Logging.h"
 #include "RenderVk.h"
+#include "RenderVkPT.h"
 #include "RendererVkContext.h"
 
 #include <algorithm>
@@ -176,8 +177,13 @@ Backend::createRendererContext(gfxApi::IGLContext* externalContext)
 std::unique_ptr<gfxApi::IRenderWindow>
 Backend::createRenderWindow(gfxApi::RenderWindowKind kind, RenderSettings* renderSettings)
 {
-  (void)kind;
-  return std::make_unique<RenderVk>(*this, renderSettings);
+  switch (kind) {
+    case gfxApi::RenderWindowKind::RaymarchBlended:
+      return std::make_unique<RenderVk>(*this, renderSettings);
+    case gfxApi::RenderWindowKind::PathTrace:
+    default:
+      return std::make_unique<RenderVkPT>(*this, renderSettings);
+  }
 }
 
 std::unique_ptr<gfxApi::Framebuffer>
