@@ -85,6 +85,12 @@ struct CaptureSettings
   }
 };
 
+// Renderer runs on a dedicated QThread and drives offscreen GL rendering.
+// It is used in two scenarios:
+//   - RenderDialog: interactive offline render within the GUI application.
+//   - Stream server: headless server mode, no windowed GL context.
+// The other rendering entry point is GLView3D, which uses Qt's QOpenGLWidget
+// and never passes through this class (Qt manages that context implicitly).
 class Renderer
   : public QThread
   , public RendererCommandInterface
@@ -95,6 +101,29 @@ public:
   Renderer(const QString& id, QObject* parent, QMutex& mutex);
   ~Renderer() override;
 
+  // Configure a render session before starting the render thread.
+  //
+  // GL context ownership depends on the glContext argument and backend mode:
+  //
+  //   glContext provided (RenderDialog, Qt windowed):
+  //     The caller (agaveGui) owns a QtGLContext that wraps GLView3D's
+  //     QOpenGLContext. Renderer borrows it for the render session; the
+  //     underlying QOpenGLContext is owned by the QOpenGLWidget for the
+  //     lifetime of the application. The context is moved to this render
+  //     thread when rendering starts and moved back to the main thread
+  //     when the session ends. m_ownedGLContext is unused.
+  //
+  //   glContext == nullptr, non-headless (stream server, Qt windowed):
+  //     Renderer creates and owns m_ownedGLContext — a fresh QtGLContext
+  //     with its own QOpenGLContext and offscreen surface. Lives for the
+  //     lifetime of this Renderer.
+  //
+  //   glContext == nullptr, headless (EGL stream server):
+  //     The backend creates a HeadlessGLContext inside createRendererContext().
+  //     m_renderContext owns it; m_ownedGLContext is unused. Lives for the
+  //     lifetime of this Renderer.
+  //
+  // In all cases m_renderContext holds the IGLContext used on the render thread.
   void configure(gfxApi::IRenderWindow* renderer,
                  const RenderSettings& renderSettings,
                  const Scene& scene,
@@ -144,7 +173,9 @@ protected:
 private:
   QMutex* m_openGLMutex;
 
+  // Active GL context on the render thread (see configure() comment above).
   std::unique_ptr<gfxApi::IGLContext> m_renderContext;
+  // Owned QtGLContext created when no external context is provided (non-headless only).
   std::unique_ptr<QtGLContext> m_ownedGLContext;
 
   std::unique_ptr<gfxApi::Framebuffer> m_fbo;
