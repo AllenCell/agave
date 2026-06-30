@@ -2,6 +2,8 @@
 
 #include <memory>
 
+#include "IAppView3D.h"
+
 #include "glm.h"
 #include "renderlib/CCamera.h"
 #include "renderlib/ViewerWindow.h"
@@ -22,7 +24,9 @@ struct ViewerState;
 /**
  * 3D GL view of an image with axes and gridlines.
  */
-class GLView3D : public QOpenGLWidget
+class GLView3D
+  : public QOpenGLWidget
+  , public IAppView3D
 {
   Q_OBJECT
 
@@ -69,8 +73,10 @@ public:
   QPixmap capture();
   QImage captureQimage();
 
+  QWidget* asWidget() override { return this; }
+
   // DANGER this must NOT outlive the GLView3D
-  ViewerWindow* borrowRenderer() { return m_viewerWindow; }
+  ViewerWindow* borrowRenderer() override { return m_viewerWindow; }
 
   void pauseRenderLoop();
   void restartRenderLoop();
