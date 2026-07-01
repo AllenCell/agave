@@ -36,7 +36,7 @@ jobs:
           version: 6.9.3
           modules: qtwebsockets qtimageformats
       - name: Install Vulkan SDK
-        uses: humbletim/install-vulkan-sdk@v1.2
+        uses: humbletim/install-vulkan-sdk@e7d6e7b937bde4503c7ba5c9584c9dc68f44c4b8
         with:
           version: 1.4.350.0
           cache: true
