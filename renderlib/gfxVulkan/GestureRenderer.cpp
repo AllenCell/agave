@@ -14,7 +14,6 @@
 
 #include <array>
 #include <cstring>
-#include <string>
 #include <vector>
 
 namespace gfxvulkan {
@@ -637,34 +636,6 @@ GestureRenderer::drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, con
     return;
   }
 
-  // TODO(diagnostic): remove once gesture rendering is verified.
-  {
-    static int s_diag = 0;
-    if (s_diag++ % 60 == 0 && !graphics.verts.empty()) {
-      glm::mat4 v(1.0f);
-      sceneView.camera.getViewMatrix(v);
-      glm::mat4 p(1.0f);
-      sceneView.camera.getProjMatrix(p);
-      const glm::mat4 vpNoCorrect = p * v;
-      const glm::mat4 vpCorrect = vulkanProjectionCorrection() * p * v;
-      const auto& q = graphics.verts[0];
-      const glm::vec4 world(q.x, q.y, q.z, 1.0f);
-      const glm::vec4 clipN = vpNoCorrect * world;
-      const glm::vec4 clipC = vpCorrect * world;
-      auto ndc = [](const glm::vec4& c) {
-        return std::string("(") + std::to_string(c.x / c.w) + "," + std::to_string(c.y / c.w) + "," +
-               std::to_string(c.z / c.w) + " w=" + std::to_string(c.w) + ")";
-      };
-      const glm::vec4 centerClip = vpCorrect * glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
-      const glm::vec3 eye = sceneView.camera.m_From;
-      const glm::vec3 tgt = sceneView.camera.m_Target;
-      LOG_INFO << "GestureRenderer::drawImpl verts=" << graphics.verts.size() << " eye=(" << eye.x << "," << eye.y
-               << "," << eye.z << ") target=(" << tgt.x << "," << tgt.y << "," << tgt.z << ")"
-               << " v0=(" << q.x << "," << q.y << "," << q.z << ") ndc_noCorrect=" << ndc(clipN)
-               << " ndc_correct=" << ndc(clipC) << " center(0.5,0.5,0.5)_correct=" << ndc(centerClip);
-    }
-  }
-
   auto* target = dynamic_cast<Framebuffer*>(m_target);
   if (!target || graphics.verts.empty()) {
     // No gizmo geometry this frame. Clear the selection buffer to the
@@ -744,52 +715,6 @@ GestureRenderer::pick(const Gesture::Input& input, const SceneView::Viewport& vi
   region = SceneView::Viewport::Region::intersect(region, viewRegion);
   if (region.empty()) {
     return false;
-  }
-
-  // TODO(diagnostic): remove once pick Y alignment is verified. Scan a full-height
-  // column of the selection buffer at the cursor's X to find where the gizmo codes
-  // actually are, so we can compare against the cursor/flip values.
-  {
-    static int s_pdiag = 0;
-    if (s_pdiag++ % 20 == 0) {
-      const int H = static_cast<int>(m_selectionFbo->height());
-      const int W = static_cast<int>(m_selectionFbo->width());
-      const int cx = std::min(std::max(static_cast<int>(input.cursorPos.x), 0), W - 1);
-      VkBuffer col = VK_NULL_HANDLE;
-      VkDeviceMemory colMem = VK_NULL_HANDLE;
-      if (createBuffer(*m_backend,
-                       static_cast<VkDeviceSize>(H) * 4,
-                       VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                       col,
-                       colMem)) {
-        VkCommandBuffer c = m_backend->beginSingleTimeCommands();
-        m_selectionFbo->transitionColorImage(c, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-        VkBufferImageCopy cc = {};
-        cc.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        cc.imageSubresource.layerCount = 1;
-        cc.imageOffset = { cx, 0, 0 };
-        cc.imageExtent = { 1, (uint32_t)H, 1 };
-        vkCmdCopyImageToBuffer(c, m_selectionFbo->colorImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, col, 1, &cc);
-        m_backend->endSingleTimeCommands(c);
-        void* mp = nullptr;
-        vkMapMemory(m_backend->logicalDevice(), colMem, 0, static_cast<VkDeviceSize>(H) * 4, 0, &mp);
-        const uint8_t* px = static_cast<const uint8_t*>(mp);
-        int minRow = -1, maxRow = -1;
-        for (int r = 0; r < H; ++r) {
-          if (selectionRGB8ToCode(px + r * 4) != Gesture::Graphics::k_noSelectionCode) {
-            if (minRow < 0)
-              minRow = r;
-            maxRow = r;
-          }
-        }
-        vkUnmapMemory(m_backend->logicalDevice(), colMem);
-        vkDestroyBuffer(m_backend->logicalDevice(), col, nullptr);
-        vkFreeMemory(m_backend->logicalDevice(), colMem, nullptr);
-        LOG_INFO << "pick diag: cursor.y=" << input.cursorPos.y << " toRaster.y=" << pixel.y << " H=" << H
-                 << " gizmoRowsAtCursorX=[" << minRow << "," << maxRow << "]";
-      }
-    }
   }
 
   const glm::ivec2 regionSize = region.size() + glm::ivec2(1);
