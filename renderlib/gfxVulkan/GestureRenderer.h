@@ -23,11 +23,12 @@ class Framebuffer;
 // Vulkan gesture/manipulator renderer. Draws the gizmo geometry emitted by the
 // tools (lines/triangles/points via the gui shader) as an overlay on the target
 // framebuffer, and renders per-handle selection codes into an offscreen
-// selection buffer that pick() reads back.
+// selection buffer that pick() reads back. Also draws thick-line strips
+// (emitted by tools such as the translate manipulator) via a separate pipeline
+// that expands each segment into a screen-space quad in the vertex shader.
 //
-// NOTE: thick-line strips (used by the translate tool) and textured GUI/font
-// elements are not handled yet; only the plain line/triangle path needed by the
-// rotate and area-light manipulators is implemented.
+// NOTE: textured GUI/font elements are not handled yet; only the plain
+// line/triangle/point path plus thick-line strips is implemented.
 class GestureRenderer : public gfxApi::IGestureRenderer
 {
 public:
@@ -71,6 +72,16 @@ private:
                      Gesture::Graphics& graphics,
                      const std::vector<int>& sequenceOrder,
                      int picking);
+  bool ensureThickLinesResources();
+  bool ensureThickLinesPipelines(VkFormat colorFormat);
+  VkPipeline createThickLinesPipeline(VkRenderPass renderPass);
+  void uploadStripVerts(const void* data, size_t byteCount);
+  void drawStrips(Framebuffer& target,
+                  VkRenderPass renderPass,
+                  VkPipeline pipeline,
+                  SceneView& sceneView,
+                  Gesture::Graphics& graphics,
+                  int picking);
   VkShaderModule createShaderModule(const uint32_t* words, size_t wordCount) const;
   void drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, const std::vector<int>& sequenceOrder);
   void destroy();
@@ -104,6 +115,23 @@ private:
 
   VkRenderPass m_selectionRenderPass = VK_NULL_HANDLE;
   std::array<VkPipeline, kTopologyCount> m_selectionPipelines = {};
+
+  // Thick-line strip pipeline. Vertex data is uploaded to a separate
+  // uniform-texel buffer that the shader indexes per triangle to expand each
+  // line segment into a screen-space quad with mitered ends.
+  VkDescriptorSetLayout m_thickLinesDescriptorSetLayout = VK_NULL_HANDLE;
+  VkDescriptorPool m_thickLinesDescriptorPool = VK_NULL_HANDLE;
+  VkDescriptorSet m_thickLinesDescriptorSet = VK_NULL_HANDLE;
+  VkPipelineLayout m_thickLinesPipelineLayout = VK_NULL_HANDLE;
+  VkBuffer m_thickLinesUniformBuffer = VK_NULL_HANDLE;
+  VkDeviceMemory m_thickLinesUniformMemory = VK_NULL_HANDLE;
+  VkBuffer m_stripVertexBuffer = VK_NULL_HANDLE;
+  VkDeviceMemory m_stripVertexMemory = VK_NULL_HANDLE;
+  VkDeviceSize m_stripVertexCapacity = 0;
+  VkBufferView m_stripVertexView = VK_NULL_HANDLE;
+  VkPipeline m_thickLinesDisplayPipeline = VK_NULL_HANDLE;
+  VkPipeline m_thickLinesSelectionPipeline = VK_NULL_HANDLE;
+  VkFormat m_thickLinesDisplayColorFormat = VK_FORMAT_UNDEFINED;
 
   gfxApi::Framebuffer* m_target = nullptr;
 };
