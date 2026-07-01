@@ -401,6 +401,13 @@ ViewerWindow::redrawTo(gfxApi::Framebuffer* framebuffer)
 
   m_renderer->renderTo(sceneView.camera, framebuffer);
 
+  // Composite the gesture/manipulator overlay on top of the rendered scene and
+  // populate the selection buffer for next-frame picking. The gesture renderer
+  // needs to know which framebuffer to draw into (there is no bound/current
+  // framebuffer concept as there is in OpenGL).
+  m_gestureRenderer->setTargetFramebuffer(framebuffer);
+  m_gestureRenderer->draw(sceneView, gesture.graphics);
+
   // Make sure we consumed any unused input event before we poll new events.
   // (in the case of Qt we are not explicitly polling but using signals/slots.)
   gesture.input.consume();

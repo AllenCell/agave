@@ -7,10 +7,17 @@
 
 namespace gfxApi {
 
+class Framebuffer;
+
 class IGestureRenderer
 {
 public:
   virtual ~IGestureRenderer() = default;
+
+  // Backends that render to an explicit target (e.g. Vulkan) are told which
+  // framebuffer to composite the gesture overlay onto before draw() is called.
+  // Backends that rely on a bound/current framebuffer (OpenGL) ignore this.
+  virtual void setTargetFramebuffer(Framebuffer* target) { (void)target; }
 
   virtual bool selectionBufferMatches(int width, int height) const = 0;
   virtual bool updateSelectionBuffer(int width, int height) = 0;

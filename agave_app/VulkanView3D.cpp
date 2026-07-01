@@ -91,6 +91,9 @@ VulkanView3D::VulkanView3D(QCamera* cam, QRenderSettings* qrs, RenderSettings* r
   setAttribute(Qt::WA_NoSystemBackground);
   setAutoFillBackground(false);
   setFocusPolicy(Qt::StrongFocus);
+  // Receive mouse-move events without a button held, so hover highlighting of
+  // manipulator handles works (not just during drags).
+  setMouseTracking(true);
   setMinimumSize(256, 256);
   setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
@@ -103,6 +106,7 @@ VulkanView3D::VulkanView3D(QCamera* cam, QRenderSettings* qrs, RenderSettings* r
   QObject::connect(cam, SIGNAL(Changed()), this, SLOT(OnUpdateCamera()));
   QObject::connect(qrs, SIGNAL(Changed()), this, SLOT(OnUpdateQRenderSettings()));
   QObject::connect(qrs, SIGNAL(ChangedRenderer(int)), this, SLOT(OnUpdateRenderer(int)));
+  QObject::connect(qrs, SIGNAL(Selected(SceneObject*)), this, SLOT(OnSelectionChanged(SceneObject*)));
 
   m_timer = new QTimer(this);
   m_timer->setTimerType(Qt::PreciseTimer);
@@ -183,6 +187,18 @@ VulkanView3D::onNewImage(Scene* scene)
   rs->m_DirtyFlags.SetFlag(RenderParamsDirty);
   rs->m_DirtyFlags.SetFlag(TransferFunctionDirty);
   rs->m_DirtyFlags.SetFlag(LightsDirty);
+}
+
+void
+VulkanView3D::OnSelectionChanged(SceneObject* so)
+{
+  // null is valid here to deselect.
+  m_viewerWindow->select(so);
+
+  // Re-create the manipulator tool so it picks up the new selection.
+  MANIPULATOR_MODE mode = m_manipulatorMode;
+  setManipulatorMode(MANIPULATOR_MODE::NONE);
+  setManipulatorMode(mode);
 }
 
 void
@@ -471,7 +487,10 @@ VulkanView3D::renderFrame()
   static int s_diagCount = 0;
   if (m_viewerWindow->m_renderSettings && (s_diagCount++ % 60) == 0) {
     LOG_INFO << "VulkanView3D frame " << s_diagCount
-             << " NoIterations=" << m_viewerWindow->m_renderSettings->GetNoIterations();
+             << " NoIterations=" << m_viewerWindow->m_renderSettings->GetNoIterations()
+             << " widget=(" << width() << "x" << height() << ") dpr=" << devicePixelRatioF() << " widget*dpr=("
+             << int(width() * devicePixelRatioF()) << "x" << int(height() * devicePixelRatioF())
+             << ") viewerWindow=(" << m_viewerWindow->width() << "x" << m_viewerWindow->height() << ")";
   }
 }
 
