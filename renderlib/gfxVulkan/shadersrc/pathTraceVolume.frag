@@ -1242,7 +1242,10 @@ CalculateRadiance(inout uvec2 seed)
   // vec2 pixSample = vec2(rand(seed), rand(seed));
   vec2 pixSample = OwenScrambledSobol(uint(uSampleCounter));
 
-  vec2 UV = vUv * uResolution + pixSample;
+  // Vulkan's framebuffer/NDC Y is inverted relative to OpenGL, so the fullscreen
+  // quad's vUv.y=0 is the top of the image. Flip it here so camera-screen "up"
+  // maps to the top of the framebuffer (matches the rasterized gesture overlay).
+  vec2 UV = vec2(vUv.x, 1.0 - vUv.y) * uResolution + pixSample;
 
   Ray Re = GenerateCameraRay(gCamera, UV, vec2(rand(seed), rand(seed)));
 
