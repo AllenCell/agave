@@ -6,7 +6,10 @@
 // layout (location = 2) in vec4 vCol;
 // layout (location = 3) in uint vCode;
 
-layout(set = 0, binding = 0, std140) uniform ThickLinesVertParams
+// Must match ThickLinesParams in thickLines.frag: the vertex and fragment
+// stages share a single UBO at set 0, binding 0, so their layouts must be
+// identical.
+layout(set = 0, binding = 0, std140) uniform ThickLinesParams
 {
   mat4 projection;
   vec2 resolution;
@@ -14,19 +17,19 @@ layout(set = 0, binding = 0, std140) uniform ThickLinesVertParams
   int picking;
   float thickness;
 }
-thickLinesVertParams;
+thickLinesParams;
 
 // this will be defined with R32f format so we can read it one float at a time
-layout(set = 0, binding = 1) uniform samplerBuffer stripVerts;
+layout(set = 0, binding = 2) uniform samplerBuffer stripVerts;
 
 layout(location = 0) out vec4 Frag_color;
 layout(location = 1) out vec2 Frag_UV;
 
-#define projection thickLinesVertParams.projection
-#define resolution thickLinesVertParams.resolution
-#define stripVertexOffset thickLinesVertParams.stripVertexOffset
-#define picking thickLinesVertParams.picking
-#define thickness thickLinesVertParams.thickness
+#define projection thickLinesParams.projection
+#define resolution thickLinesParams.resolution
+#define stripVertexOffset thickLinesParams.stripVertexOffset
+#define picking thickLinesParams.picking
+#define thickness thickLinesParams.thickness
 
 void
 main()
