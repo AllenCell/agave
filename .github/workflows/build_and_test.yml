@@ -108,7 +108,7 @@ jobs:
       - name: Install Vulkan SDK
         uses: humbletim/install-vulkan-sdk@v1.2
         with:
-          version: 1.4.350.1
+          version: 1.4.350.0
           cache: true
       - name: macos install deps
         if: contains(matrix.os, 'macos')

@@ -111,10 +111,8 @@ Swapchain::ensureSurface()
   }
 
   VkBool32 supported = VK_FALSE;
-  VkResult result = vkGetPhysicalDeviceSurfaceSupportKHR(m_backend->physicalDevice(),
-                                                         m_backend->graphicsQueueFamilyIndex(),
-                                                         m_vkSurface,
-                                                         &supported);
+  VkResult result = vkGetPhysicalDeviceSurfaceSupportKHR(
+    m_backend->physicalDevice(), m_backend->graphicsQueueFamilyIndex(), m_vkSurface, &supported);
   if (result != VK_SUCCESS) {
     LOG_ERROR << "vkGetPhysicalDeviceSurfaceSupportKHR failed with VkResult " << result;
     destroySurface();
@@ -182,16 +180,15 @@ Swapchain::recreateSwapchain()
   vkGetPhysicalDeviceSurfaceFormatsKHR(m_backend->physicalDevice(), m_vkSurface, &formatCount, formats.data());
 
   uint32_t presentModeCount = 0;
-  result = vkGetPhysicalDeviceSurfacePresentModesKHR(m_backend->physicalDevice(), m_vkSurface, &presentModeCount, nullptr);
+  result =
+    vkGetPhysicalDeviceSurfacePresentModesKHR(m_backend->physicalDevice(), m_vkSurface, &presentModeCount, nullptr);
   if (result != VK_SUCCESS || presentModeCount == 0) {
     LOG_ERROR << "No Vulkan present modes are available for the window";
     return false;
   }
   std::vector<VkPresentModeKHR> presentModes(presentModeCount);
-  vkGetPhysicalDeviceSurfacePresentModesKHR(m_backend->physicalDevice(),
-                                            m_vkSurface,
-                                            &presentModeCount,
-                                            presentModes.data());
+  vkGetPhysicalDeviceSurfacePresentModesKHR(
+    m_backend->physicalDevice(), m_vkSurface, &presentModeCount, presentModes.data());
 
   const VkSurfaceFormatKHR surfaceFormat = chooseSurfaceFormat(formats);
   const VkPresentModeKHR presentMode = choosePresentMode(presentModes);
@@ -250,12 +247,8 @@ Swapchain::recreateSwapchain()
   m_framebuffers.clear();
   m_framebuffers.reserve(m_images.size());
   for (VkImage image : m_images) {
-    m_framebuffers.push_back(std::make_unique<Framebuffer>(*m_backend,
-                                                           m_extent.width,
-                                                           m_extent.height,
-                                                           m_colorFormat,
-                                                           image,
-                                                           VK_IMAGE_LAYOUT_UNDEFINED));
+    m_framebuffers.push_back(std::make_unique<Framebuffer>(
+      *m_backend, m_extent.width, m_extent.height, m_colorFormat, image, VK_IMAGE_LAYOUT_UNDEFINED));
   }
 
   m_needsRecreate = false;
@@ -426,7 +419,7 @@ Swapchain::chooseCompositeAlpha(VkCompositeAlphaFlagsKHR supportedCompositeAlpha
   return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 }
 
-#if !defined(__APPLE__)
+#if !defined(__APPLE__) && !defined(_WIN32)
 bool
 Swapchain::createNativeSurface()
 {
