@@ -1,6 +1,7 @@
 #include "GestureRenderer.h"
 
 #include "CCamera.h"
+#include "Font.h"
 #include "Framebuffer.h"
 #include "Logging.h"
 #include "VulkanUtil.h"
@@ -322,6 +323,128 @@ GestureRenderer::ensureCommonResources()
       return false;
     }
   }
+  return true;
+}
+
+bool
+GestureRenderer::ensureFontResources(const Font& font)
+{
+  // Nothing to do until the font atlas has been baked, or if we've already
+  // uploaded it. Font atlas contents are baked once at load time and never
+  // change, so a single upload is sufficient for the lifetime of the renderer.
+  if (m_fontView != VK_NULL_HANDLE) {
+    return true;
+  }
+  const uint32_t w = font.getTextureWidth();
+  const uint32_t h = font.getTextureHeight();
+  const unsigned char* alpha = font.getTextureData();
+  if (w == 0 || h == 0 || alpha == nullptr) {
+    return false;
+  }
+
+  VkDevice device = m_backend->logicalDevice();
+
+  // Expand the single-channel alpha atlas to RGBA8 with white RGB, matching
+  // the OpenGL FontGL path so the gui shader's `result *= texture(...)`
+  // multiplication produces vertex-colored glyphs with correct coverage.
+  const VkDeviceSize byteCount = static_cast<VkDeviceSize>(w) * h * 4;
+  VkBuffer staging = VK_NULL_HANDLE;
+  VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
+  if (!createBuffer(*m_backend,
+                    byteCount,
+                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                    staging,
+                    stagingMemory)) {
+    return false;
+  }
+  void* mapped = nullptr;
+  if (vkMapMemory(device, stagingMemory, 0, byteCount, 0, &mapped) != VK_SUCCESS) {
+    vkDestroyBuffer(device, staging, nullptr);
+    vkFreeMemory(device, stagingMemory, nullptr);
+    return false;
+  }
+  auto* dst = static_cast<uint8_t*>(mapped);
+  const size_t pixelCount = static_cast<size_t>(w) * h;
+  for (size_t i = 0; i < pixelCount; ++i) {
+    dst[i * 4 + 0] = 255;
+    dst[i * 4 + 1] = 255;
+    dst[i * 4 + 2] = 255;
+    dst[i * 4 + 3] = alpha[i];
+  }
+  vkUnmapMemory(device, stagingMemory);
+
+  if (!createImage(*m_backend,
+                   w,
+                   h,
+                   1,
+                   1,
+                   VK_FORMAT_R8G8B8A8_UNORM,
+                   VK_IMAGE_TYPE_2D,
+                   VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                   m_fontImage,
+                   m_fontMemory) ||
+      !createImageView(*m_backend,
+                       m_fontImage,
+                       VK_FORMAT_R8G8B8A8_UNORM,
+                       VK_IMAGE_VIEW_TYPE_2D,
+                       VK_IMAGE_ASPECT_COLOR_BIT,
+                       1,
+                       m_fontView)) {
+    vkDestroyBuffer(device, staging, nullptr);
+    vkFreeMemory(device, stagingMemory, nullptr);
+    return false;
+  }
+
+  transitionImageLayout(*m_backend,
+                        m_fontImage,
+                        VK_IMAGE_ASPECT_COLOR_BIT,
+                        VK_IMAGE_LAYOUT_UNDEFINED,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        1);
+  copyBufferToImage(*m_backend, staging, m_fontImage, w, h, 1, 1);
+  transitionImageLayout(*m_backend,
+                        m_fontImage,
+                        VK_IMAGE_ASPECT_COLOR_BIT,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        1);
+  vkDestroyBuffer(device, staging, nullptr);
+  vkFreeMemory(device, stagingMemory, nullptr);
+
+  // Linear filtering matches FontGL (which sets GL_LINEAR on the atlas).
+  VkSamplerCreateInfo s = {};
+  s.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  s.magFilter = VK_FILTER_LINEAR;
+  s.minFilter = VK_FILTER_LINEAR;
+  s.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+  s.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  s.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  s.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  if (vkCreateSampler(device, &s, nullptr, &m_fontSampler) != VK_SUCCESS) {
+    LOG_ERROR << "vkCreateSampler for gesture font atlas failed";
+    return false;
+  }
+
+  // Point the gui shader's Texture binding (set 0, binding 1) at the font
+  // atlas instead of the 1x1 dummy image. Safe to do while no command buffer
+  // is in flight: draws are submitted via endSingleTimeCommands which waits
+  // on the queue before returning.
+  VkDescriptorImageInfo imgInfo = {};
+  imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  imgInfo.imageView = m_fontView;
+  imgInfo.sampler = m_fontSampler;
+  VkWriteDescriptorSet write = {};
+  write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  write.dstSet = m_descriptorSet;
+  write.dstBinding = 1;
+  write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  write.descriptorCount = 1;
+  write.pImageInfo = &imgInfo;
+  vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+
+  m_fontWidth = w;
+  m_fontHeight = h;
   return true;
 }
 
@@ -1063,6 +1186,10 @@ GestureRenderer::drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, con
     graphics.clearCommands();
     return;
   }
+  // Upload the font atlas once it's loaded so text glyphs sample real data
+  // instead of the 1x1 dummy image. Non-fatal on failure (text just won't
+  // render); log-only inside the helper.
+  ensureFontResources(graphics.font);
 
   if (hasVerts) {
     uploadVerts(graphics.verts.data(), graphics.verts.size() * sizeof(Gesture::Graphics::VertsCode));
@@ -1140,6 +1267,7 @@ GestureRenderer::drawUnderlay(SceneView& sceneView, Gesture::Graphics& graphics)
   if (!ensureCommonResources() || !ensureDisplayPipelines(target->colorFormat())) {
     return;
   }
+  ensureFontResources(graphics.font);
 
   if (hasVerts) {
     uploadVerts(graphics.verts.data(), graphics.verts.size() * sizeof(Gesture::Graphics::VertsCode));
@@ -1321,6 +1449,24 @@ GestureRenderer::destroy()
     vkFreeMemory(device, m_dummyMemory, nullptr);
     m_dummyMemory = VK_NULL_HANDLE;
   }
+  if (m_fontSampler) {
+    vkDestroySampler(device, m_fontSampler, nullptr);
+    m_fontSampler = VK_NULL_HANDLE;
+  }
+  if (m_fontView) {
+    vkDestroyImageView(device, m_fontView, nullptr);
+    m_fontView = VK_NULL_HANDLE;
+  }
+  if (m_fontImage) {
+    vkDestroyImage(device, m_fontImage, nullptr);
+    m_fontImage = VK_NULL_HANDLE;
+  }
+  if (m_fontMemory) {
+    vkFreeMemory(device, m_fontMemory, nullptr);
+    m_fontMemory = VK_NULL_HANDLE;
+  }
+  m_fontWidth = 0;
+  m_fontHeight = 0;
   if (m_uniformBuffer) {
     vkDestroyBuffer(device, m_uniformBuffer, nullptr);
     m_uniformBuffer = VK_NULL_HANDLE;
