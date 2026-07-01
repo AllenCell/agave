@@ -399,13 +399,22 @@ ViewerWindow::redrawTo(gfxApi::Framebuffer* framebuffer)
   // fill gesture graphics with draw commands
   update(sceneView.viewport, m_clock, gesture);
 
+  // The gesture renderer needs to know which framebuffer to draw into (there
+  // is no bound/current framebuffer concept as there is in OpenGL). Set it
+  // before drawUnderlay/draw so both passes target the same framebuffer.
+  m_gestureRenderer->setTargetFramebuffer(framebuffer);
+
+  // Clear the target framebuffer to the background color, then draw the
+  // underlay (e.g. back-facing bounding-box edges) so that the volume render
+  // pass below can alpha-blend over it. The volume render pass is configured
+  // with LOAD_OP_LOAD so it preserves this underlay.
+  framebuffer->clear(backgroundClearColor(sceneView.scene));
+  m_gestureRenderer->drawUnderlay(sceneView, gesture.graphics);
+
   m_renderer->renderTo(sceneView.camera, framebuffer);
 
   // Composite the gesture/manipulator overlay on top of the rendered scene and
-  // populate the selection buffer for next-frame picking. The gesture renderer
-  // needs to know which framebuffer to draw into (there is no bound/current
-  // framebuffer concept as there is in OpenGL).
-  m_gestureRenderer->setTargetFramebuffer(framebuffer);
+  // populate the selection buffer for next-frame picking.
   m_gestureRenderer->draw(sceneView, gesture.graphics);
 
   // Make sure we consumed any unused input event before we poll new events.

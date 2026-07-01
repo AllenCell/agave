@@ -59,10 +59,14 @@ constexpr uint32_t kMaxNoTfNodes = 16u;
 
 struct alignas(16) GpuPtCamera
 {
-  glm::vec3 m_from;  float _p0;
-  glm::vec3 m_U;     float _p1;
-  glm::vec3 m_V;     float _p2;
-  glm::vec3 m_N;     float _p3;
+  glm::vec3 m_from;
+  float _p0;
+  glm::vec3 m_U;
+  float _p1;
+  glm::vec3 m_V;
+  float _p2;
+  glm::vec3 m_N;
+  float _p3;
   glm::vec4 m_screen;
   glm::vec2 m_invScreen;
   float m_focalDistance;
@@ -78,17 +82,24 @@ struct alignas(16) GpuPtLight
 {
   float m_theta, m_phi, m_width, m_halfWidth;
   float m_height, m_halfHeight, m_distance, m_skyRadius;
-  glm::vec3 m_P;      float _pP;
-  glm::vec3 m_target; float _pT;
-  glm::vec3 m_N;      float _pN;
-  glm::vec3 m_U;      float _pU;
+  glm::vec3 m_P;
+  float _pP;
+  glm::vec3 m_target;
+  float _pT;
+  glm::vec3 m_N;
+  float _pN;
+  glm::vec3 m_U;
+  float _pU;
   glm::vec3 m_V;
   float m_area;
   float m_areaPdf;
   float _pad0[3];
-  glm::vec3 m_color;       float _pC;
-  glm::vec3 m_colorTop;    float _pCT;
-  glm::vec3 m_colorMiddle; float _pCM;
+  glm::vec3 m_color;
+  float _pC;
+  glm::vec3 m_colorTop;
+  float _pCT;
+  glm::vec3 m_colorMiddle;
+  float _pCM;
   glm::vec3 m_colorBottom;
   int m_T;
 };
@@ -102,7 +113,8 @@ struct alignas(16) PtVolumeUniforms
 {
   GpuPtCamera gCamera;
   GpuPtLight gLights[2];
-  glm::vec3 gClippedAaBbMin;  float _padMin;
+  glm::vec3 gClippedAaBbMin;
+  float _padMin;
   glm::vec3 gClippedAaBbMax;
   float gDensityScale;
   float gStepSize;
@@ -112,8 +124,10 @@ struct alignas(16) PtVolumeUniforms
   int g_nChannels;
   int gShadingType;
   float _padShade[3];
-  glm::vec3 gGradientDeltaX;  float _pgx;
-  glm::vec3 gGradientDeltaY;  float _pgy;
+  glm::vec3 gGradientDeltaX;
+  float _pgx;
+  glm::vec3 gGradientDeltaY;
+  float _pgy;
   glm::vec3 gGradientDeltaZ;
   float gInvGradientDelta;
   float gGradientFactor;
@@ -124,11 +138,11 @@ struct alignas(16) PtVolumeUniforms
   glm::vec4 g_lutMax;
   glm::vec4 g_lutMin;
   glm::vec4 g_labels;
-  glm::vec4 g_opacity[4];   // float[4], std140 stride 16; value in .x
-  glm::vec4 g_emissive[4];  // vec3[4], std140 stride 16; value in .xyz
+  glm::vec4 g_opacity[4];  // float[4], std140 stride 16; value in .x
+  glm::vec4 g_emissive[4]; // vec3[4], std140 stride 16; value in .xyz
   glm::vec4 g_diffuse[4];
   glm::vec4 g_specular[4];
-  glm::vec4 g_roughness[4]; // float[4]; value in .x
+  glm::vec4 g_roughness[4];          // float[4]; value in .x
   glm::vec4 g_tf[4 * kMaxNoTfNodes]; // vec2[64], std140 stride 16; value in .xy
   glm::uvec4 g_tf_nNodes;
   float uFrameCounter;
@@ -160,7 +174,12 @@ const std::array<uint16_t, 6> kFullscreenIndices = { 0, 1, 2, 2, 3, 0 };
 
 template<typename T>
 bool
-uploadHostBuffer(Backend& backend, VkBufferUsageFlags usage, const T* data, size_t count, VkBuffer& buffer, VkDeviceMemory& memory)
+uploadHostBuffer(Backend& backend,
+                 VkBufferUsageFlags usage,
+                 const T* data,
+                 size_t count,
+                 VkBuffer& buffer,
+                 VkDeviceMemory& memory)
 {
   const VkDeviceSize byteCount = static_cast<VkDeviceSize>(sizeof(T) * count);
   if (!createBuffer(backend,
@@ -191,12 +210,15 @@ createUniformBuffer(Backend& backend, VkDeviceSize size, VkBuffer& buffer, VkDev
 }
 
 bool
-createColorRenderPass(Backend& backend, VkFormat colorFormat, VkRenderPass& renderPass)
+createColorRenderPass(Backend& backend,
+                      VkFormat colorFormat,
+                      VkRenderPass& renderPass,
+                      VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR)
 {
   VkAttachmentDescription colorAttachment = {};
   colorAttachment.format = colorFormat;
   colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-  colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  colorAttachment.loadOp = loadOp;
   colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -347,23 +369,21 @@ RenderVkPT::ensureFullscreenResources(VkFormat toneMapFormat)
 {
   VkDevice device = m_backend.logicalDevice();
 
-  if (m_quadVertexBuffer == VK_NULL_HANDLE &&
-      !uploadHostBuffer(m_backend,
-                        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                        kFullscreenVertices.data(),
-                        kFullscreenVertices.size(),
-                        m_quadVertexBuffer,
-                        m_quadVertexMemory)) {
+  if (m_quadVertexBuffer == VK_NULL_HANDLE && !uploadHostBuffer(m_backend,
+                                                                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                                                kFullscreenVertices.data(),
+                                                                kFullscreenVertices.size(),
+                                                                m_quadVertexBuffer,
+                                                                m_quadVertexMemory)) {
     return false;
   }
 
-  if (m_quadIndexBuffer == VK_NULL_HANDLE &&
-      !uploadHostBuffer(m_backend,
-                        VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                        kFullscreenIndices.data(),
-                        kFullscreenIndices.size(),
-                        m_quadIndexBuffer,
-                        m_quadIndexMemory)) {
+  if (m_quadIndexBuffer == VK_NULL_HANDLE && !uploadHostBuffer(m_backend,
+                                                               VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                                                               kFullscreenIndices.data(),
+                                                               kFullscreenIndices.size(),
+                                                               m_quadIndexBuffer,
+                                                               m_quadIndexMemory)) {
     return false;
   }
   m_quadIndexCount = static_cast<uint32_t>(kFullscreenIndices.size());
@@ -508,7 +528,11 @@ RenderVkPT::ensureFullscreenResources(VkFormat toneMapFormat)
   m_toneMapPipelineColorFormat = toneMapFormat;
 
   if (!createColorRenderPass(m_backend, VK_FORMAT_R32G32B32A32_SFLOAT, m_accumRenderPass) ||
-      !createColorRenderPass(m_backend, toneMapFormat, m_toneMapRenderPass)) {
+      // Tone map is the final blit into the caller's framebuffer. Preserve
+      // existing contents (e.g. the gesture underlay's back-facing bounding-box
+      // edges drawn beforehand) so the tone-mapped volume can alpha-blend
+      // against them.
+      !createColorRenderPass(m_backend, toneMapFormat, m_toneMapRenderPass, VK_ATTACHMENT_LOAD_OP_LOAD)) {
     return false;
   }
 
@@ -529,15 +553,15 @@ RenderVkPT::ensureFullscreenResources(VkFormat toneMapFormat)
     return false;
   }
 
-  auto createFullscreenPipeline =
-    [&](VkRenderPass renderPass,
-        VkPipelineLayout pipelineLayout,
-        const uint32_t* vertexWords,
-        size_t vertexWordCount,
-        const uint32_t* fragmentWords,
-        size_t fragmentWordCount,
-        bool includeUv,
-        VkPipeline& pipeline) -> bool {
+  auto createFullscreenPipeline = [&](VkRenderPass renderPass,
+                                      VkPipelineLayout pipelineLayout,
+                                      const uint32_t* vertexWords,
+                                      size_t vertexWordCount,
+                                      const uint32_t* fragmentWords,
+                                      size_t fragmentWordCount,
+                                      bool includeUv,
+                                      bool enableBlend,
+                                      VkPipeline& pipeline) -> bool {
     VkShaderModule vertexShader = createShaderModule(vertexWords, vertexWordCount);
     VkShaderModule fragmentShader = createShaderModule(fragmentWords, fragmentWordCount);
     if (vertexShader == VK_NULL_HANDLE || fragmentShader == VK_NULL_HANDLE) {
@@ -606,7 +630,18 @@ RenderVkPT::ensureFullscreenResources(VkFormat toneMapFormat)
     multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
     VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
-    colorBlendAttachment.blendEnable = VK_FALSE;
+    colorBlendAttachment.blendEnable = enableBlend ? VK_TRUE : VK_FALSE;
+    if (enableBlend) {
+      // Straight-alpha blending: dst = src.rgb*src.a + dst.rgb*(1-src.a).
+      // Mirrors the OpenGL path (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA) so the
+      // tone-mapped path-traced image composites over the pre-drawn underlay.
+      colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+      colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+      colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    }
     colorBlendAttachment.colorWriteMask =
       VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
@@ -653,6 +688,7 @@ RenderVkPT::ensureFullscreenResources(VkFormat toneMapFormat)
                                   ptAccum_frag_spv,
                                   ptAccum_frag_spv_word_count,
                                   false,
+                                  false,
                                   m_accumPipeline) &&
          createFullscreenPipeline(m_toneMapRenderPass,
                                   m_toneMapPipelineLayout,
@@ -660,6 +696,7 @@ RenderVkPT::ensureFullscreenResources(VkFormat toneMapFormat)
                                   toneMap_vert_spv_word_count,
                                   toneMap_frag_spv,
                                   toneMap_frag_spv_word_count,
+                                  true,
                                   true,
                                   m_toneMapPipeline);
 }
@@ -832,8 +869,13 @@ RenderVkPT::ensureDummyLutTexture()
                    m_dummyLutMemory)) {
     return false;
   }
-  if (!createImageView(
-        m_backend, m_dummyLutImage, VK_FORMAT_R8_UNORM, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 1, m_dummyLutView)) {
+  if (!createImageView(m_backend,
+                       m_dummyLutImage,
+                       VK_FORMAT_R8_UNORM,
+                       VK_IMAGE_VIEW_TYPE_2D,
+                       VK_IMAGE_ASPECT_COLOR_BIT,
+                       1,
+                       m_dummyLutView)) {
     return false;
   }
   transitionImageLayout(m_backend,
@@ -1190,7 +1232,8 @@ RenderVkPT::updatePtVolumeUniforms(const CCamera& camera, int sampleCounter)
 
   u.uFrameCounter = static_cast<float>(sampleCounter + 1);
   u.uSampleCounter = static_cast<float>(sampleCounter);
-  u.uResolution = glm::vec2(static_cast<float>(std::max<uint32_t>(1, m_w)), static_cast<float>(std::max<uint32_t>(1, m_h)));
+  u.uResolution =
+    glm::vec2(static_cast<float>(std::max<uint32_t>(1, m_w)), static_cast<float>(std::max<uint32_t>(1, m_h)));
 
   void* mapped = nullptr;
   vkMapMemory(m_backend.logicalDevice(), m_ptVolumeUniformMemory, 0, sizeof(PtVolumeUniforms), 0, &mapped);
@@ -1385,14 +1428,8 @@ RenderVkPT::runAccumulationPass(Framebuffer& framebuffer)
   vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
   vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
   vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_accumPipeline);
-  vkCmdBindDescriptorSets(commandBuffer,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          m_accumPipelineLayout,
-                          0,
-                          1,
-                          &m_accumDescriptorSet,
-                          0,
-                          nullptr);
+  vkCmdBindDescriptorSets(
+    commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_accumPipelineLayout, 0, 1, &m_accumDescriptorSet, 0, nullptr);
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_quadVertexBuffer, &offset);
   vkCmdBindIndexBuffer(commandBuffer, m_quadIndexBuffer, 0, VK_INDEX_TYPE_UINT16);
@@ -1451,14 +1488,8 @@ RenderVkPT::runToneMapPass(Framebuffer& framebuffer)
   vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
   vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
   vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_toneMapPipeline);
-  vkCmdBindDescriptorSets(commandBuffer,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          m_toneMapPipelineLayout,
-                          0,
-                          1,
-                          &m_toneMapDescriptorSet,
-                          0,
-                          nullptr);
+  vkCmdBindDescriptorSets(
+    commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_toneMapPipelineLayout, 0, 1, &m_toneMapDescriptorSet, 0, nullptr);
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_quadVertexBuffer, &offset);
   vkCmdBindIndexBuffer(commandBuffer, m_quadIndexBuffer, 0, VK_INDEX_TYPE_UINT16);
