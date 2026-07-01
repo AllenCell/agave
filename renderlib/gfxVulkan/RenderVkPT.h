@@ -33,11 +33,16 @@ protected:
 private:
   bool ensureFramebuffers(uint32_t w, uint32_t h);
   bool ensureFullscreenResources(VkFormat toneMapFormat);
+  bool ensurePtVolumeResources();
+  bool ensureDummyLutTexture();
   bool updateAccumDescriptorSet();
   bool updateToneMapDescriptorSet();
+  bool updatePtVolumeDescriptorSet(VkImageView previousAccumView);
   bool updateAccumUniformBuffer();
   bool updateToneMapUniformBuffer(const CCamera& camera);
+  bool updatePtVolumeUniforms(const CCamera& camera, int sampleCounter);
   void renderToFramebufferPT(const CCamera& camera, Framebuffer& framebuffer);
+  void renderPtVolume(Framebuffer& target);
   void runAccumulationPass(Framebuffer& framebuffer);
   void runToneMapPass(Framebuffer& framebuffer);
   void transitionToShaderRead(Framebuffer& framebuffer);
@@ -76,6 +81,22 @@ private:
   VkPipelineLayout m_toneMapPipelineLayout = VK_NULL_HANDLE;
   VkPipeline m_toneMapPipeline = VK_NULL_HANDLE;
   VkFormat m_toneMapPipelineColorFormat = VK_FORMAT_UNDEFINED;
+
+  // Per-sample Monte Carlo path-trace volume pass (pathTraceVolume.frag).
+  VkBuffer m_ptVolumeUniformBuffer = VK_NULL_HANDLE;
+  VkDeviceMemory m_ptVolumeUniformMemory = VK_NULL_HANDLE;
+  VkDescriptorSetLayout m_ptVolumeDescriptorSetLayout = VK_NULL_HANDLE;
+  VkDescriptorPool m_ptVolumeDescriptorPool = VK_NULL_HANDLE;
+  VkDescriptorSet m_ptVolumeDescriptorSet = VK_NULL_HANDLE;
+  VkRenderPass m_ptVolumeRenderPass = VK_NULL_HANDLE;
+  VkPipelineLayout m_ptVolumePipelineLayout = VK_NULL_HANDLE;
+  VkPipeline m_ptVolumePipeline = VK_NULL_HANDLE;
+
+  // 1x1 placeholder bound to the shader's deprecated g_lutTexture[4] sampler array.
+  VkImage m_dummyLutImage = VK_NULL_HANDLE;
+  VkDeviceMemory m_dummyLutMemory = VK_NULL_HANDLE;
+  VkImageView m_dummyLutView = VK_NULL_HANDLE;
+  VkSampler m_dummyLutSampler = VK_NULL_HANDLE;
 };
 
 } // namespace gfxvulkan
