@@ -11,6 +11,8 @@
 
 #include "gfxVulkan/shadersrc/gui_frag_spv.hpp"
 #include "gfxVulkan/shadersrc/gui_vert_spv.hpp"
+#include "gfxVulkan/shadersrc/thickLines_frag_spv.hpp"
+#include "gfxVulkan/shadersrc/thickLines_vert_spv.hpp"
 
 #include <array>
 #include <cstring>
@@ -25,6 +27,18 @@ struct alignas(16) GuiParams
   glm::mat4 projection = glm::mat4(1.0f);
   int picking = 0;
   int pad[3] = {};
+};
+
+// Matches the layout of ThickLinesParams in thickLines.vert / thickLines.frag.
+// std140: mat4 at 0..63, vec2 at 64..71, three trailing ints/float at 72..83.
+struct alignas(16) ThickLinesParams
+{
+  glm::mat4 projection = glm::mat4(1.0f);
+  glm::vec2 resolution = glm::vec2(1.0f);
+  int stripVertexOffset = 0;
+  int picking = 0;
+  float thickness = 1.0f;
+  float pad = 0.0f;
 };
 
 // Vulkan clip space differs from OpenGL (inverted Y, depth 0..1). The volume
@@ -628,6 +642,396 @@ GestureRenderer::drawSequences(Framebuffer& target,
   }
 }
 
+bool
+GestureRenderer::ensureThickLinesResources()
+{
+  VkDevice device = m_backend->logicalDevice();
+
+  if (m_thickLinesUniformBuffer == VK_NULL_HANDLE &&
+      !createBuffer(*m_backend,
+                    sizeof(ThickLinesParams),
+                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                    m_thickLinesUniformBuffer,
+                    m_thickLinesUniformMemory)) {
+    return false;
+  }
+
+  if (m_thickLinesDescriptorSetLayout == VK_NULL_HANDLE) {
+    // 0: UBO shared by vertex+fragment
+    // 1: sampler2D used only by fragment (dummy: strip verts flag "no texture")
+    // 2: uniform texel buffer of strip vertex floats, sampled by vertex
+    std::array<VkDescriptorSetLayoutBinding, 3> bindings = {};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[2].binding = 2;
+    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+    bindings[2].descriptorCount = 1;
+    bindings[2].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    VkDescriptorSetLayoutCreateInfo li = {};
+    li.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    li.bindingCount = static_cast<uint32_t>(bindings.size());
+    li.pBindings = bindings.data();
+    if (vkCreateDescriptorSetLayout(device, &li, nullptr, &m_thickLinesDescriptorSetLayout) != VK_SUCCESS) {
+      LOG_ERROR << "vkCreateDescriptorSetLayout for gesture thick lines failed";
+      return false;
+    }
+
+    std::array<VkDescriptorPoolSize, 3> ps = {};
+    ps[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    ps[0].descriptorCount = 1;
+    ps[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    ps[1].descriptorCount = 1;
+    ps[2].type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+    ps[2].descriptorCount = 1;
+    VkDescriptorPoolCreateInfo pi = {};
+    pi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pi.maxSets = 1;
+    pi.poolSizeCount = static_cast<uint32_t>(ps.size());
+    pi.pPoolSizes = ps.data();
+    if (vkCreateDescriptorPool(device, &pi, nullptr, &m_thickLinesDescriptorPool) != VK_SUCCESS) {
+      LOG_ERROR << "vkCreateDescriptorPool for gesture thick lines failed";
+      return false;
+    }
+    VkDescriptorSetAllocateInfo ai = {};
+    ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    ai.descriptorPool = m_thickLinesDescriptorPool;
+    ai.descriptorSetCount = 1;
+    ai.pSetLayouts = &m_thickLinesDescriptorSetLayout;
+    if (vkAllocateDescriptorSets(device, &ai, &m_thickLinesDescriptorSet) != VK_SUCCESS) {
+      LOG_ERROR << "vkAllocateDescriptorSets for gesture thick lines failed";
+      return false;
+    }
+
+    // Bindings 0 and 1 never change after creation; binding 2 (the strip-verts
+    // texel buffer view) is (re)written by uploadStripVerts() whenever the
+    // buffer is (re)allocated.
+    VkDescriptorBufferInfo bufInfo = {};
+    bufInfo.buffer = m_thickLinesUniformBuffer;
+    bufInfo.offset = 0;
+    bufInfo.range = sizeof(ThickLinesParams);
+    VkDescriptorImageInfo imgInfo = {};
+    imgInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imgInfo.imageView = m_dummyView;
+    imgInfo.sampler = m_dummySampler;
+    std::array<VkWriteDescriptorSet, 2> writes = {};
+    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = m_thickLinesDescriptorSet;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[0].descriptorCount = 1;
+    writes[0].pBufferInfo = &bufInfo;
+    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1].dstSet = m_thickLinesDescriptorSet;
+    writes[1].dstBinding = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[1].descriptorCount = 1;
+    writes[1].pImageInfo = &imgInfo;
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+  }
+
+  if (m_thickLinesPipelineLayout == VK_NULL_HANDLE) {
+    VkPipelineLayoutCreateInfo pli = {};
+    pli.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pli.setLayoutCount = 1;
+    pli.pSetLayouts = &m_thickLinesDescriptorSetLayout;
+    if (vkCreatePipelineLayout(device, &pli, nullptr, &m_thickLinesPipelineLayout) != VK_SUCCESS) {
+      LOG_ERROR << "vkCreatePipelineLayout for gesture thick lines failed";
+      return false;
+    }
+  }
+  return true;
+}
+
+VkPipeline
+GestureRenderer::createThickLinesPipeline(VkRenderPass renderPass)
+{
+  VkDevice device = m_backend->logicalDevice();
+  const bool blendEnable = (renderPass == m_displayRenderPass);
+
+  VkShaderModule vs = createShaderModule(thickLines_vert_spv, thickLines_vert_spv_word_count);
+  VkShaderModule fs = createShaderModule(thickLines_frag_spv, thickLines_frag_spv_word_count);
+  if (vs == VK_NULL_HANDLE || fs == VK_NULL_HANDLE) {
+    if (vs)
+      vkDestroyShaderModule(device, vs, nullptr);
+    if (fs)
+      vkDestroyShaderModule(device, fs, nullptr);
+    return VK_NULL_HANDLE;
+  }
+
+  VkPipelineShaderStageCreateInfo stages[2] = {};
+  stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+  stages[0].module = vs;
+  stages[0].pName = "main";
+  stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+  stages[1].module = fs;
+  stages[1].pName = "main";
+
+  // No vertex input: the vertex shader synthesizes positions from gl_VertexIndex
+  // and reads geometry from the uniform texel buffer instead.
+  VkPipelineVertexInputStateCreateInfo vi = {};
+  vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+  VkPipelineInputAssemblyStateCreateInfo ia = {};
+  ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+  ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+  VkPipelineViewportStateCreateInfo vp = {};
+  vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+  vp.viewportCount = 1;
+  vp.scissorCount = 1;
+
+  VkPipelineRasterizationStateCreateInfo rs = {};
+  rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+  rs.polygonMode = VK_POLYGON_MODE_FILL;
+  rs.cullMode = VK_CULL_MODE_NONE;
+  rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+  rs.lineWidth = 1.0f;
+
+  VkPipelineMultisampleStateCreateInfo ms = {};
+  ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+  ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+  VkPipelineColorBlendAttachmentState cba = {};
+  cba.blendEnable = blendEnable ? VK_TRUE : VK_FALSE;
+  cba.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+  cba.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+  cba.colorBlendOp = VK_BLEND_OP_ADD;
+  cba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+  cba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+  cba.alphaBlendOp = VK_BLEND_OP_ADD;
+  cba.colorWriteMask =
+    VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+  VkPipelineColorBlendStateCreateInfo cb = {};
+  cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+  cb.attachmentCount = 1;
+  cb.pAttachments = &cba;
+
+  std::array<VkDynamicState, 2> dyn = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+  VkPipelineDynamicStateCreateInfo ds = {};
+  ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+  ds.dynamicStateCount = static_cast<uint32_t>(dyn.size());
+  ds.pDynamicStates = dyn.data();
+
+  VkGraphicsPipelineCreateInfo pi = {};
+  pi.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+  pi.stageCount = 2;
+  pi.pStages = stages;
+  pi.pVertexInputState = &vi;
+  pi.pInputAssemblyState = &ia;
+  pi.pViewportState = &vp;
+  pi.pRasterizationState = &rs;
+  pi.pMultisampleState = &ms;
+  pi.pColorBlendState = &cb;
+  pi.pDynamicState = &ds;
+  pi.layout = m_thickLinesPipelineLayout;
+  pi.renderPass = renderPass;
+  pi.subpass = 0;
+
+  VkPipeline pipeline = VK_NULL_HANDLE;
+  VkResult r = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pi, nullptr, &pipeline);
+  vkDestroyShaderModule(device, fs, nullptr);
+  vkDestroyShaderModule(device, vs, nullptr);
+  if (r != VK_SUCCESS) {
+    LOG_ERROR << "vkCreateGraphicsPipelines for gesture thick lines failed with VkResult " << r;
+    return VK_NULL_HANDLE;
+  }
+  return pipeline;
+}
+
+bool
+GestureRenderer::ensureThickLinesPipelines(VkFormat colorFormat)
+{
+  VkDevice device = m_backend->logicalDevice();
+
+  const bool displayColorChanged = (m_thickLinesDisplayColorFormat != colorFormat);
+  if (m_thickLinesDisplayPipeline == VK_NULL_HANDLE || displayColorChanged) {
+    if (m_thickLinesDisplayPipeline != VK_NULL_HANDLE) {
+      vkDestroyPipeline(device, m_thickLinesDisplayPipeline, nullptr);
+      m_thickLinesDisplayPipeline = VK_NULL_HANDLE;
+    }
+    m_thickLinesDisplayPipeline = createThickLinesPipeline(m_displayRenderPass);
+    if (m_thickLinesDisplayPipeline == VK_NULL_HANDLE) {
+      return false;
+    }
+    m_thickLinesDisplayColorFormat = colorFormat;
+  }
+  if (m_thickLinesSelectionPipeline == VK_NULL_HANDLE) {
+    m_thickLinesSelectionPipeline = createThickLinesPipeline(m_selectionRenderPass);
+    if (m_thickLinesSelectionPipeline == VK_NULL_HANDLE) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void
+GestureRenderer::uploadStripVerts(const void* data, size_t byteCount)
+{
+  VkDevice device = m_backend->logicalDevice();
+  const bool reallocate = byteCount > m_stripVertexCapacity;
+  if (reallocate) {
+    if (m_stripVertexView != VK_NULL_HANDLE) {
+      vkDestroyBufferView(device, m_stripVertexView, nullptr);
+      m_stripVertexView = VK_NULL_HANDLE;
+    }
+    if (m_stripVertexBuffer != VK_NULL_HANDLE) {
+      vkDestroyBuffer(device, m_stripVertexBuffer, nullptr);
+      vkFreeMemory(device, m_stripVertexMemory, nullptr);
+      m_stripVertexBuffer = VK_NULL_HANDLE;
+      m_stripVertexMemory = VK_NULL_HANDLE;
+    }
+    if (!createBuffer(*m_backend,
+                      byteCount,
+                      VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT,
+                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                      m_stripVertexBuffer,
+                      m_stripVertexMemory)) {
+      m_stripVertexCapacity = 0;
+      return;
+    }
+    m_stripVertexCapacity = byteCount;
+
+    // The shader indexes the buffer one float at a time (R32_SFLOAT
+    // samplerBuffer), so the buffer view spans the whole allocation as floats.
+    VkBufferViewCreateInfo vi = {};
+    vi.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
+    vi.buffer = m_stripVertexBuffer;
+    vi.format = VK_FORMAT_R32_SFLOAT;
+    vi.offset = 0;
+    vi.range = VK_WHOLE_SIZE;
+    if (vkCreateBufferView(device, &vi, nullptr, &m_stripVertexView) != VK_SUCCESS) {
+      LOG_ERROR << "vkCreateBufferView for gesture strip verts failed";
+      return;
+    }
+
+    VkWriteDescriptorSet write = {};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = m_thickLinesDescriptorSet;
+    write.dstBinding = 2;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+    write.descriptorCount = 1;
+    write.pTexelBufferView = &m_stripVertexView;
+    vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+  }
+  void* mapped = nullptr;
+  vkMapMemory(device, m_stripVertexMemory, 0, byteCount, 0, &mapped);
+  std::memcpy(mapped, data, byteCount);
+  vkUnmapMemory(device, m_stripVertexMemory);
+}
+
+void
+GestureRenderer::drawStrips(Framebuffer& target,
+                            VkRenderPass renderPass,
+                            VkPipeline pipeline,
+                            SceneView& sceneView,
+                            Gesture::Graphics& graphics,
+                            int picking)
+{
+  if (graphics.stripRanges.empty() || pipeline == VK_NULL_HANDLE) {
+    return;
+  }
+
+  VkDevice device = m_backend->logicalDevice();
+
+  glm::mat4 viewMatrix(1.0f);
+  sceneView.camera.getViewMatrix(viewMatrix);
+  glm::mat4 projMatrix(1.0f);
+  sceneView.camera.getProjMatrix(projMatrix);
+  const glm::mat4 vpMat = vulkanProjectionCorrection() * projMatrix * viewMatrix;
+  const glm::mat4 ortho = vulkanProjectionCorrection() * glm::ortho((float)sceneView.viewport.region.lower.x,
+                                                                    (float)sceneView.viewport.region.upper.x,
+                                                                    (float)sceneView.viewport.region.lower.y,
+                                                                    (float)sceneView.viewport.region.upper.y,
+                                                                    1.0f,
+                                                                    -1.0f);
+  const glm::ivec2 vpSize = sceneView.viewport.region.size();
+
+  for (size_t i = 0; i < graphics.stripRanges.size(); ++i) {
+    const glm::ivec2& range = graphics.stripRanges[i];
+    // The strip layout adds one leading and one trailing padding vertex for
+    // computing miters at the endpoints. See gesture.h::addLineStrip.
+    const int totalVerts = range.y - range.x;
+    const int N = totalVerts - 2; // real vertices
+    const int segments = N - 1;
+    if (segments <= 0) {
+      continue;
+    }
+
+    ThickLinesParams params;
+    params.projection = (graphics.stripProjections[i] == Gesture::Graphics::CommandSequence::k2dScreen) ? ortho : vpMat;
+    params.resolution = glm::vec2(vpSize);
+    params.stripVertexOffset = range.x;
+    params.picking = picking;
+    params.thickness = graphics.stripThicknesses[i];
+
+    void* mapped = nullptr;
+    vkMapMemory(device, m_thickLinesUniformMemory, 0, sizeof(ThickLinesParams), 0, &mapped);
+    std::memcpy(mapped, &params, sizeof(ThickLinesParams));
+    vkUnmapMemory(device, m_thickLinesUniformMemory);
+
+    VkCommandBuffer cmd = m_backend->beginSingleTimeCommands();
+    target.transitionColorImage(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+    VkFramebuffer vkfb = VK_NULL_HANDLE;
+    VkFramebufferCreateInfo fbi = {};
+    fbi.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fbi.renderPass = renderPass;
+    fbi.attachmentCount = 1;
+    VkImageView attachment = target.colorImageView();
+    fbi.pAttachments = &attachment;
+    fbi.width = target.width();
+    fbi.height = target.height();
+    fbi.layers = 1;
+    if (vkCreateFramebuffer(device, &fbi, nullptr, &vkfb) != VK_SUCCESS) {
+      LOG_ERROR << "vkCreateFramebuffer for gesture thick-line pass failed";
+      m_backend->endSingleTimeCommands(cmd);
+      continue;
+    }
+
+    VkRenderPassBeginInfo rpb = {};
+    rpb.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    rpb.renderPass = renderPass;
+    rpb.framebuffer = vkfb;
+    rpb.renderArea.offset = { 0, 0 };
+    rpb.renderArea.extent = { target.width(), target.height() };
+    vkCmdBeginRenderPass(cmd, &rpb, VK_SUBPASS_CONTENTS_INLINE);
+
+    VkViewport viewport = {};
+    viewport.width = static_cast<float>(target.width());
+    viewport.height = static_cast<float>(target.height());
+    viewport.maxDepth = 1.0f;
+    VkRect2D scissor = {};
+    scissor.extent = { target.width(), target.height() };
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    vkCmdBindDescriptorSets(cmd,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            m_thickLinesPipelineLayout,
+                            0,
+                            1,
+                            &m_thickLinesDescriptorSet,
+                            0,
+                            nullptr);
+    vkCmdDraw(cmd, 6u * static_cast<uint32_t>(segments), 1, 0, 0);
+
+    vkCmdEndRenderPass(cmd);
+    m_backend->endSingleTimeCommands(cmd);
+    vkDestroyFramebuffer(device, vkfb, nullptr);
+  }
+}
+
 void
 GestureRenderer::drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, const std::vector<int>& sequenceOrder)
 {
@@ -637,7 +1041,9 @@ GestureRenderer::drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, con
   }
 
   auto* target = dynamic_cast<Framebuffer*>(m_target);
-  if (!target || graphics.verts.empty()) {
+  const bool hasVerts = !graphics.verts.empty();
+  const bool hasStrips = !graphics.stripRanges.empty() && !graphics.stripVerts.empty();
+  if (!target || (!hasVerts && !hasStrips)) {
     // No gizmo geometry this frame. Clear the selection buffer to the
     // "no selection" code so next frame's pick() reports nothing under the
     // cursor; otherwise stale codes make pick() report a false hit, which
@@ -657,13 +1063,43 @@ GestureRenderer::drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, con
     return;
   }
 
-  uploadVerts(graphics.verts.data(), graphics.verts.size() * sizeof(Gesture::Graphics::VertsCode));
+  if (hasVerts) {
+    uploadVerts(graphics.verts.data(), graphics.verts.size() * sizeof(Gesture::Graphics::VertsCode));
+  }
 
-  // Composite the gizmo overlay onto the target framebuffer.
-  drawSequences(*target, m_displayRenderPass, m_displayPipelines, false, sceneView, graphics, sequenceOrder, 0);
-  // Render selection codes for next-frame picking.
-  drawSequences(
-    *m_selectionFbo, m_selectionRenderPass, m_selectionPipelines, true, sceneView, graphics, sequenceOrder, 1);
+  bool thickLinesReady = false;
+  if (hasStrips && ensureThickLinesResources() && ensureThickLinesPipelines(target->colorFormat())) {
+    uploadStripVerts(graphics.stripVerts.data(),
+                     graphics.stripVerts.size() * sizeof(Gesture::Graphics::VertsCode));
+    thickLinesReady = m_stripVertexBuffer != VK_NULL_HANDLE && m_stripVertexView != VK_NULL_HANDLE;
+  }
+
+  // Composite the gizmo overlay onto the target framebuffer. Selection codes
+  // are rendered afterwards to an offscreen framebuffer for next-frame picking.
+  const bool clearSelection = true;
+  if (hasVerts) {
+    drawSequences(*target, m_displayRenderPass, m_displayPipelines, false, sceneView, graphics, sequenceOrder, 0);
+  }
+  if (thickLinesReady) {
+    drawStrips(*target, m_displayRenderPass, m_thickLinesDisplayPipeline, sceneView, graphics, 0);
+  }
+  if (hasVerts) {
+    drawSequences(*m_selectionFbo,
+                  m_selectionRenderPass,
+                  m_selectionPipelines,
+                  clearSelection,
+                  sceneView,
+                  graphics,
+                  sequenceOrder,
+                  1);
+  } else {
+    // Still need to clear the selection buffer before drawing strip codes into
+    // it, otherwise stale codes from previous frames survive.
+    m_selectionFbo->clear({ 1.0f, 1.0f, 1.0f, 127.0f / 255.0f });
+  }
+  if (thickLinesReady) {
+    drawStrips(*m_selectionFbo, m_selectionRenderPass, m_thickLinesSelectionPipeline, sceneView, graphics, 1);
+  }
 
   graphics.clearCommands();
 }
@@ -790,6 +1226,15 @@ GestureRenderer::destroy()
       p = VK_NULL_HANDLE;
     }
   }
+  if (m_thickLinesDisplayPipeline) {
+    vkDestroyPipeline(device, m_thickLinesDisplayPipeline, nullptr);
+    m_thickLinesDisplayPipeline = VK_NULL_HANDLE;
+  }
+  if (m_thickLinesSelectionPipeline) {
+    vkDestroyPipeline(device, m_thickLinesSelectionPipeline, nullptr);
+    m_thickLinesSelectionPipeline = VK_NULL_HANDLE;
+  }
+  m_thickLinesDisplayColorFormat = VK_FORMAT_UNDEFINED;
   if (m_displayRenderPass) {
     vkDestroyRenderPass(device, m_displayRenderPass, nullptr);
     m_displayRenderPass = VK_NULL_HANDLE;
@@ -802,14 +1247,27 @@ GestureRenderer::destroy()
     vkDestroyPipelineLayout(device, m_pipelineLayout, nullptr);
     m_pipelineLayout = VK_NULL_HANDLE;
   }
+  if (m_thickLinesPipelineLayout) {
+    vkDestroyPipelineLayout(device, m_thickLinesPipelineLayout, nullptr);
+    m_thickLinesPipelineLayout = VK_NULL_HANDLE;
+  }
   if (m_descriptorPool) {
     vkDestroyDescriptorPool(device, m_descriptorPool, nullptr);
     m_descriptorPool = VK_NULL_HANDLE;
     m_descriptorSet = VK_NULL_HANDLE;
   }
+  if (m_thickLinesDescriptorPool) {
+    vkDestroyDescriptorPool(device, m_thickLinesDescriptorPool, nullptr);
+    m_thickLinesDescriptorPool = VK_NULL_HANDLE;
+    m_thickLinesDescriptorSet = VK_NULL_HANDLE;
+  }
   if (m_descriptorSetLayout) {
     vkDestroyDescriptorSetLayout(device, m_descriptorSetLayout, nullptr);
     m_descriptorSetLayout = VK_NULL_HANDLE;
+  }
+  if (m_thickLinesDescriptorSetLayout) {
+    vkDestroyDescriptorSetLayout(device, m_thickLinesDescriptorSetLayout, nullptr);
+    m_thickLinesDescriptorSetLayout = VK_NULL_HANDLE;
   }
   if (m_dummySampler) {
     vkDestroySampler(device, m_dummySampler, nullptr);
@@ -835,6 +1293,14 @@ GestureRenderer::destroy()
     vkFreeMemory(device, m_uniformMemory, nullptr);
     m_uniformMemory = VK_NULL_HANDLE;
   }
+  if (m_thickLinesUniformBuffer) {
+    vkDestroyBuffer(device, m_thickLinesUniformBuffer, nullptr);
+    m_thickLinesUniformBuffer = VK_NULL_HANDLE;
+  }
+  if (m_thickLinesUniformMemory) {
+    vkFreeMemory(device, m_thickLinesUniformMemory, nullptr);
+    m_thickLinesUniformMemory = VK_NULL_HANDLE;
+  }
   if (m_vertexBuffer) {
     vkDestroyBuffer(device, m_vertexBuffer, nullptr);
     m_vertexBuffer = VK_NULL_HANDLE;
@@ -843,6 +1309,19 @@ GestureRenderer::destroy()
     vkFreeMemory(device, m_vertexMemory, nullptr);
     m_vertexMemory = VK_NULL_HANDLE;
   }
+  if (m_stripVertexView) {
+    vkDestroyBufferView(device, m_stripVertexView, nullptr);
+    m_stripVertexView = VK_NULL_HANDLE;
+  }
+  if (m_stripVertexBuffer) {
+    vkDestroyBuffer(device, m_stripVertexBuffer, nullptr);
+    m_stripVertexBuffer = VK_NULL_HANDLE;
+  }
+  if (m_stripVertexMemory) {
+    vkFreeMemory(device, m_stripVertexMemory, nullptr);
+    m_stripVertexMemory = VK_NULL_HANDLE;
+  }
+  m_stripVertexCapacity = 0;
   m_selectionFbo.reset();
 }
 
