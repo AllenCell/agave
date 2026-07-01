@@ -11,6 +11,8 @@
 #include <memory>
 #include <vector>
 
+class Font;
+
 namespace gfxApi {
 class Framebuffer;
 }
@@ -27,7 +29,6 @@ class Framebuffer;
 // (emitted by tools such as the translate manipulator) via a separate pipeline
 // that expands each segment into a screen-space quad in the vertex shader.
 //
-// NOTE: textured GUI/font elements are not handled yet; only the plain
 // line/triangle/point path plus thick-line strips is implemented.
 class GestureRenderer : public gfxApi::IGestureRenderer
 {
@@ -59,6 +60,7 @@ public:
 private:
   bool ensureBackend();
   bool ensureCommonResources();
+  bool ensureFontResources(const Font& font);
   bool ensureSelectionFramebuffer(int width, int height);
   bool ensureDisplayPipelines(VkFormat colorFormat);
   bool ensureSelectionPipelines();
@@ -104,6 +106,16 @@ private:
   VkDeviceMemory m_dummyMemory = VK_NULL_HANDLE;
   VkImageView m_dummyView = VK_NULL_HANDLE;
   VkSampler m_dummySampler = VK_NULL_HANDLE;
+
+  // Font atlas texture. Created lazily on the first draw call once
+  // Gesture::Graphics::font has been loaded. Replaces the dummy sampler in
+  // the descriptor set so the gui shader can composite text glyphs.
+  VkImage m_fontImage = VK_NULL_HANDLE;
+  VkDeviceMemory m_fontMemory = VK_NULL_HANDLE;
+  VkImageView m_fontView = VK_NULL_HANDLE;
+  VkSampler m_fontSampler = VK_NULL_HANDLE;
+  uint32_t m_fontWidth = 0;
+  uint32_t m_fontHeight = 0;
 
   VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
   VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
