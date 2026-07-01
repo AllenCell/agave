@@ -73,6 +73,12 @@ if(APPLE)
 	)
 endif()
 
+if(WIN32)
+	target_sources(renderlib PRIVATE
+		"${CMAKE_CURRENT_SOURCE_DIR}/Swapchain_win.cpp"
+	)
+endif()
+
 target_compile_definitions(renderlib PUBLIC AGAVE_HAS_VULKAN=1)
 target_link_libraries(renderlib
 	Vulkan::Vulkan
