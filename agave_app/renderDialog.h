@@ -3,7 +3,6 @@
 #include "renderlib/CCamera.h"
 #include "renderlib/io/FileReader.h"
 
-#include "QtGLContext.h"
 #include "renderer.h"
 
 #include <QDialog>
@@ -27,6 +26,7 @@ class QTimeEdit;
 class QToolBar;
 class QWidget;
 
+class QtGLContext;
 class RenderRequest;
 class RenderSettings;
 class Scene;
@@ -109,7 +109,9 @@ private slots:
 
 private:
   QMutex m_mutex;
-  // Borrowed from agaveGui, which owns it and outlives this dialog.
+  // Borrowed from agaveGui, which owns it and outlives this dialog. May be
+  // nullptr for backends that do not require a windowing-toolkit context
+  // (e.g. Vulkan).
   QtGLContext* m_glContext;
   Renderer* m_renderThread;
   gfxApi::IRenderWindow* m_renderer;
