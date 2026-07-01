@@ -21,6 +21,7 @@ class QRenderSettings;
 class QTimer;
 class RenderSettings;
 class Scene;
+class SceneObject;
 
 namespace Serialize {
 struct ViewerState;
@@ -78,6 +79,7 @@ public slots:
   void OnUpdateCamera();
   void OnUpdateQRenderSettings();
   void OnUpdateRenderer(int rendererType);
+  void OnSelectionChanged(SceneObject* so);
 
 protected:
   void resizeEvent(QResizeEvent* event) override;

@@ -1,8 +1,11 @@
 #version 450
 layout(location = 0) in vec4 Frag_color;
 layout(location = 1) in vec2 Frag_UV;
+// Must match GuiVertParams in gui.vert: the vertex and fragment stages share a
+// single UBO at set 0, binding 0, so their layouts must be identical.
 layout(set = 0, binding = 0, std140) uniform GuiFragParams
 {
+  mat4 projection;
   int picking; //< draw for display or for picking? Picking has no texture.
 }
 guiFragParams;
