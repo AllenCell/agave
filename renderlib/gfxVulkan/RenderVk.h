@@ -55,6 +55,10 @@ protected:
   void destroyPipeline();
   VkShaderModule createShaderModule(const uint32_t* words, size_t wordCount) const;
 
+  // Volume/colormap GPU textures, owned by the base renderer but needed by the
+  // path-trace subclass to bind into its own shading pipeline.
+  const VolumeTextureVk& volumeTexture() const { return m_volume; }
+
   Backend& m_backend;
   RenderSettings* m_renderSettings = nullptr;
   Scene* m_scene = nullptr;
