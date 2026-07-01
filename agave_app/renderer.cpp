@@ -137,7 +137,10 @@ Renderer::configure(gfxApi::IRenderWindow* renderer,
   m_myVolumeData.m_gestureRenderer = renderlib::graphicsBackend()->createGestureRenderer();
 
   gfxApi::Backend* backend = renderlib::graphicsBackend();
-  if (!backend->isHeadless() && !glContext) {
+  // Only the OpenGL backend needs a windowing-toolkit context on the render
+  // thread. Vulkan's render context is thread-agnostic (RendererVkContext is
+  // a no-op wrapper) and does not need one.
+  if (backend->kind() == gfxApi::BackendKind::OpenGL && !backend->isHeadless() && !glContext) {
     m_ownedGLContext = std::make_unique<QtGLContext>();
     if (m_ownedGLContext->create()) {
       m_ownedGLContext->moveToThread(this);
@@ -397,6 +400,10 @@ Renderer::render()
   bbox.clear();
   bbox.draw(sceneView, m_myVolumeData.m_gesture);
 
+  // The gesture renderer needs to know which framebuffer to draw into (Vulkan
+  // has no bound/current framebuffer concept). Set it before drawUnderlay/draw.
+  m_myVolumeData.m_gestureRenderer->setTargetFramebuffer(m_fbo.get());
+
   m_fbo->bind();
   m_fbo->clear(backgroundClearColor(sceneView.scene));
   m_myVolumeData.m_gestureRenderer->drawUnderlay(sceneView, m_myVolumeData.m_gesture.graphics);
@@ -411,7 +418,13 @@ Renderer::render()
 
   std::unique_ptr<uint8_t> bytes(new uint8_t[m_fbo->width() * m_fbo->height() * 4]);
   m_fbo->toImage(bytes.get());
-  QImage img = QImage(bytes.get(), m_fbo->width(), m_fbo->height(), QImage::Format_ARGB32).copy().mirrored();
+  QImage img = QImage(bytes.get(), m_fbo->width(), m_fbo->height(), QImage::Format_ARGB32).copy();
+  // OpenGL framebuffers are bottom-up in memory (glReadPixels origin is
+  // bottom-left); Vulkan framebuffers are top-down (top-left origin) and
+  // already match QImage's row order.
+  if (renderlib::graphicsBackend()->kind() == gfxApi::BackendKind::OpenGL) {
+    img = img.mirrored();
+  }
 
   return img;
 }

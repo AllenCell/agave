@@ -6,6 +6,7 @@ Usage:
   python3 make_spirv.py /path/to/glslc
 """
 
+import os
 import pathlib
 import re
 import struct
@@ -43,17 +44,27 @@ def symbol_name(shader: str) -> str:
 
 
 def compile_shader(glslc: str, shader_path: pathlib.Path) -> bytes:
-    with tempfile.NamedTemporaryFile(suffix=".spv") as tmp:
+    # NamedTemporaryFile keeps the file open on Windows, which prevents glslc
+    # from writing to it. Use mkstemp so we control the handle and can close it
+    # before invoking the compiler; clean up manually afterward.
+    fd, tmp_name = tempfile.mkstemp(suffix=".spv")
+    os.close(fd)
+    try:
         subprocess.check_call(
             [
                 glslc,
                 "--target-env=vulkan1.3",
                 str(shader_path),
                 "-o",
-                tmp.name,
+                tmp_name,
             ]
         )
-        return pathlib.Path(tmp.name).read_bytes()
+        return pathlib.Path(tmp_name).read_bytes()
+    finally:
+        try:
+            os.remove(tmp_name)
+        except OSError:
+            pass
 
 
 def write_header(shader: str, spirv: bytes, output_path: pathlib.Path) -> None:

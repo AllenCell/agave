@@ -337,9 +337,10 @@ VulkanView3D::captureQimage()
   std::unique_ptr<uint8_t> bytes(new uint8_t[captureWidth * captureHeight * 4]);
   fbo->toImage(bytes.get());
 
+  // Vulkan framebuffers are top-down in memory and already match QImage's
+  // row order, so no vertical flip is needed here (unlike the OpenGL path).
   return QImage(bytes.get(), captureWidth, captureHeight, QImage::Format_ARGB32)
     .copy()
-    .mirrored()
     .convertToFormat(QImage::Format_RGB32);
 }
 

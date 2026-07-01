@@ -1,6 +1,7 @@
 #include "renderDialog.h"
 #include "renderer.h"
 
+#include "QtGLContext.h"
 #include "renderlib/AppScene.h"
 #include "renderlib/Logging.h"
 #include "renderlib/RenderSettings.h"
@@ -741,7 +742,9 @@ RenderDialog::render()
 
     updateUIStartRendering();
 
-    if (!m_glContext->isValid() && !m_glContext->create()) {
+    // For backends that don't require an external windowing-toolkit context
+    // (Vulkan) m_glContext is null and there is nothing to prepare here.
+    if (m_glContext && !m_glContext->isValid() && !m_glContext->create()) {
       LOG_ERROR << "RenderDialog: failed to prepare the Qt GL context";
       updateUIStopRendering(false);
       return;
@@ -772,7 +775,9 @@ RenderDialog::render()
     resumeRendering();
 
     LOG_INFO << "Starting render thread...";
-    m_glContext->moveToThread(m_renderThread);
+    if (m_glContext) {
+      m_glContext->moveToThread(m_renderThread);
+    }
     m_renderThread->start();
   } else {
     resumeRendering();

@@ -1340,7 +1340,12 @@ void
 main()
 {
   // seed for rand(seed) function
-  uvec2 seed = uvec2(uFrameCounter, uFrameCounter + 1.0) * uvec2(gl_FragCoord);
+  // Mirror gl_FragCoord.y here so the per-pixel
+  // seed matches the equivalent OpenGL pixel and the two backends produce
+  // visually identical noise patterns. (gl_FragCoord.y = 0 is at the bottom
+  // of the framebuffer in OpenGL but at the top in Vulkan.)
+  vec2 fragCoord = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
+  uvec2 seed = uvec2(uFrameCounter, uFrameCounter + 1.0) * uvec2(fragCoord);
 
   // perform path tracing and get resulting pixel color
   vec4 pixelColor = CalculateRadiance(seed);
