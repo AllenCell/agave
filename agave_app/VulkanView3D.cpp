@@ -318,6 +318,11 @@ VulkanView3D::captureQimage()
   m_viewerWindow->m_gestureRenderer->updateSelectionBuffer(captureWidth, captureHeight);
   m_viewerWindow->update(sceneView.viewport, m_viewerWindow->m_clock, m_viewerWindow->gesture);
 
+  // The gesture renderer needs to know which framebuffer to draw into (Vulkan
+  // has no bound/current framebuffer concept). Point it at the capture FBO for
+  // this frame; the swapchain path will re-set it on the next redraw.
+  m_viewerWindow->m_gestureRenderer->setTargetFramebuffer(fbo.get());
+
   fbo->bind();
   fbo->clear(backgroundClearColor(sceneView.scene));
   m_viewerWindow->m_gestureRenderer->drawUnderlay(sceneView, m_viewerWindow->gesture.graphics);
@@ -403,7 +408,8 @@ VulkanView3D::resizeEvent(QResizeEvent* event)
 {
   QWidget::resizeEvent(event);
   const float dpr = devicePixelRatioF();
-  m_viewerWindow->setSize(static_cast<int>(event->size().width() * dpr), static_cast<int>(event->size().height() * dpr));
+  m_viewerWindow->setSize(static_cast<int>(event->size().width() * dpr),
+                          static_cast<int>(event->size().height() * dpr));
   if (m_viewerWindow->m_renderer) {
     m_viewerWindow->m_renderer->resize(m_viewerWindow->width(), m_viewerWindow->height());
   }
@@ -449,8 +455,7 @@ VulkanView3D::mouseMoveEvent(QMouseEvent* event)
     return;
   }
   const float dpr = devicePixelRatioF();
-  m_viewerWindow->gesture.input.setPointerPosition(
-    glm::vec2(event->position().x() * dpr, event->position().y() * dpr));
+  m_viewerWindow->gesture.input.setPointerPosition(glm::vec2(event->position().x() * dpr, event->position().y() * dpr));
 }
 
 void

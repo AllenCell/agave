@@ -936,6 +936,7 @@ GestureRenderer::drawStrips(Framebuffer& target,
                             VkPipeline pipeline,
                             SceneView& sceneView,
                             Gesture::Graphics& graphics,
+                            const std::vector<int>& sequenceOrder,
                             int picking)
 {
   if (graphics.stripRanges.empty() || pipeline == VK_NULL_HANDLE) {
@@ -957,78 +958,78 @@ GestureRenderer::drawStrips(Framebuffer& target,
                                                                     -1.0f);
   const glm::ivec2 vpSize = sceneView.viewport.region.size();
 
-  for (size_t i = 0; i < graphics.stripRanges.size(); ++i) {
-    const glm::ivec2& range = graphics.stripRanges[i];
-    // The strip layout adds one leading and one trailing padding vertex for
-    // computing miters at the endpoints. See gesture.h::addLineStrip.
-    const int totalVerts = range.y - range.x;
-    const int N = totalVerts - 2; // real vertices
-    const int segments = N - 1;
-    if (segments <= 0) {
-      continue;
-    }
+  for (int sequence : sequenceOrder) {
+    for (size_t i = 0; i < graphics.stripRanges.size(); ++i) {
+      if ((int)graphics.stripProjections[i] != sequence) {
+        continue;
+      }
+      const glm::ivec2& range = graphics.stripRanges[i];
+      // The strip layout adds one leading and one trailing padding vertex for
+      // computing miters at the endpoints. See gesture.h::addLineStrip.
+      const int totalVerts = range.y - range.x;
+      const int N = totalVerts - 2; // real vertices
+      const int segments = N - 1;
+      if (segments <= 0) {
+        continue;
+      }
 
-    ThickLinesParams params;
-    params.projection = (graphics.stripProjections[i] == Gesture::Graphics::CommandSequence::k2dScreen) ? ortho : vpMat;
-    params.resolution = glm::vec2(vpSize);
-    params.stripVertexOffset = range.x;
-    params.picking = picking;
-    params.thickness = graphics.stripThicknesses[i];
+      ThickLinesParams params;
+      params.projection =
+        (graphics.stripProjections[i] == Gesture::Graphics::CommandSequence::k2dScreen) ? ortho : vpMat;
+      params.resolution = glm::vec2(vpSize);
+      params.stripVertexOffset = range.x;
+      params.picking = picking;
+      params.thickness = graphics.stripThicknesses[i];
 
-    void* mapped = nullptr;
-    vkMapMemory(device, m_thickLinesUniformMemory, 0, sizeof(ThickLinesParams), 0, &mapped);
-    std::memcpy(mapped, &params, sizeof(ThickLinesParams));
-    vkUnmapMemory(device, m_thickLinesUniformMemory);
+      void* mapped = nullptr;
+      vkMapMemory(device, m_thickLinesUniformMemory, 0, sizeof(ThickLinesParams), 0, &mapped);
+      std::memcpy(mapped, &params, sizeof(ThickLinesParams));
+      vkUnmapMemory(device, m_thickLinesUniformMemory);
 
-    VkCommandBuffer cmd = m_backend->beginSingleTimeCommands();
-    target.transitionColorImage(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+      VkCommandBuffer cmd = m_backend->beginSingleTimeCommands();
+      target.transitionColorImage(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-    VkFramebuffer vkfb = VK_NULL_HANDLE;
-    VkFramebufferCreateInfo fbi = {};
-    fbi.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    fbi.renderPass = renderPass;
-    fbi.attachmentCount = 1;
-    VkImageView attachment = target.colorImageView();
-    fbi.pAttachments = &attachment;
-    fbi.width = target.width();
-    fbi.height = target.height();
-    fbi.layers = 1;
-    if (vkCreateFramebuffer(device, &fbi, nullptr, &vkfb) != VK_SUCCESS) {
-      LOG_ERROR << "vkCreateFramebuffer for gesture thick-line pass failed";
+      VkFramebuffer vkfb = VK_NULL_HANDLE;
+      VkFramebufferCreateInfo fbi = {};
+      fbi.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+      fbi.renderPass = renderPass;
+      fbi.attachmentCount = 1;
+      VkImageView attachment = target.colorImageView();
+      fbi.pAttachments = &attachment;
+      fbi.width = target.width();
+      fbi.height = target.height();
+      fbi.layers = 1;
+      if (vkCreateFramebuffer(device, &fbi, nullptr, &vkfb) != VK_SUCCESS) {
+        LOG_ERROR << "vkCreateFramebuffer for gesture thick-line pass failed";
+        m_backend->endSingleTimeCommands(cmd);
+        continue;
+      }
+
+      VkRenderPassBeginInfo rpb = {};
+      rpb.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+      rpb.renderPass = renderPass;
+      rpb.framebuffer = vkfb;
+      rpb.renderArea.offset = { 0, 0 };
+      rpb.renderArea.extent = { target.width(), target.height() };
+      vkCmdBeginRenderPass(cmd, &rpb, VK_SUBPASS_CONTENTS_INLINE);
+
+      VkViewport viewport = {};
+      viewport.width = static_cast<float>(target.width());
+      viewport.height = static_cast<float>(target.height());
+      viewport.maxDepth = 1.0f;
+      VkRect2D scissor = {};
+      scissor.extent = { target.width(), target.height() };
+      vkCmdSetViewport(cmd, 0, 1, &viewport);
+      vkCmdSetScissor(cmd, 0, 1, &scissor);
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+      vkCmdBindDescriptorSets(
+        cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_thickLinesPipelineLayout, 0, 1, &m_thickLinesDescriptorSet, 0, nullptr);
+      vkCmdDraw(cmd, 6u * static_cast<uint32_t>(segments), 1, 0, 0);
+
+      vkCmdEndRenderPass(cmd);
       m_backend->endSingleTimeCommands(cmd);
-      continue;
+      vkDestroyFramebuffer(device, vkfb, nullptr);
     }
-
-    VkRenderPassBeginInfo rpb = {};
-    rpb.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    rpb.renderPass = renderPass;
-    rpb.framebuffer = vkfb;
-    rpb.renderArea.offset = { 0, 0 };
-    rpb.renderArea.extent = { target.width(), target.height() };
-    vkCmdBeginRenderPass(cmd, &rpb, VK_SUBPASS_CONTENTS_INLINE);
-
-    VkViewport viewport = {};
-    viewport.width = static_cast<float>(target.width());
-    viewport.height = static_cast<float>(target.height());
-    viewport.maxDepth = 1.0f;
-    VkRect2D scissor = {};
-    scissor.extent = { target.width(), target.height() };
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-    vkCmdBindDescriptorSets(cmd,
-                            VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_thickLinesPipelineLayout,
-                            0,
-                            1,
-                            &m_thickLinesDescriptorSet,
-                            0,
-                            nullptr);
-    vkCmdDraw(cmd, 6u * static_cast<uint32_t>(segments), 1, 0, 0);
-
-    vkCmdEndRenderPass(cmd);
-    m_backend->endSingleTimeCommands(cmd);
-    vkDestroyFramebuffer(device, vkfb, nullptr);
   }
 }
 
@@ -1069,8 +1070,7 @@ GestureRenderer::drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, con
 
   bool thickLinesReady = false;
   if (hasStrips && ensureThickLinesResources() && ensureThickLinesPipelines(target->colorFormat())) {
-    uploadStripVerts(graphics.stripVerts.data(),
-                     graphics.stripVerts.size() * sizeof(Gesture::Graphics::VertsCode));
+    uploadStripVerts(graphics.stripVerts.data(), graphics.stripVerts.size() * sizeof(Gesture::Graphics::VertsCode));
     thickLinesReady = m_stripVertexBuffer != VK_NULL_HANDLE && m_stripVertexView != VK_NULL_HANDLE;
   }
 
@@ -1081,7 +1081,7 @@ GestureRenderer::drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, con
     drawSequences(*target, m_displayRenderPass, m_displayPipelines, false, sceneView, graphics, sequenceOrder, 0);
   }
   if (thickLinesReady) {
-    drawStrips(*target, m_displayRenderPass, m_thickLinesDisplayPipeline, sceneView, graphics, 0);
+    drawStrips(*target, m_displayRenderPass, m_thickLinesDisplayPipeline, sceneView, graphics, sequenceOrder, 0);
   }
   if (hasVerts) {
     drawSequences(*m_selectionFbo,
@@ -1098,7 +1098,8 @@ GestureRenderer::drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, con
     m_selectionFbo->clear({ 1.0f, 1.0f, 1.0f, 127.0f / 255.0f });
   }
   if (thickLinesReady) {
-    drawStrips(*m_selectionFbo, m_selectionRenderPass, m_thickLinesSelectionPipeline, sceneView, graphics, 1);
+    drawStrips(
+      *m_selectionFbo, m_selectionRenderPass, m_thickLinesSelectionPipeline, sceneView, graphics, sequenceOrder, 1);
   }
 
   graphics.clearCommands();
@@ -1118,12 +1119,47 @@ GestureRenderer::draw(SceneView& sceneView, Gesture::Graphics& graphics)
 void
 GestureRenderer::drawUnderlay(SceneView& sceneView, Gesture::Graphics& graphics)
 {
-  // The underlay pass is drawn before the scene in the GL path (depth-composited).
-  // The Vulkan scene pass clears its target, so an overlay drawn here would be
-  // wiped; the manipulators use the k3dStacked sequence (handled by draw()), so
-  // this is currently a no-op to avoid consuming the shared draw commands early.
-  (void)sceneView;
-  (void)graphics;
+  // Draw the underlay sequence (e.g. back-facing bounding-box edges) into the
+  // target framebuffer before the volume render pass runs. The volume render
+  // pass is configured with LOAD_OP_LOAD so this content survives, and the
+  // tone-map/composite step alpha-blends the volume over it. We deliberately
+  // skip the selection buffer here: underlay geometry is not pickable and the
+  // subsequent draw() call handles the selection buffer for the overlay
+  // sequences. We also do not clear graphics commands here so draw() can still
+  // consume the remaining sequences.
+  if (!ensureBackend()) {
+    return;
+  }
+  auto* target = dynamic_cast<Framebuffer*>(m_target);
+  const bool hasVerts = !graphics.verts.empty();
+  const bool hasStrips = !graphics.stripRanges.empty() && !graphics.stripVerts.empty();
+  if (!target || (!hasVerts && !hasStrips)) {
+    return;
+  }
+
+  if (!ensureCommonResources() || !ensureDisplayPipelines(target->colorFormat())) {
+    return;
+  }
+
+  if (hasVerts) {
+    uploadVerts(graphics.verts.data(), graphics.verts.size() * sizeof(Gesture::Graphics::VertsCode));
+  }
+
+  bool thickLinesReady = false;
+  if (hasStrips && ensureThickLinesResources() && ensureThickLinesPipelines(target->colorFormat())) {
+    uploadStripVerts(graphics.stripVerts.data(), graphics.stripVerts.size() * sizeof(Gesture::Graphics::VertsCode));
+    thickLinesReady = m_stripVertexBuffer != VK_NULL_HANDLE && m_stripVertexView != VK_NULL_HANDLE;
+  }
+
+  const std::vector<int> sequenceOrder = {
+    (int)Gesture::Graphics::CommandSequence::k3dStackedUnderlay,
+  };
+  if (hasVerts) {
+    drawSequences(*target, m_displayRenderPass, m_displayPipelines, false, sceneView, graphics, sequenceOrder, 0);
+  }
+  if (thickLinesReady) {
+    drawStrips(*target, m_displayRenderPass, m_thickLinesDisplayPipeline, sceneView, graphics, sequenceOrder, 0);
+  }
 }
 
 bool

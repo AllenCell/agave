@@ -43,8 +43,7 @@ const std::array<float, 24> kCubeVertices = {
 };
 
 const std::array<uint16_t, 36> kCubeIndices = {
-  0, 1, 2, 2, 3, 0, 1, 5, 6, 6, 2, 1, 7, 6, 5, 5, 4, 7,
-  4, 0, 3, 3, 7, 4, 4, 5, 1, 1, 0, 4, 3, 2, 6, 6, 7, 3,
+  0, 1, 2, 2, 3, 0, 1, 5, 6, 6, 2, 1, 7, 6, 5, 5, 4, 7, 4, 0, 3, 3, 7, 4, 4, 5, 1, 1, 0, 4, 3, 2, 6, 6, 7, 3,
 };
 
 glm::mat4
@@ -59,7 +58,12 @@ vulkanProjectionCorrection()
 
 template<typename T>
 bool
-uploadHostBuffer(Backend& backend, VkBufferUsageFlags usage, const T* data, size_t count, VkBuffer& buffer, VkDeviceMemory& memory)
+uploadHostBuffer(Backend& backend,
+                 VkBufferUsageFlags usage,
+                 const T* data,
+                 size_t count,
+                 VkBuffer& buffer,
+                 VkDeviceMemory& memory)
 {
   const VkDeviceSize byteCount = static_cast<VkDeviceSize>(sizeof(T) * count);
   if (!createBuffer(backend,
@@ -155,7 +159,8 @@ RenderVk::prepareToRender()
 
   const long volumeDirtyFlags = VolumeDirty | VolumeDataDirty | TransferFunctionDirty | RenderParamsDirty;
   if (!m_volume.valid() || m_renderSettings->m_DirtyFlags.HasFlag(volumeDirtyFlags)) {
-    if (!m_volume.upload(*m_scene, volumeTextureMode(), m_renderSettings->m_RenderSettings.m_InterpolatedVolumeSampling)) {
+    if (!m_volume.upload(
+          *m_scene, volumeTextureMode(), m_renderSettings->m_RenderSettings.m_InterpolatedVolumeSampling)) {
       return false;
     }
     m_status->SetRenderBegin();
@@ -268,14 +273,8 @@ RenderVk::renderToFramebuffer(const CCamera& camera, Framebuffer& framebuffer)
   vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
   vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
   vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
-  vkCmdBindDescriptorSets(commandBuffer,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          m_pipelineLayout,
-                          0,
-                          1,
-                          &m_descriptorSet,
-                          0,
-                          nullptr);
+  vkCmdBindDescriptorSets(
+    commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &m_descriptorSet, 0, nullptr);
 
   VkDeviceSize offset = 0;
   vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_vertexBuffer, &offset);
@@ -422,7 +421,10 @@ RenderVk::ensurePipeline(VkFormat colorFormat)
   VkAttachmentDescription colorAttachment = {};
   colorAttachment.format = colorFormat;
   colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-  colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  // Load existing contents so anything drawn to this framebuffer prior to the
+  // volume pass (e.g. the gesture underlay: back-facing bounding box edges) is
+  // preserved and can be alpha-blended against by the volume fragment shader.
+  colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
   colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -655,20 +657,17 @@ RenderVk::updateUniformBuffer(const CCamera& camera)
   uniforms.aabbMaxSteps = glm::vec4(m_scene->m_roi.GetMaxP() - glm::vec3(0.5f), rayStepCount());
 
   const glm::ivec3 flip = m_scene->m_volume->getVolumeAxesFlipped();
-  uniforms.flipAxesPerspective =
-    glm::vec4(static_cast<float>(flip.x),
-              static_cast<float>(flip.y),
-              static_cast<float>(flip.z),
-              camera.m_Projection == PERSPECTIVE ? 1.0f : 0.0f);
-  uniforms.viewportDensity =
-    glm::vec4(static_cast<float>(std::max<uint32_t>(1, m_w)),
-              static_cast<float>(std::max<uint32_t>(1, m_h)),
-              camera.m_OrthoScale,
-              m_renderSettings->m_RenderSettings.m_DensityScale / 100.0f);
+  uniforms.flipAxesPerspective = glm::vec4(static_cast<float>(flip.x),
+                                           static_cast<float>(flip.y),
+                                           static_cast<float>(flip.z),
+                                           camera.m_Projection == PERSPECTIVE ? 1.0f : 0.0f);
+  uniforms.viewportDensity = glm::vec4(static_cast<float>(std::max<uint32_t>(1, m_w)),
+                                       static_cast<float>(std::max<uint32_t>(1, m_h)),
+                                       camera.m_OrthoScale,
+                                       m_renderSettings->m_RenderSettings.m_DensityScale / 100.0f);
   const float iterationSeed =
     usesProgressiveAccumulation() ? static_cast<float>(m_renderSettings->GetNoIterations() + 1) : 0.0f;
-  uniforms.colorParams =
-    glm::vec4((1.0f - camera.m_Film.m_Exposure) + 1.0f, iterationSeed, 1.0f, 1.3657f);
+  uniforms.colorParams = glm::vec4((1.0f - camera.m_Film.m_Exposure) + 1.0f, iterationSeed, 1.0f, 1.3657f);
   uniforms.lutMin = m_volume.lutMin();
   uniforms.lutMax = m_volume.lutMax();
   uniforms.background = glm::vec4(m_scene->m_material.m_backgroundColor[0],
