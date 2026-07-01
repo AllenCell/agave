@@ -634,19 +634,17 @@ agaveGui::onRenderAction()
   // TODO keep this loadspec time in sync with the timeline and the render dialog's time
   m_loadSpec.time = m_appScene.m_timeLine.currentTime();
 
-  // The offscreen render dialog is built on the OpenGL backend (it borrows the
-  // view's QOpenGLContext). It is not yet supported when running on Vulkan.
+  // The GLView3D-only fast paths (doneCurrent, resizeGL) are OpenGL-specific.
+  // Vulkan uses VulkanView3D and no per-thread context handoff.
   GLView3D* glView = dynamic_cast<GLView3D*>(m_view->asWidget());
-  if (!glView) {
-    LOG_WARNING << "Offscreen render is not yet supported with the Vulkan backend";
-    return;
-  }
 
   // if we are disabling the 3d view then might consider just making this modal
   m_view->pauseRenderLoop();
   // QImage im = m_view->captureQimage();
   // QImage* imcopy = new QImage(im);
-  glView->doneCurrent();
+  if (glView) {
+    glView->doneCurrent();
+  }
   m_view->asWidget()->setEnabled(false);
   m_view->asWidget()->setUpdatesEnabled(false);
   m_cacheSettingsDockWidget->setEnabled(false);
@@ -665,7 +663,10 @@ agaveGui::onRenderAction()
   // extract ViewerWindow from GLView3D to hand to RenderDialog
   ViewerWindow* renderer = m_view->borrowRenderer();
 
-  if (!m_glContext) {
+  // Only OpenGL requires the render thread to reuse the widget's
+  // QOpenGLContext (for resource sharing). Vulkan resources live on the device
+  // and the render thread does not need a per-thread windowing context.
+  if (glView && !m_glContext) {
     m_glContext = std::make_unique<QtGLContext>(glView->context());
   }
   RenderDialog* rdialog = new RenderDialog(renderer,
@@ -681,7 +682,7 @@ agaveGui::onRenderAction()
   rdialog->resize(geometry().width(), m_tabs->height());
   rdialog->move(geometry().x(), geometry().y());
   connect(rdialog, &QDialog::finished, this, [this, glView](int result) {
-    // get renderer from RenderDialog and hand it back to GLView3D
+    // get renderer from RenderDialog and hand it back to the view
     LOG_DEBUG << "RenderDialog finished with result " << result;
     m_renderSettings.m_DirtyFlags.SetFlag(CameraDirty);
     m_renderSettings.m_DirtyFlags.SetFlag(LightsDirty);
@@ -689,7 +690,9 @@ agaveGui::onRenderAction()
     m_renderSettings.m_DirtyFlags.SetFlag(TransferFunctionDirty);
     m_cacheSettingsDockWidget->setEnabled(true);
     m_view->asWidget()->setEnabled(true);
-    glView->resizeGL(glView->width(), glView->height());
+    if (glView) {
+      glView->resizeGL(glView->width(), glView->height());
+    }
     m_view->asWidget()->setUpdatesEnabled(true);
     m_view->restartRenderLoop();
     // refresh timeline to current time
@@ -1356,7 +1359,7 @@ agaveGui::appToViewerState()
   v.camera.up[2] = m_view->getCamera().m_Up.z;
 
   v.camera.projection = m_view->getCamera().m_Projection == PERSPECTIVE ? Serialize::Projection_PID::PERSPECTIVE
-                                                                          : Serialize::Projection_PID::ORTHOGRAPHIC;
+                                                                        : Serialize::Projection_PID::ORTHOGRAPHIC;
   v.camera.orthoScale = m_view->getCamera().m_OrthoScale;
   v.camera.fovY = m_qcamera.GetProjection().GetFieldOfView();
 
