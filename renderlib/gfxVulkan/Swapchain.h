@@ -54,6 +54,9 @@ public:
 
 private:
   bool createNativeSurface();
+  // Keep the platform surface (e.g. the macOS CAMetalLayer) aligned with the
+  // window's current geometry. No-op on platforms that don't need it.
+  void updateNativeSurfaceLayout();
   bool ensureSurface();
   bool ensureSwapchain();
   bool recreateSwapchain();

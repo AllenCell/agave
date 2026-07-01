@@ -24,20 +24,29 @@ Swapchain::createNativeSurface()
     return false;
   }
 
+  // Use AppKit's managed backing layer (which is positioned correctly within
+  // the parent for an embedded, laid-out subview) and add our CAMetalLayer as a
+  // sublayer. Replacing the backing layer via setLayer: (layer-hosting) and
+  // setting its frame to the view bounds positioned the surface at the parent
+  // origin instead of the view's real frame, offsetting the whole surface by the
+  // view's y position.
   [view setWantsLayer:YES];
 
   CAMetalLayer* metalLayer = nil;
-  CALayer* existingLayer = [view layer];
-  if ([existingLayer isKindOfClass:[CAMetalLayer class]]) {
-    metalLayer = static_cast<CAMetalLayer*>(existingLayer);
-  } else {
+  for (CALayer* sub in [[view layer] sublayers]) {
+    if ([sub isKindOfClass:[CAMetalLayer class]]) {
+      metalLayer = static_cast<CAMetalLayer*>(sub);
+      break;
+    }
+  }
+  if (!metalLayer) {
     metalLayer = [CAMetalLayer layer];
-    [view setLayer:metalLayer];
+    metalLayer.autoresizingMask = kCALayerWidthSizable | kCALayerHeightSizable;
+    [[view layer] addSublayer:metalLayer];
   }
 
   metalLayer.contentsScale = m_surface->contentScale();
   metalLayer.frame = [view bounds];
-  metalLayer.autoresizingMask = kCALayerWidthSizable | kCALayerHeightSizable;
 
   auto createMetalSurface =
     reinterpret_cast<PFN_vkCreateMetalSurfaceEXT>(vkGetInstanceProcAddr(m_backend->instance(),
@@ -59,6 +68,30 @@ Swapchain::createNativeSurface()
   }
 
   return true;
+}
+
+void
+Swapchain::updateNativeSurfaceLayout()
+{
+  if (!m_surface) {
+    return;
+  }
+  NSView* view = reinterpret_cast<NSView*>(m_surface->nativeHandle());
+  if (!view) {
+    return;
+  }
+  CAMetalLayer* metalLayer = nil;
+  for (CALayer* sub in [[view layer] sublayers]) {
+    if ([sub isKindOfClass:[CAMetalLayer class]]) {
+      metalLayer = static_cast<CAMetalLayer*>(sub);
+      break;
+    }
+  }
+  if (!metalLayer) {
+    return;
+  }
+  metalLayer.contentsScale = m_surface->contentScale();
+  metalLayer.frame = [view bounds];
 }
 
 } // namespace gfxvulkan

@@ -67,45 +67,26 @@ Swapchain::~Swapchain()
 bool
 Swapchain::render(ViewerWindow& viewerWindow)
 {
-  // TODO(diagnostic): remove once swapchain presentation is verified.
-  static int s_diagFrames = 0;
-  const bool diag = s_diagFrames < 8;
-  if (diag) {
-    ++s_diagFrames;
-    LOG_INFO << "Swapchain::render backend=" << (m_backend ? "ok" : "null")
-             << " surface=" << (m_surface ? "ok" : "null")
-             << " exposed=" << (m_surface && m_surface->isExposed());
-  }
-
   if (!m_backend || !m_surface || !m_surface->isExposed()) {
     return false;
   }
 
-  if (!ensureSurface() || !ensureSwapchain()) {
-    if (diag) {
-      LOG_INFO << "Swapchain::render bailed: ensureSurface/ensureSwapchain failed (presentSupported="
-               << m_presentSupported << " swapchain=" << (m_swapchain != VK_NULL_HANDLE) << ")";
-    }
+  if (!ensureSurface()) {
+    return false;
+  }
+  updateNativeSurfaceLayout();
+  if (!ensureSwapchain()) {
     return false;
   }
 
   uint32_t imageIndex = 0;
   if (!acquireNextImage(imageIndex)) {
-    if (diag) {
-      LOG_INFO << "Swapchain::render bailed: acquireNextImage failed";
-    }
     return false;
   }
 
   if (imageIndex >= m_framebuffers.size() || !m_framebuffers[imageIndex]) {
     LOG_ERROR << "Swapchain acquired an image without a matching framebuffer";
     return false;
-  }
-
-  if (diag) {
-    LOG_INFO << "Swapchain::render extent=" << m_extent.width << "x" << m_extent.height
-             << " images=" << m_framebuffers.size() << " acquired=" << imageIndex
-             << " format=" << m_colorFormat;
   }
 
   viewerWindow.setSize(static_cast<int>(m_extent.width), static_cast<int>(m_extent.height));
@@ -115,11 +96,7 @@ Swapchain::render(ViewerWindow& viewerWindow)
   m_framebuffers[imageIndex]->transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
   m_backend->endSingleTimeCommands(commandBuffer);
 
-  const bool presented = present(imageIndex);
-  if (diag) {
-    LOG_INFO << "Swapchain::render present=" << presented;
-  }
-  return presented;
+  return present(imageIndex);
 }
 
 bool
@@ -455,6 +432,11 @@ Swapchain::createNativeSurface()
 {
   LOG_ERROR << "Vulkan swapchain native surface creation is not implemented for this platform";
   return false;
+}
+
+void
+Swapchain::updateNativeSurfaceLayout()
+{
 }
 #endif
 

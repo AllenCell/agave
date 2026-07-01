@@ -480,18 +480,6 @@ VulkanView3D::renderFrame()
     return;
   }
   m_swapchain->render(*m_viewerWindow);
-
-  // TODO(diagnostic): remove once accumulation is verified. Log the running
-  // sample count periodically so we can see whether it grows (accumulating) or
-  // is stuck (reset every frame).
-  static int s_diagCount = 0;
-  if (m_viewerWindow->m_renderSettings && (s_diagCount++ % 60) == 0) {
-    LOG_INFO << "VulkanView3D frame " << s_diagCount
-             << " NoIterations=" << m_viewerWindow->m_renderSettings->GetNoIterations()
-             << " widget=(" << width() << "x" << height() << ") dpr=" << devicePixelRatioF() << " widget*dpr=("
-             << int(width() * devicePixelRatioF()) << "x" << int(height() * devicePixelRatioF())
-             << ") viewerWindow=(" << m_viewerWindow->width() << "x" << m_viewerWindow->height() << ")";
-  }
 }
 
 #endif // AGAVE_HAS_VULKAN
