@@ -81,6 +81,7 @@ private:
                   VkPipeline pipeline,
                   SceneView& sceneView,
                   Gesture::Graphics& graphics,
+                  const std::vector<int>& sequenceOrder,
                   int picking);
   VkShaderModule createShaderModule(const uint32_t* words, size_t wordCount) const;
   void drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, const std::vector<int>& sequenceOrder);
