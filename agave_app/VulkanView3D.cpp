@@ -411,6 +411,13 @@ VulkanView3D::resizeEvent(QResizeEvent* event)
   const float dpr = devicePixelRatioF();
   m_viewerWindow->setSize(static_cast<int>(event->size().width() * dpr),
                           static_cast<int>(event->size().height() * dpr));
+  // Rescale all tools by the current device pixel ratio so that gizmos, the
+  // bounding box, and other manipulators stay at a constant on-screen size on
+  // HiDPI displays. BoundingBoxTool derives its line thickness from m_size, so
+  // without this the bounding box renders ~half as thick on HiDPI as it does
+  // on the OpenGL backend (which does this same rescaling in resizeGL).
+  m_viewerWindow->forEachTool(
+    [dpr](ManipulationTool* tool) { tool->setSize(ManipulationTool::s_manipulatorSize * dpr); });
   if (m_viewerWindow->m_renderer) {
     m_viewerWindow->m_renderer->resize(m_viewerWindow->width(), m_viewerWindow->height());
   }
