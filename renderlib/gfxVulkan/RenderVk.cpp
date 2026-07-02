@@ -8,6 +8,7 @@
 #include "MathUtil.h"
 #include "RenderSettings.h"
 #include "ScenePlane.h"
+#include "Timing.h"
 #include "VulkanUtil.h"
 #include "gfxVulkan/Backend.h"
 #include "gfxVulkan/shadersrc/volume_frag_spv.hpp"
@@ -312,7 +313,7 @@ RenderVk::renderToFramebuffer(const CCamera& camera, Framebuffer& framebuffer)
 
   auto endTime = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> elapsed = endTime - m_startTime;
-  m_status->SetStatisticChanged("Performance", "Render Image", std::to_string(elapsed.count() * 1000.0), "ms.");
+  m_status->SetStatisticChanged("Performance", "Render Image", formatDurationMs(elapsed.count() * 1000.0), "ms.");
   if (usesProgressiveAccumulation()) {
     m_status->SetStatisticChanged("Performance", "No. Iterations", std::to_string(m_renderSettings->GetNoIterations()));
   }
