@@ -11,6 +11,7 @@
 #include "MathUtil.h"
 #include "RenderSettings.h"
 #include "VolumeTextureVk.h"
+#include "Timing.h"
 #include "VulkanUtil.h"
 #include "gfxVulkan/Backend.h"
 #include "gfxVulkan/shadersrc/pathTraceVolume_frag_spv.hpp"
@@ -876,9 +877,9 @@ RenderVkPT::renderToFramebufferPT(const CCamera& camera, Framebuffer& framebuffe
   const double frameMs = std::chrono::duration<double, std::milli>(frameEnd - frameStart).count();
   const double sampleMs = std::chrono::duration<double, std::milli>(sampleEnd - sampleStart).count();
   const double toneMapMs = std::chrono::duration<double, std::milli>(frameEnd - sampleEnd).count();
-  m_status->SetStatisticChanged("Performance", "Render Image", std::to_string(frameMs), "ms.");
-  m_status->SetStatisticChanged("Performance", "Path Trace Samples", std::to_string(sampleMs), "ms.");
-  m_status->SetStatisticChanged("Performance", "Tone Map", std::to_string(toneMapMs), "ms.");
+  m_status->SetStatisticChanged("Performance", "Render Image", formatDurationMs(frameMs), "ms.");
+  m_status->SetStatisticChanged("Performance", "Path Trace Samples", formatDurationMs(sampleMs), "ms.");
+  m_status->SetStatisticChanged("Performance", "Tone Map", formatDurationMs(toneMapMs), "ms.");
   m_status->SetStatisticChanged("Performance", "No. Iterations", std::to_string(m_renderSettings->GetNoIterations()));
 }
 
