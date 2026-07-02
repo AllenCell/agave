@@ -226,7 +226,8 @@ main(int argc, char* argv[])
     parser.addOption(loadOption);
 
     QCommandLineOption listDevicesOption(
-      "list_devices", QCoreApplication::translate("main", "Log the known graphics devices (only valid in --server mode)."));
+      "list_devices",
+      QCoreApplication::translate("main", "Log the known graphics devices (only valid in --server mode)."));
     parser.addOption(listDevicesOption);
 #if AGAVE_HAS_VULKAN
     const QString defaultGraphicsBackend = "vulkan";
@@ -239,11 +240,10 @@ main(int argc, char* argv[])
       QCoreApplication::translate("main", "backend"),
       defaultGraphicsBackend);
     parser.addOption(graphicsBackendOption);
-    QCommandLineOption selectGpuOption(
-      "gpu",
-      QCoreApplication::translate("main", "Select GPU/device by index."),
-      QCoreApplication::translate("main", "gpu"),
-      "0");
+    QCommandLineOption selectGpuOption("gpu",
+                                       QCoreApplication::translate("main", "Select GPU/device by index."),
+                                       QCoreApplication::translate("main", "gpu"),
+                                       "0");
     parser.addOption(selectGpuOption);
     QCommandLineOption serverConfigOption("config",
                                           QCoreApplication::translate("main", "Path to config file."),
@@ -268,7 +268,9 @@ main(int argc, char* argv[])
     const QString backendString = parser.value(graphicsBackendOption).toLower();
     if (backendString == "vulkan") {
       backendKind = gfxApi::BackendKind::Vulkan;
-    } else if (backendString != "opengl") {
+    } else if (backendString == "opengl") {
+      backendKind = gfxApi::BackendKind::OpenGL;
+    } else {
       LOG_ERROR << "Unknown graphics backend: " << backendString.toStdString();
       return 0;
     }
