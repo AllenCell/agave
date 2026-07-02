@@ -164,7 +164,8 @@ VolumeTextureVk::uploadVolumeBytes(const void* data,
                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                 m_volumeImage,
                 m_volumeMemory) &&
-    createImageView(m_backend, m_volumeImage, format, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT, 1, m_volumeView) &&
+    createImageView(
+      m_backend, m_volumeImage, format, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT, 1, m_volumeView) &&
     createSampler(linearFiltering, m_volumeSampler);
 
   if (ok) {
@@ -207,25 +208,24 @@ VolumeTextureVk::uploadTransferBytes(const void* data, size_t byteCount)
   std::memcpy(mapped, data, byteCount);
   vkUnmapMemory(m_backend.logicalDevice(), stagingMemory);
 
-  const bool ok =
-    createImage(m_backend,
-                kTransferSize,
-                1,
-                1,
-                kTransferLayers,
-                VK_FORMAT_R8G8B8A8_UNORM,
-                VK_IMAGE_TYPE_2D,
-                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                m_transferImage,
-                m_transferMemory) &&
-    createImageView(m_backend,
-                    m_transferImage,
-                    VK_FORMAT_R8G8B8A8_UNORM,
-                    VK_IMAGE_VIEW_TYPE_2D_ARRAY,
-                    VK_IMAGE_ASPECT_COLOR_BIT,
-                    kTransferLayers,
-                    m_transferView) &&
-    createSampler(false, m_transferSampler);
+  const bool ok = createImage(m_backend,
+                              kTransferSize,
+                              1,
+                              1,
+                              kTransferLayers,
+                              VK_FORMAT_R8G8B8A8_UNORM,
+                              VK_IMAGE_TYPE_2D,
+                              VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                              m_transferImage,
+                              m_transferMemory) &&
+                  createImageView(m_backend,
+                                  m_transferImage,
+                                  VK_FORMAT_R8G8B8A8_UNORM,
+                                  VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+                                  VK_IMAGE_ASPECT_COLOR_BIT,
+                                  kTransferLayers,
+                                  m_transferView) &&
+                  createSampler(false, m_transferSampler);
 
   if (ok) {
     transitionImageLayout(m_backend,
@@ -370,8 +370,8 @@ VolumeTextureVk::uploadRaw(const Scene& scene, bool linearFiltering)
     m_lutMin[layer] = static_cast<float>(lutMin16) * kInvUint16Max;
     m_lutMax[layer] = std::max(static_cast<float>(lutMax16) * kInvUint16Max, m_lutMin[layer] + kInvUint16Max);
 
-    const uint8_t* colormap = channel < MAX_CPU_CHANNELS ? scene.m_material.m_colormap[channel].m_colormap.data()
-                                                         : nullptr;
+    const uint8_t* colormap =
+      channel < MAX_CPU_CHANNELS ? scene.m_material.m_colormap[channel].m_colormap.data() : nullptr;
 
     for (uint32_t i = 0; i < kTransferSize; ++i) {
       const size_t srcIndex = i * 4;
