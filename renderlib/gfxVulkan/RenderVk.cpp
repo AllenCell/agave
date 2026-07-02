@@ -157,18 +157,39 @@ RenderVk::prepareToRender()
     return false;
   }
 
-  const long volumeDirtyFlags = VolumeDirty | VolumeDataDirty | TransferFunctionDirty | RenderParamsDirty;
-  if (!m_volume.valid() || m_renderSettings->m_DirtyFlags.HasFlag(volumeDirtyFlags)) {
-    if (!m_volume.upload(
-          *m_scene, volumeTextureMode(), m_renderSettings->m_RenderSettings.m_InterpolatedVolumeSampling)) {
+  const bool linearFiltering = m_renderSettings->m_RenderSettings.m_InterpolatedVolumeSampling;
+  const auto& dirty = m_renderSettings->m_DirtyFlags;
+
+  // A full re-upload is only required when the raw voxel data changed, or
+  // when the material colors need to be re-baked into the volume (which only
+  // happens in FusedRgba8 mode, where transfer-function changes fold color +
+  // opacity into the volume itself via Fuse).
+  const bool voxelDataDirty = dirty.HasFlag(VolumeDirty | VolumeDataDirty);
+  const bool transferDirty = dirty.HasFlag(TransferFunctionDirty);
+  const bool renderParamsDirty = dirty.HasFlag(RenderParamsDirty);
+  const bool needFullUpload =
+    !m_volume.valid() || voxelDataDirty || (transferDirty && volumeTextureMode() == VolumeTextureMode::FusedRgba8);
+
+  if (needFullUpload) {
+    if (!m_volume.upload(*m_scene, volumeTextureMode(), linearFiltering)) {
       return false;
     }
     m_status->SetRenderBegin();
+  } else {
+    // Cheap refreshes: colormap-only reupload for RawRgba16 when the transfer
+    // function/colormap changed, and a sampler swap when only the interpolation
+    // setting flipped. Both preserve the volume voxel data on the GPU.
+    if (transferDirty && m_volume.refreshColormap(*m_scene)) {
+      m_status->SetRenderBegin();
+    }
+    if (renderParamsDirty && m_volume.setLinearFiltering(linearFiltering)) {
+      m_status->SetRenderBegin();
+    }
   }
 
   if (usesProgressiveAccumulation() &&
-      m_renderSettings->m_DirtyFlags.HasFlag(CameraDirty | LightsDirty | RenderParamsDirty | TransferFunctionDirty |
-                                             RoiDirty | VolumeDataDirty | FilmResolutionDirty)) {
+      dirty.HasFlag(CameraDirty | LightsDirty | RenderParamsDirty | TransferFunctionDirty | RoiDirty | VolumeDataDirty |
+                    FilmResolutionDirty)) {
     m_renderSettings->SetNoIterations(0);
   }
 
