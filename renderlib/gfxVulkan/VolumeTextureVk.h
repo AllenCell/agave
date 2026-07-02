@@ -71,7 +71,7 @@ private:
   // Re-uploads bytes into the already-created m_transferImage. Assumes the
   // image is currently in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL.
   bool updateTransferBytes(const void* data, size_t byteCount);
-  bool createSampler(bool linearFiltering, VkSampler& sampler);
+  bool createSampler(bool linearFiltering, VkSamplerAddressMode addressMode, VkSampler& sampler);
   bool uploadFused(const Scene& scene, bool linearFiltering);
   bool uploadRaw(const Scene& scene, bool linearFiltering);
   std::array<uint32_t, 4> activeChannels(const Scene& scene) const;
