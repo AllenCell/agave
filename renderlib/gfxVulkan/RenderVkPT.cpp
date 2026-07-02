@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <utility>
@@ -808,6 +809,8 @@ RenderVkPT::renderToFramebufferPT(const CCamera& camera, Framebuffer& framebuffe
     return;
   }
 
+  const auto frameStart = std::chrono::high_resolution_clock::now();
+
   const uint32_t renderWidth = std::max<uint32_t>(1, m_w);
   const uint32_t renderHeight = std::max<uint32_t>(1, m_h);
   if (!ensureFramebuffers(renderWidth, renderHeight) || !ensureFullscreenResources(framebuffer.colorFormat()) ||
@@ -830,6 +833,7 @@ RenderVkPT::renderToFramebufferPT(const CCamera& camera, Framebuffer& framebuffe
   // m_accumScratchFramebuffer so the freshly accumulated result becomes the new
   // m_accumFramebuffer (no explicit copy needed).
   const int exposureIterations = std::max(1, camera.m_Film.m_ExposureIterations);
+  const auto sampleStart = std::chrono::high_resolution_clock::now();
   for (int i = 0; i < exposureIterations; ++i) {
     const int sampleCounter = m_renderSettings->GetNoIterations();
 
@@ -844,11 +848,21 @@ RenderVkPT::renderToFramebufferPT(const CCamera& camera, Framebuffer& framebuffe
 
     m_renderSettings->SetNoIterations(sampleCounter + 1);
   }
+  const auto sampleEnd = std::chrono::high_resolution_clock::now();
 
   transitionToShaderRead(*m_accumFramebuffer);
   updateToneMapUniformBuffer(camera);
   updateToneMapDescriptorSet();
   runToneMapPass(framebuffer);
+
+  const auto frameEnd = std::chrono::high_resolution_clock::now();
+  const double frameMs = std::chrono::duration<double, std::milli>(frameEnd - frameStart).count();
+  const double sampleMs = std::chrono::duration<double, std::milli>(sampleEnd - sampleStart).count();
+  const double toneMapMs = std::chrono::duration<double, std::milli>(frameEnd - sampleEnd).count();
+  m_status->SetStatisticChanged("Performance", "Render Image", std::to_string(frameMs), "ms.");
+  m_status->SetStatisticChanged("Performance", "Path Trace Samples", std::to_string(sampleMs), "ms.");
+  m_status->SetStatisticChanged("Performance", "Tone Map", std::to_string(toneMapMs), "ms.");
+  m_status->SetStatisticChanged("Performance", "No. Iterations", std::to_string(m_renderSettings->GetNoIterations()));
 }
 
 bool
