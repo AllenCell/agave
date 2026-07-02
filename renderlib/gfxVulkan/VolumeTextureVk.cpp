@@ -21,12 +21,6 @@ constexpr uint32_t kTransferSize = 256;
 constexpr uint32_t kTransferLayers = 4;
 constexpr float kInvUint16Max = 1.0f / 65535.0f;
 
-uint8_t
-toU8(float value)
-{
-  return static_cast<uint8_t>(std::max(0.0f, std::min(255.0f, value * 255.0f)));
-}
-
 } // namespace
 
 VolumeTextureVk::VolumeTextureVk(Backend& backend)
@@ -353,10 +347,16 @@ VolumeTextureVk::uploadRaw(const Scene& scene, bool linearFiltering)
   m_lutMin = glm::vec4(0.0f);
   m_lutMax = glm::vec4(1.0f);
 
+  // The path-traced volume shader (pathTraceVolume.frag) samples g_colormapTexture
+  // and applies g_diffuse[ch] / g_opacity[ch] / the transfer function on the fly.
+  // Mirror the OpenGL backend (ImageGpu::updateLutGPU) and upload the RAW per-
+  // channel colormap ramp here -- do NOT pre-bake diffuse, opacity, or the
+  // channel LUT into it, or the shader will apply them a second time and the
+  // rendered image will be too bright / saturated / low-contrast compared to
+  // the OpenGL reference.
   for (uint32_t layer = 0; layer < kTransferLayers; ++layer) {
     const uint32_t channel = channels[layer];
     Channelu16* ch = img->channel(channel);
-    const bool enabled = channel < MAX_CPU_CHANNELS && scene.m_material.m_enabled[channel];
     uint16_t lutMin16 = static_cast<uint16_t>(ch->m_histogram.getDataMin());
     uint16_t lutMax16 = static_cast<uint16_t>(ch->m_histogram.getDataMax());
     uint16_t gradientMin = 0;
@@ -372,28 +372,21 @@ VolumeTextureVk::uploadRaw(const Scene& scene, bool linearFiltering)
 
     const uint8_t* colormap = channel < MAX_CPU_CHANNELS ? scene.m_material.m_colormap[channel].m_colormap.data()
                                                          : nullptr;
-    const glm::vec3 diffuse = channel < MAX_CPU_CHANNELS
-                                ? glm::vec3(scene.m_material.m_diffuse[channel * 3],
-                                            scene.m_material.m_diffuse[channel * 3 + 1],
-                                            scene.m_material.m_diffuse[channel * 3 + 2])
-                                : glm::vec3(1.0f);
-    const float opacity = channel < MAX_CPU_CHANNELS ? scene.m_material.m_opacity[channel] : 1.0f;
 
     for (uint32_t i = 0; i < kTransferSize; ++i) {
-      const float lutValue = ch->m_lut ? ch->m_lut[i] : static_cast<float>(i) / 255.0f;
-      const size_t colorIndex = i * 4;
-      const glm::vec3 ramp = colormap ? glm::vec3(colormap[colorIndex + 0],
-                                                  colormap[colorIndex + 1],
-                                                  colormap[colorIndex + 2]) /
-                                          255.0f
-                                      : glm::vec3(1.0f);
-      const glm::vec3 color = enabled ? diffuse * ramp * lutValue : glm::vec3(0.0f);
-      const float alpha = enabled ? opacity * lutValue : 0.0f;
-      const size_t offset = (layer * kTransferSize + i) * 4;
-      transfer[offset + 0] = toU8(color.r);
-      transfer[offset + 1] = toU8(color.g);
-      transfer[offset + 2] = toU8(color.b);
-      transfer[offset + 3] = toU8(alpha);
+      const size_t srcIndex = i * 4;
+      const size_t dstIndex = (layer * kTransferSize + i) * 4;
+      if (colormap) {
+        transfer[dstIndex + 0] = colormap[srcIndex + 0];
+        transfer[dstIndex + 1] = colormap[srcIndex + 1];
+        transfer[dstIndex + 2] = colormap[srcIndex + 2];
+        transfer[dstIndex + 3] = colormap[srcIndex + 3];
+      } else {
+        transfer[dstIndex + 0] = 255;
+        transfer[dstIndex + 1] = 255;
+        transfer[dstIndex + 2] = 255;
+        transfer[dstIndex + 3] = 255;
+      }
     }
   }
 
