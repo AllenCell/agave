@@ -5,6 +5,7 @@
 
 #include "Logging.h"
 
+#include <chrono>
 #include <string>
 
 class Scene;
@@ -92,11 +93,18 @@ public:
 
 private:
   bool m_Started;
+#if defined(__APPLE__)
+  // Apple's OpenGL driver (frozen at 4.1) does not implement GL_ARB_timer_query,
+  // so glQueryCounter(GL_TIMESTAMP) always yields 0. Fall back to a CPU timer
+  // bracketed by glFinish() to measure GPU work on macOS.
+  std::chrono::high_resolution_clock::time_point m_cpuStart;
+#else
   GLuint m_EventStart;
   GLuint m_EventStop;
 
   void synchronize(GLuint eventid);
   void eventElapsedTime(float* result, GLuint startEvent, GLuint stopEvent);
+#endif
 };
 
 class GLShader
