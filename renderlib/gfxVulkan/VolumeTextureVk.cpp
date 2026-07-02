@@ -17,8 +17,6 @@ namespace gfxvulkan {
 
 namespace {
 
-constexpr uint32_t kTransferSize = 256;
-constexpr uint32_t kTransferLayers = 4;
 constexpr float kInvUint16Max = 1.0f / 65535.0f;
 
 } // namespace
@@ -98,6 +96,7 @@ VolumeTextureVk::release()
   m_lutMin = glm::vec4(0.0f);
   m_lutMax = glm::vec4(1.0f);
   m_gpuBytes = 0;
+  m_linearFiltering = false;
 }
 
 bool
@@ -182,6 +181,7 @@ VolumeTextureVk::uploadVolumeBytes(const void* data,
                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     m_dimensions = glm::ivec3(static_cast<int>(width), static_cast<int>(height), static_cast<int>(depth));
     m_gpuBytes += byteCount;
+    m_linearFiltering = linearFiltering;
   }
 
   vkDestroyBuffer(m_backend.logicalDevice(), stagingBuffer, nullptr);
@@ -247,6 +247,144 @@ VolumeTextureVk::uploadTransferBytes(const void* data, size_t byteCount)
   vkDestroyBuffer(m_backend.logicalDevice(), stagingBuffer, nullptr);
   vkFreeMemory(m_backend.logicalDevice(), stagingMemory, nullptr);
   return ok;
+}
+
+bool
+VolumeTextureVk::updateTransferBytes(const void* data, size_t byteCount)
+{
+  if (m_transferImage == VK_NULL_HANDLE) {
+    return false;
+  }
+
+  VkBuffer stagingBuffer = VK_NULL_HANDLE;
+  VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
+  if (!createBuffer(m_backend,
+                    static_cast<VkDeviceSize>(byteCount),
+                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                    stagingBuffer,
+                    stagingMemory)) {
+    return false;
+  }
+
+  void* mapped = nullptr;
+  vkMapMemory(m_backend.logicalDevice(), stagingMemory, 0, static_cast<VkDeviceSize>(byteCount), 0, &mapped);
+  std::memcpy(mapped, data, byteCount);
+  vkUnmapMemory(m_backend.logicalDevice(), stagingMemory);
+
+  transitionImageLayout(m_backend,
+                        m_transferImage,
+                        VK_IMAGE_ASPECT_COLOR_BIT,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        kTransferLayers);
+  copyBufferToImage(m_backend, stagingBuffer, m_transferImage, kTransferSize, 1, 1, kTransferLayers);
+  transitionImageLayout(m_backend,
+                        m_transferImage,
+                        VK_IMAGE_ASPECT_COLOR_BIT,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        kTransferLayers);
+
+  vkDestroyBuffer(m_backend.logicalDevice(), stagingBuffer, nullptr);
+  vkFreeMemory(m_backend.logicalDevice(), stagingMemory, nullptr);
+  return true;
+}
+
+bool
+VolumeTextureVk::setLinearFiltering(bool linearFiltering)
+{
+  if (m_linearFiltering == linearFiltering && m_volumeSampler != VK_NULL_HANDLE) {
+    return false;
+  }
+
+  VkSampler newSampler = VK_NULL_HANDLE;
+  if (!createSampler(linearFiltering, newSampler)) {
+    return false;
+  }
+
+  VkDevice device = m_backend.logicalDevice();
+  if (m_volumeSampler != VK_NULL_HANDLE) {
+    // Safe to destroy immediately: endSingleTimeCommands() waits for queue
+    // idle after every submission, so no in-flight work references the old
+    // sampler. Descriptor sets are re-written each frame before drawing.
+    vkDestroySampler(device, m_volumeSampler, nullptr);
+  }
+  m_volumeSampler = newSampler;
+  m_linearFiltering = linearFiltering;
+  return true;
+}
+
+bool
+VolumeTextureVk::refreshColormap(const Scene& scene)
+{
+  // Only RawRgba16 keeps the per-channel colormap as a separate transfer
+  // image; FusedRgba8 pre-multiplies material colors into the volume itself,
+  // so the caller must trigger a full re-upload for that mode.
+  if (m_mode != VolumeTextureMode::RawRgba16) {
+    return false;
+  }
+  if (m_transferImage == VK_NULL_HANDLE || !scene.m_volume) {
+    return false;
+  }
+
+  const std::array<uint32_t, 4> channels = activeChannels(scene);
+  std::array<uint8_t, kTransferSize * kTransferLayers * 4> transfer = {};
+  buildRawTransferBytes(scene, channels, transfer);
+  return updateTransferBytes(transfer.data(), transfer.size());
+}
+
+void
+VolumeTextureVk::buildRawTransferBytes(const Scene& scene,
+                                       const std::array<uint32_t, 4>& channels,
+                                       std::array<uint8_t, kTransferSize * kTransferLayers * 4>& transfer)
+{
+  ImageXYZC* img = scene.m_volume.get();
+  m_lutMin = glm::vec4(0.0f);
+  m_lutMax = glm::vec4(1.0f);
+
+  // The path-traced volume shader (pathTraceVolume.frag) samples g_colormapTexture
+  // and applies g_diffuse[ch] / g_opacity[ch] / the transfer function on the fly.
+  // Mirror the OpenGL backend (ImageGpu::updateLutGPU) and upload the RAW per-
+  // channel colormap ramp here -- do NOT pre-bake diffuse, opacity, or the
+  // channel LUT into it, or the shader will apply them a second time and the
+  // rendered image will be too bright / saturated / low-contrast compared to
+  // the OpenGL reference.
+  for (uint32_t layer = 0; layer < kTransferLayers; ++layer) {
+    const uint32_t channel = channels[layer];
+    Channelu16* ch = img->channel(channel);
+    uint16_t lutMin16 = static_cast<uint16_t>(ch->m_histogram.getDataMin());
+    uint16_t lutMax16 = static_cast<uint16_t>(ch->m_histogram.getDataMax());
+    uint16_t gradientMin = 0;
+    uint16_t gradientMax = 0;
+    if (channel < MAX_CPU_CHANNELS &&
+        scene.m_material.m_gradientData[channel].getMinMax(ch->m_histogram, &gradientMin, &gradientMax)) {
+      lutMin16 = gradientMin;
+      lutMax16 = gradientMax;
+    }
+
+    m_lutMin[layer] = static_cast<float>(lutMin16) * kInvUint16Max;
+    m_lutMax[layer] = std::max(static_cast<float>(lutMax16) * kInvUint16Max, m_lutMin[layer] + kInvUint16Max);
+
+    const uint8_t* colormap =
+      channel < MAX_CPU_CHANNELS ? scene.m_material.m_colormap[channel].m_colormap.data() : nullptr;
+
+    for (uint32_t i = 0; i < kTransferSize; ++i) {
+      const size_t srcIndex = i * 4;
+      const size_t dstIndex = (layer * kTransferSize + i) * 4;
+      if (colormap) {
+        transfer[dstIndex + 0] = colormap[srcIndex + 0];
+        transfer[dstIndex + 1] = colormap[srcIndex + 1];
+        transfer[dstIndex + 2] = colormap[srcIndex + 2];
+        transfer[dstIndex + 3] = colormap[srcIndex + 3];
+      } else {
+        transfer[dstIndex + 0] = 255;
+        transfer[dstIndex + 1] = 255;
+        transfer[dstIndex + 2] = 255;
+        transfer[dstIndex + 3] = 255;
+      }
+    }
+  }
 }
 
 std::array<uint32_t, 4>
@@ -344,51 +482,7 @@ VolumeTextureVk::uploadRaw(const Scene& scene, bool linearFiltering)
   });
 
   std::array<uint8_t, kTransferSize * kTransferLayers * 4> transfer = {};
-  m_lutMin = glm::vec4(0.0f);
-  m_lutMax = glm::vec4(1.0f);
-
-  // The path-traced volume shader (pathTraceVolume.frag) samples g_colormapTexture
-  // and applies g_diffuse[ch] / g_opacity[ch] / the transfer function on the fly.
-  // Mirror the OpenGL backend (ImageGpu::updateLutGPU) and upload the RAW per-
-  // channel colormap ramp here -- do NOT pre-bake diffuse, opacity, or the
-  // channel LUT into it, or the shader will apply them a second time and the
-  // rendered image will be too bright / saturated / low-contrast compared to
-  // the OpenGL reference.
-  for (uint32_t layer = 0; layer < kTransferLayers; ++layer) {
-    const uint32_t channel = channels[layer];
-    Channelu16* ch = img->channel(channel);
-    uint16_t lutMin16 = static_cast<uint16_t>(ch->m_histogram.getDataMin());
-    uint16_t lutMax16 = static_cast<uint16_t>(ch->m_histogram.getDataMax());
-    uint16_t gradientMin = 0;
-    uint16_t gradientMax = 0;
-    if (channel < MAX_CPU_CHANNELS &&
-        scene.m_material.m_gradientData[channel].getMinMax(ch->m_histogram, &gradientMin, &gradientMax)) {
-      lutMin16 = gradientMin;
-      lutMax16 = gradientMax;
-    }
-
-    m_lutMin[layer] = static_cast<float>(lutMin16) * kInvUint16Max;
-    m_lutMax[layer] = std::max(static_cast<float>(lutMax16) * kInvUint16Max, m_lutMin[layer] + kInvUint16Max);
-
-    const uint8_t* colormap =
-      channel < MAX_CPU_CHANNELS ? scene.m_material.m_colormap[channel].m_colormap.data() : nullptr;
-
-    for (uint32_t i = 0; i < kTransferSize; ++i) {
-      const size_t srcIndex = i * 4;
-      const size_t dstIndex = (layer * kTransferSize + i) * 4;
-      if (colormap) {
-        transfer[dstIndex + 0] = colormap[srcIndex + 0];
-        transfer[dstIndex + 1] = colormap[srcIndex + 1];
-        transfer[dstIndex + 2] = colormap[srcIndex + 2];
-        transfer[dstIndex + 3] = colormap[srcIndex + 3];
-      } else {
-        transfer[dstIndex + 0] = 255;
-        transfer[dstIndex + 1] = 255;
-        transfer[dstIndex + 2] = 255;
-        transfer[dstIndex + 3] = 255;
-      }
-    }
-  }
+  buildRawTransferBytes(scene, channels, transfer);
 
   return uploadVolumeBytes(rgba16.data(),
                            rgba16.size() * sizeof(uint16_t),
