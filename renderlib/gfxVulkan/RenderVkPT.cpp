@@ -401,8 +401,15 @@ RenderVkPT::ensureFullscreenResources(VkFormat toneMapFormat)
   if (m_framebufferSampler == VK_NULL_HANDLE) {
     VkSamplerCreateInfo samplerInfo = {};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    samplerInfo.magFilter = VK_FILTER_LINEAR;
-    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    // NEAREST matches the OpenGL RenderGLPT path (GLFramebufferObject uses
+    // GL_NEAREST for its color textures). The path-trace accumulator and the
+    // tone-map input are sampled at fragment centers on a full-screen quad, so
+    // LINEAR filtering here would let sub-pixel rasterization offsets blend
+    // adjacent texels -- subtly bleeding partial-coverage neighbors into fully
+    // covered pixels and altering the visible edge softness relative to
+    // OpenGL.
+    samplerInfo.magFilter = VK_FILTER_NEAREST;
+    samplerInfo.minFilter = VK_FILTER_NEAREST;
     samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
     samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;

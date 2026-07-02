@@ -100,16 +100,16 @@ VolumeTextureVk::release()
 }
 
 bool
-VolumeTextureVk::createSampler(bool linearFiltering, VkSampler& sampler)
+VolumeTextureVk::createSampler(bool linearFiltering, VkSamplerAddressMode addressMode, VkSampler& sampler)
 {
   VkSamplerCreateInfo samplerInfo = {};
   samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
   samplerInfo.magFilter = linearFiltering ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
   samplerInfo.minFilter = linearFiltering ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
   samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  samplerInfo.addressModeU = addressMode;
+  samplerInfo.addressModeV = addressMode;
+  samplerInfo.addressModeW = addressMode;
   samplerInfo.mipLodBias = 0.0f;
   samplerInfo.anisotropyEnable = VK_FALSE;
   samplerInfo.maxAnisotropy = 1.0f;
@@ -165,7 +165,11 @@ VolumeTextureVk::uploadVolumeBytes(const void* data,
                 m_volumeMemory) &&
     createImageView(
       m_backend, m_volumeImage, format, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT, 1, m_volumeView) &&
-    createSampler(linearFiltering, m_volumeSampler);
+    // REPEAT matches the OpenGL 3D volume texture (ImageGpu::createVolumeTexture4x16
+    // and Image3D::prepareTexture both use GL_REPEAT). CLAMP_TO_EDGE would
+    // produce different color at the volume boundary when the ray sample point
+    // falls just outside the volume due to floating-point error.
+    createSampler(linearFiltering, VK_SAMPLER_ADDRESS_MODE_REPEAT, m_volumeSampler);
 
   if (ok) {
     transitionImageLayout(m_backend,
@@ -225,7 +229,10 @@ VolumeTextureVk::uploadTransferBytes(const void* data, size_t byteCount)
                                   VK_IMAGE_ASPECT_COLOR_BIT,
                                   kTransferLayers,
                                   m_transferView) &&
-                  createSampler(false, m_transferSampler);
+                  // CLAMP_TO_EDGE matches the OpenGL colormap 2D array
+                  // (ImageGpu::createVolumeTexture4x16 sets GL_CLAMP_TO_EDGE on
+                  // m_ActiveChannelColormaps).
+                  createSampler(false, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, m_transferSampler);
 
   if (ok) {
     transitionImageLayout(m_backend,
@@ -299,7 +306,9 @@ VolumeTextureVk::setLinearFiltering(bool linearFiltering)
   }
 
   VkSampler newSampler = VK_NULL_HANDLE;
-  if (!createSampler(linearFiltering, newSampler)) {
+  // Keep the volume-sampler wrap mode in sync with the initial upload path
+  // (see uploadVolumeBytes): REPEAT to match the OpenGL 3D volume texture.
+  if (!createSampler(linearFiltering, VK_SAMPLER_ADDRESS_MODE_REPEAT, newSampler)) {
     return false;
   }
 
