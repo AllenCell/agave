@@ -822,6 +822,16 @@ RenderVkPT::renderToFramebufferPT(const CCamera& camera, Framebuffer& framebuffe
   // Upload the volume if needed, reset the accumulation counter when the view
   // changed, and clear the dirty flags. (Mirrors what the base per-sample render
   // would have done; we drive the path-trace pass directly instead.)
+  //
+  // Recompute the derived light geometry (position, basis frame, area, sky
+  // radius, area pdf, ...) from the current scene bounding box before
+  // prepareToRender() clears LightsDirty. Mirrors RenderGLPT::doRender.
+  if (m_renderSettings->m_DirtyFlags.HasFlag(LightsDirty)) {
+    for (int i = 0; i < m_scene->m_lighting.m_NoLights; ++i) {
+      m_scene->m_lighting.m_Lights[i]->Update(m_scene->m_boundingBox);
+    }
+  }
+
   if (!prepareToRender()) {
     framebuffer.clear({});
     return;
