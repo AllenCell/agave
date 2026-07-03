@@ -79,6 +79,12 @@ if(WIN32)
 	)
 endif()
 
+if(UNIX AND NOT APPLE)
+	target_sources(renderlib PRIVATE
+		"${CMAKE_CURRENT_SOURCE_DIR}/Swapchain_linux.cpp"
+	)
+endif()
+
 target_compile_definitions(renderlib PUBLIC AGAVE_HAS_VULKAN=1)
 target_link_libraries(renderlib
 	Vulkan::Vulkan
@@ -91,4 +97,11 @@ if(APPLE)
 		"-framework AppKit"
 		"-framework QuartzCore"
 	)
+endif()
+
+if(UNIX AND NOT APPLE)
+	find_package(PkgConfig REQUIRED)
+	pkg_check_modules(XCB REQUIRED IMPORTED_TARGET xcb)
+	pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
+	target_link_libraries(renderlib PkgConfig::XCB PkgConfig::X11)
 endif()

@@ -30,6 +30,14 @@ public:
   //   X11:     xcb_window_t (as a pointer-sized value)
   virtual void* nativeHandle() const = 0;
 
+  // Platform-native display / connection handle. Optional: platforms that
+  // don't need one (macOS, Windows) can leave the default nullptr. Providing
+  // the same connection the rest of the app uses is preferred on Linux, since
+  // some Vulkan drivers keep per-connection state for presentation.
+  //   X11:     xcb_connection_t*
+  //   Wayland: wl_display*
+  virtual void* nativeDisplay() const { return nullptr; }
+
   // True when the surface is visible and can be rendered to.
   virtual bool isExposed() const = 0;
 
