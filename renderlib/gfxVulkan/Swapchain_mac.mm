@@ -24,12 +24,20 @@ Swapchain::createNativeSurface()
     return false;
   }
 
-  // Use AppKit's managed backing layer (which is positioned correctly within
-  // the parent for an embedded, laid-out subview) and add our CAMetalLayer as a
-  // sublayer. Replacing the backing layer via setLayer: (layer-hosting) and
-  // setting its frame to the view bounds positioned the surface at the parent
-  // origin instead of the view's real frame, offsetting the whole surface by the
-  // view's y position.
+  // Note on Qt integration: standalone Vulkan apps (e.g. GLFW) usually own the
+  // whole NSWindow and install the CAMetalLayer as the view's backing layer
+  // via [view setLayer:] + [view setWantsLayer:YES]. That switches the view
+  // into "layer-hosting" mode, where AppKit no longer manages the layer's
+  // position or size.
+  //
+  // In AGAVE the Vulkan surface is hosted by a QWidget that is one node in a
+  // Qt-managed view hierarchy. Making the view layer-hosting breaks Qt's
+  // layout: AppKit stops repositioning the layer to match the widget's frame,
+  // so the metal surface anchors at the parent view's origin instead of the
+  // widget's actual (x, y) position. To keep Qt's layout intact we leave the
+  // view in the default layer-backed mode (AppKit keeps its auto-managed
+  // backing layer positioned correctly) and attach the CAMetalLayer as a
+  // sublayer with a resizing mask so it tracks the backing layer's bounds.
   [view setWantsLayer:YES];
 
   CAMetalLayer* metalLayer = nil;

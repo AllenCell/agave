@@ -23,6 +23,7 @@ public:
   explicit QtVulkanSurface(QWidget* widget);
 
   void* nativeHandle() const override;
+  void* nativeDisplay() const override;
   bool isExposed() const override;
   void pixelSize(uint32_t& width, uint32_t& height) const override;
   double contentScale() const override;

@@ -419,20 +419,6 @@ Swapchain::chooseCompositeAlpha(VkCompositeAlphaFlagsKHR supportedCompositeAlpha
   return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 }
 
-#if !defined(__APPLE__) && !defined(_WIN32)
-bool
-Swapchain::createNativeSurface()
-{
-  LOG_ERROR << "Vulkan swapchain native surface creation is not implemented for this platform";
-  return false;
-}
-
-void
-Swapchain::updateNativeSurfaceLayout()
-{
-}
-#endif
-
 } // namespace gfxvulkan
 
 #endif // AGAVE_HAS_VULKAN

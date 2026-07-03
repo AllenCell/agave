@@ -2,8 +2,13 @@
 
 #if AGAVE_HAS_VULKAN
 
+#include <QGuiApplication>
 #include <QSize>
 #include <QWidget>
+
+#if defined(__linux__)
+#include <QtGui/qpa/qplatformnativeinterface.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -20,6 +25,24 @@ QtVulkanSurface::nativeHandle() const
     return nullptr;
   }
   return reinterpret_cast<void*>(m_widget->winId());
+}
+
+void*
+QtVulkanSurface::nativeDisplay() const
+{
+#if defined(__linux__)
+  // Hand the Vulkan swapchain the same xcb connection Qt is already using for
+  // this window. Sharing the connection avoids driver quirks that can arise
+  // when presentation happens on a different xcb_connection_t than the one
+  // that owns the window (some Mesa drivers keep per-connection present
+  // state).
+  if (QPlatformNativeInterface* native = QGuiApplication::platformNativeInterface()) {
+    return native->nativeResourceForIntegration(QByteArrayLiteral("connection"));
+  }
+  return nullptr;
+#else
+  return nullptr;
+#endif
 }
 
 bool
