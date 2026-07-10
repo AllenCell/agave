@@ -55,13 +55,11 @@ public:
   std::optional<resources::UniqueShaderModule> createShaderModule(const uint32_t* words, size_t wordCount);
   std::optional<resources::UniqueDescriptorSetLayout> createDescriptorSetLayout(
     const VkDescriptorSetLayoutCreateInfo& createInfo);
-  std::optional<resources::UniqueDescriptorPool> createDescriptorPool(
-    const VkDescriptorPoolCreateInfo& createInfo);
-  std::optional<resources::UniquePipelineLayout> createPipelineLayout(
-    const VkPipelineLayoutCreateInfo& createInfo);
+  std::optional<resources::UniqueDescriptorPool> createDescriptorPool(const VkDescriptorPoolCreateInfo& createInfo);
+  std::optional<resources::UniquePipelineLayout> createPipelineLayout(const VkPipelineLayoutCreateInfo& createInfo);
   std::optional<resources::UniqueRenderPass> createRenderPass(const VkRenderPassCreateInfo& createInfo);
   std::optional<resources::UniquePipeline> createPipeline(const VkGraphicsPipelineCreateInfo& createInfo,
-                                                           VkPipelineCache cache = VK_NULL_HANDLE);
+                                                          VkPipelineCache cache = VK_NULL_HANDLE);
   std::optional<resources::UniqueFramebuffer> createFramebuffer(const VkFramebufferCreateInfo& createInfo);
   std::optional<resources::UniqueFence> createFence(const VkFenceCreateInfo& createInfo);
   std::optional<resources::UniqueCommandPool> createCommandPool(const VkCommandPoolCreateInfo& createInfo);

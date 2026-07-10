@@ -177,17 +177,11 @@ const std::array<uint16_t, 6> kFullscreenIndices = { 0, 1, 2, 2, 3, 0 };
 
 template<typename T>
 bool
-uploadHostBuffer(Backend& backend,
-                 VkBufferUsageFlags usage,
-                 const T* data,
-                 size_t count,
-                 resources::Buffer& buffer)
+uploadHostBuffer(Backend& backend, VkBufferUsageFlags usage, const T* data, size_t count, resources::Buffer& buffer)
 {
   const VkDeviceSize byteCount = static_cast<VkDeviceSize>(sizeof(T) * count);
-  auto resource = backend.device().createBuffer(byteCount,
-                                                usage,
-                                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  auto resource = backend.device().createBuffer(
+    byteCount, usage, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   if (!resource) {
     return false;
   }
@@ -207,14 +201,11 @@ createUniformBuffer(Backend& backend, VkDeviceSize size)
 {
   return backend.device().createBuffer(size,
                                        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 }
 
 std::optional<resources::UniqueRenderPass>
-createColorRenderPass(Backend& backend,
-                      VkFormat colorFormat,
-                      VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR)
+createColorRenderPass(Backend& backend, VkFormat colorFormat, VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR)
 {
   VkAttachmentDescription colorAttachment = {};
   colorAttachment.format = colorFormat;
@@ -719,8 +710,7 @@ RenderVkPT::updateAccumUniformBuffer()
   uniforms.numIterations = std::max(1, m_renderSettings ? m_renderSettings->GetNoIterations() : 1);
 
   void* mapped = nullptr;
-  vkMapMemory(
-    m_backend.logicalDevice(), m_accumUniformBuffer.memory(), 0, sizeof(PtAccumUniforms), 0, &mapped);
+  vkMapMemory(m_backend.logicalDevice(), m_accumUniformBuffer.memory(), 0, sizeof(PtAccumUniforms), 0, &mapped);
   std::memcpy(mapped, &uniforms, sizeof(PtAccumUniforms));
   vkUnmapMemory(m_backend.logicalDevice(), m_accumUniformBuffer.memory());
   return true;
@@ -733,8 +723,7 @@ RenderVkPT::updateToneMapUniformBuffer(const CCamera& camera)
   uniforms.inverseExposure = 1.0f / std::max(camera.m_Film.m_Exposure, 0.0001f);
 
   void* mapped = nullptr;
-  vkMapMemory(
-    m_backend.logicalDevice(), m_toneMapUniformBuffer.memory(), 0, sizeof(ToneMapUniforms), 0, &mapped);
+  vkMapMemory(m_backend.logicalDevice(), m_toneMapUniformBuffer.memory(), 0, sizeof(ToneMapUniforms), 0, &mapped);
   std::memcpy(mapped, &uniforms, sizeof(ToneMapUniforms));
   vkUnmapMemory(m_backend.logicalDevice(), m_toneMapUniformBuffer.memory());
   return true;
@@ -894,13 +883,8 @@ RenderVkPT::ensureDummyLutTexture()
     return true;
   }
 
-  auto image = m_backend.device().createImage(1,
-                                              1,
-                                              1,
-                                              1,
-                                              VK_FORMAT_R8_UNORM,
-                                              VK_IMAGE_TYPE_2D,
-                                              VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+  auto image = m_backend.device().createImage(
+    1, 1, 1, 1, VK_FORMAT_R8_UNORM, VK_IMAGE_TYPE_2D, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
   if (!image) {
     return false;
   }
@@ -1274,8 +1258,7 @@ RenderVkPT::updatePtVolumeUniforms(const CCamera& camera, int sampleCounter)
     glm::vec2(static_cast<float>(std::max<uint32_t>(1, m_w)), static_cast<float>(std::max<uint32_t>(1, m_h)));
 
   void* mapped = nullptr;
-  vkMapMemory(
-    m_backend.logicalDevice(), m_ptVolumeUniformBuffer.memory(), 0, sizeof(PtVolumeUniforms), 0, &mapped);
+  vkMapMemory(m_backend.logicalDevice(), m_ptVolumeUniformBuffer.memory(), 0, sizeof(PtVolumeUniforms), 0, &mapped);
   std::memcpy(mapped, &u, sizeof(PtVolumeUniforms));
   vkUnmapMemory(m_backend.logicalDevice(), m_ptVolumeUniformBuffer.memory());
   return true;
@@ -1461,15 +1444,14 @@ RenderVkPT::runAccumulationPass(Framebuffer& framebuffer)
   vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
   vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
   vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_accumPipeline.get());
-  vkCmdBindDescriptorSets(
-    commandBuffer,
-    VK_PIPELINE_BIND_POINT_GRAPHICS,
-    m_accumPipelineLayout.get(),
-    0,
-    1,
-    &m_accumDescriptorSet,
-    0,
-    nullptr);
+  vkCmdBindDescriptorSets(commandBuffer,
+                          VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          m_accumPipelineLayout.get(),
+                          0,
+                          1,
+                          &m_accumDescriptorSet,
+                          0,
+                          nullptr);
   VkDeviceSize offset = 0;
   VkBuffer quadVertexBuffer = m_quadVertexBuffer.get();
   vkCmdBindVertexBuffers(commandBuffer, 0, 1, &quadVertexBuffer, &offset);
@@ -1525,15 +1507,14 @@ RenderVkPT::runToneMapPass(Framebuffer& framebuffer)
   vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
   vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
   vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_toneMapPipeline.get());
-  vkCmdBindDescriptorSets(
-    commandBuffer,
-    VK_PIPELINE_BIND_POINT_GRAPHICS,
-    m_toneMapPipelineLayout.get(),
-    0,
-    1,
-    &m_toneMapDescriptorSet,
-    0,
-    nullptr);
+  vkCmdBindDescriptorSets(commandBuffer,
+                          VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          m_toneMapPipelineLayout.get(),
+                          0,
+                          1,
+                          &m_toneMapDescriptorSet,
+                          0,
+                          nullptr);
   VkDeviceSize offset = 0;
   VkBuffer quadVertexBuffer = m_quadVertexBuffer.get();
   vkCmdBindVertexBuffers(commandBuffer, 0, 1, &quadVertexBuffer, &offset);

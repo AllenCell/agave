@@ -61,17 +61,11 @@ vulkanProjectionCorrection()
 
 template<typename T>
 bool
-uploadHostBuffer(Backend& backend,
-                 VkBufferUsageFlags usage,
-                 const T* data,
-                 size_t count,
-                 resources::Buffer& buffer)
+uploadHostBuffer(Backend& backend, VkBufferUsageFlags usage, const T* data, size_t count, resources::Buffer& buffer)
 {
   const VkDeviceSize byteCount = static_cast<VkDeviceSize>(sizeof(T) * count);
-  auto resource = backend.device().createBuffer(byteCount,
-                                                usage,
-                                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  auto resource = backend.device().createBuffer(
+    byteCount, usage, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   if (!resource) {
     return false;
   }
@@ -330,26 +324,20 @@ RenderVk::ensureFrameResources()
 
   destroyFrameResources();
 
-  if (!uploadHostBuffer(m_backend,
-                        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                        kCubeVertices.data(),
-                        kCubeVertices.size(),
-                        m_vertexBuffer)) {
+  if (!uploadHostBuffer(
+        m_backend, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, kCubeVertices.data(), kCubeVertices.size(), m_vertexBuffer)) {
     return false;
   }
 
-  if (!uploadHostBuffer(m_backend,
-                        VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                        kCubeIndices.data(),
-                        kCubeIndices.size(),
-                        m_indexBuffer)) {
+  if (!uploadHostBuffer(
+        m_backend, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, kCubeIndices.data(), kCubeIndices.size(), m_indexBuffer)) {
     return false;
   }
 
-  auto uniformBuffer = m_backend.device().createBuffer(sizeof(VolumeUniforms),
-                                                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  auto uniformBuffer =
+    m_backend.device().createBuffer(sizeof(VolumeUniforms),
+                                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   if (!uniformBuffer) {
     return false;
   }
