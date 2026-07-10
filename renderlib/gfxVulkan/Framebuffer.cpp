@@ -133,8 +133,7 @@ Framebuffer::createImages()
                                               1,
                                               m_colorFormat,
                                               VK_IMAGE_TYPE_2D,
-                                              VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                                                VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                                              VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                                                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
   if (!color) {
     return;
@@ -149,14 +148,14 @@ Framebuffer::createImages()
   m_colorLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
   if (m_hasDepthStencil) {
-    auto depth = m_backend.device().createImage(m_width,
-                                                m_height,
-                                                1,
-                                                1,
-                                                VK_FORMAT_D32_SFLOAT,
-                                                VK_IMAGE_TYPE_2D,
-                                                VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
-                                                  VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+    auto depth =
+      m_backend.device().createImage(m_width,
+                                     m_height,
+                                     1,
+                                     1,
+                                     VK_FORMAT_D32_SFLOAT,
+                                     VK_IMAGE_TYPE_2D,
+                                     VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
     if (!depth) {
       return;
     }
@@ -206,16 +205,8 @@ Framebuffer::transitionColorImage(VkCommandBuffer commandBuffer, VkImageLayout n
   barrier.srcAccessMask = accessForLayout(m_colorLayout);
   barrier.dstAccessMask = accessForLayout(newLayout);
 
-  vkCmdPipelineBarrier(commandBuffer,
-                       stageForLayout(m_colorLayout),
-                       stageForLayout(newLayout),
-                       0,
-                       0,
-                       nullptr,
-                       0,
-                       nullptr,
-                       1,
-                       &barrier);
+  vkCmdPipelineBarrier(
+    commandBuffer, stageForLayout(m_colorLayout), stageForLayout(newLayout), 0, 0, nullptr, 0, nullptr, 1, &barrier);
   m_colorLayout = newLayout;
 }
 
@@ -254,10 +245,10 @@ Framebuffer::toImage(void* pixels)
   }
 
   const VkDeviceSize byteCount = static_cast<VkDeviceSize>(m_width) * static_cast<VkDeviceSize>(m_height) * 4;
-  auto staging = m_backend.device().createBuffer(byteCount,
-                                                 VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  auto staging =
+    m_backend.device().createBuffer(byteCount,
+                                    VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   if (!staging) {
     return;
   }

@@ -56,11 +56,11 @@ Swapchain::createNativeSurface()
   metalLayer.contentsScale = m_surface->contentScale();
   metalLayer.frame = [view bounds];
 
-  auto createMetalSurface =
-    reinterpret_cast<PFN_vkCreateMetalSurfaceEXT>(vkGetInstanceProcAddr(m_backend->instance(),
-                                                                        "vkCreateMetalSurfaceEXT"));
+  auto createMetalSurface = reinterpret_cast<PFN_vkCreateMetalSurfaceEXT>(
+    vkGetInstanceProcAddr(m_backend->instance(), "vkCreateMetalSurfaceEXT"));
   if (!createMetalSurface) {
-    LOG_ERROR << "vkCreateMetalSurfaceEXT is not available on the current Vulkan instance";
+    LOG_ERROR << "vkCreateMetalSurfaceEXT is not available on the current "
+                 "Vulkan instance";
     return false;
   }
 
@@ -68,7 +68,8 @@ Swapchain::createNativeSurface()
   createInfo.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
   createInfo.pLayer = metalLayer;
 
-  VkResult result = createMetalSurface(m_backend->instance(), &createInfo, nullptr, &m_vkSurface);
+  VkResult result = createMetalSurface(
+    m_backend->instance(), &createInfo, nullptr, &m_vkSurface);
   if (result != VK_SUCCESS) {
     LOG_ERROR << "vkCreateMetalSurfaceEXT failed with VkResult " << result;
     m_vkSurface = VK_NULL_HANDLE;
