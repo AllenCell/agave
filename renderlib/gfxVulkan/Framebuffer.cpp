@@ -1,11 +1,13 @@
 #include "Framebuffer.h"
 
 #include "Backend.h"
+#include "Device.h"
 #include "Logging.h"
 
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 namespace gfxvulkan {
@@ -83,13 +85,16 @@ Framebuffer::Framebuffer(Backend& backend,
   , m_width(width)
   , m_height(height)
   , m_colorFormat(colorFormat)
-  , m_colorImage(colorImage)
+  , m_externalColorImage(colorImage)
   , m_colorLayout(initialLayout)
   , m_ownsColorImage(false)
-  , m_ownsColorMemory(false)
 {
-  if (m_colorImage != VK_NULL_HANDLE && m_width > 0 && m_height > 0) {
-    createImageView(m_colorFormat, VK_IMAGE_ASPECT_COLOR_BIT, m_colorImage, m_colorImageView);
+  if (m_externalColorImage != VK_NULL_HANDLE && m_width > 0 && m_height > 0) {
+    auto view = m_backend.device().createImageView(
+      m_externalColorImage, m_colorFormat, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+    if (view) {
+      m_colorImageView = std::move(*view);
+    }
   }
 }
 
@@ -101,7 +106,7 @@ Framebuffer::~Framebuffer()
 void
 Framebuffer::resize(uint32_t width, uint32_t height)
 {
-  if (!m_ownsColorImage || !m_ownsColorMemory) {
+  if (!m_ownsColorImage) {
     LOG_ERROR << "Cannot resize a Vulkan framebuffer that wraps an externally owned image";
     return;
   }
@@ -122,136 +127,57 @@ Framebuffer::resize(uint32_t width, uint32_t height)
 void
 Framebuffer::createImages()
 {
-  createImage(m_colorFormat,
-              VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-              VK_IMAGE_ASPECT_COLOR_BIT,
-              m_colorImage,
-              m_colorMemory,
-              m_colorImageView);
+  auto color = m_backend.device().createImage(m_width,
+                                              m_height,
+                                              1,
+                                              1,
+                                              m_colorFormat,
+                                              VK_IMAGE_TYPE_2D,
+                                              VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                                VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                                                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+  if (!color) {
+    return;
+  }
+  auto colorView = m_backend.device().createImageView(
+    color->get(), m_colorFormat, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+  if (!colorView) {
+    return;
+  }
+  m_colorAllocation = std::move(*color);
+  m_colorImageView = std::move(*colorView);
   m_colorLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
   if (m_hasDepthStencil) {
-    createImage(VK_FORMAT_D32_SFLOAT,
-                VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-                VK_IMAGE_ASPECT_DEPTH_BIT,
-                m_depthImage,
-                m_depthMemory,
-                m_depthImageView);
-  }
-}
-
-void
-Framebuffer::createImage(VkFormat format,
-                         VkImageUsageFlags usage,
-                         VkImageAspectFlags aspect,
-                         VkImage& image,
-                         VkDeviceMemory& memory,
-                         VkImageView& view)
-{
-  VkImageCreateInfo imageInfo = {};
-  imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-  imageInfo.imageType = VK_IMAGE_TYPE_2D;
-  imageInfo.extent.width = m_width;
-  imageInfo.extent.height = m_height;
-  imageInfo.extent.depth = 1;
-  imageInfo.mipLevels = 1;
-  imageInfo.arrayLayers = 1;
-  imageInfo.format = format;
-  imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-  imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  imageInfo.usage = usage;
-  imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-  imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-  VkDevice device = m_backend.logicalDevice();
-  VkResult result = vkCreateImage(device, &imageInfo, nullptr, &image);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateImage failed with VkResult " << result;
-    return;
-  }
-
-  VkMemoryRequirements memoryRequirements = {};
-  vkGetImageMemoryRequirements(device, image, &memoryRequirements);
-
-  VkMemoryAllocateInfo allocateInfo = {};
-  allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  allocateInfo.allocationSize = memoryRequirements.size;
-  allocateInfo.memoryTypeIndex =
-    m_backend.findMemoryType(memoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-  if (allocateInfo.memoryTypeIndex == UINT32_MAX) {
-    return;
-  }
-
-  result = vkAllocateMemory(device, &allocateInfo, nullptr, &memory);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkAllocateMemory for framebuffer image failed with VkResult " << result;
-    return;
-  }
-
-  vkBindImageMemory(device, image, memory, 0);
-
-  createImageView(format, aspect, image, view);
-}
-
-void
-Framebuffer::createImageView(VkFormat format, VkImageAspectFlags aspect, VkImage image, VkImageView& view)
-{
-  if (image == VK_NULL_HANDLE) {
-    return;
-  }
-
-  VkImageViewCreateInfo viewInfo = {};
-  viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-  viewInfo.image = image;
-  viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  viewInfo.format = format;
-  viewInfo.subresourceRange.aspectMask = aspect;
-  viewInfo.subresourceRange.baseMipLevel = 0;
-  viewInfo.subresourceRange.levelCount = 1;
-  viewInfo.subresourceRange.baseArrayLayer = 0;
-  viewInfo.subresourceRange.layerCount = 1;
-
-  VkDevice device = m_backend.logicalDevice();
-  VkResult result = vkCreateImageView(device, &viewInfo, nullptr, &view);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateImageView failed with VkResult " << result;
+    auto depth = m_backend.device().createImage(m_width,
+                                                m_height,
+                                                1,
+                                                1,
+                                                VK_FORMAT_D32_SFLOAT,
+                                                VK_IMAGE_TYPE_2D,
+                                                VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+                                                  VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+    if (!depth) {
+      return;
+    }
+    auto depthView = m_backend.device().createImageView(
+      depth->get(), VK_FORMAT_D32_SFLOAT, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
+    if (!depthView) {
+      return;
+    }
+    m_depthAllocation = std::move(*depth);
+    m_depthImageView = std::move(*depthView);
   }
 }
 
 void
 Framebuffer::destroy()
 {
-  VkDevice device = m_backend.logicalDevice();
-  if (device == VK_NULL_HANDLE) {
-    return;
-  }
-
-  if (m_depthImageView != VK_NULL_HANDLE) {
-    vkDestroyImageView(device, m_depthImageView, nullptr);
-    m_depthImageView = VK_NULL_HANDLE;
-  }
-  if (m_depthImage != VK_NULL_HANDLE) {
-    vkDestroyImage(device, m_depthImage, nullptr);
-    m_depthImage = VK_NULL_HANDLE;
-  }
-  if (m_depthMemory != VK_NULL_HANDLE) {
-    vkFreeMemory(device, m_depthMemory, nullptr);
-    m_depthMemory = VK_NULL_HANDLE;
-  }
-
-  if (m_colorImageView != VK_NULL_HANDLE) {
-    vkDestroyImageView(device, m_colorImageView, nullptr);
-    m_colorImageView = VK_NULL_HANDLE;
-  }
-  if (m_colorImage != VK_NULL_HANDLE && m_ownsColorImage) {
-    vkDestroyImage(device, m_colorImage, nullptr);
-  }
-  m_colorImage = VK_NULL_HANDLE;
-  if (m_colorMemory != VK_NULL_HANDLE && m_ownsColorMemory) {
-    vkFreeMemory(device, m_colorMemory, nullptr);
-  }
-  m_colorMemory = VK_NULL_HANDLE;
+  m_depthImageView.reset();
+  m_depthAllocation.reset();
+  m_colorImageView.reset();
+  m_colorAllocation.reset();
+  m_externalColorImage = VK_NULL_HANDLE;
 
   m_width = 0;
   m_height = 0;
@@ -271,7 +197,7 @@ Framebuffer::transitionColorImage(VkCommandBuffer commandBuffer, VkImageLayout n
   barrier.newLayout = newLayout;
   barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
   barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  barrier.image = m_colorImage;
+  barrier.image = colorImage();
   barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   barrier.subresourceRange.baseMipLevel = 0;
   barrier.subresourceRange.levelCount = 1;
@@ -296,7 +222,7 @@ Framebuffer::transitionColorImage(VkCommandBuffer commandBuffer, VkImageLayout n
 void
 Framebuffer::clear(const gfxApi::ClearColor& color)
 {
-  if (m_colorImage == VK_NULL_HANDLE) {
+  if (colorImage() == VK_NULL_HANDLE) {
     return;
   }
 
@@ -310,55 +236,15 @@ Framebuffer::clear(const gfxApi::ClearColor& color)
   range.levelCount = 1;
   range.baseArrayLayer = 0;
   range.layerCount = 1;
-  vkCmdClearColorImage(commandBuffer, m_colorImage, m_colorLayout, &clearColor, 1, &range);
+  vkCmdClearColorImage(commandBuffer, colorImage(), m_colorLayout, &clearColor, 1, &range);
 
   m_backend.endSingleTimeCommands(commandBuffer);
 }
 
 void
-Framebuffer::createBuffer(VkDeviceSize size,
-                          VkBufferUsageFlags usage,
-                          VkMemoryPropertyFlags properties,
-                          VkBuffer& buffer,
-                          VkDeviceMemory& memory)
-{
-  VkDevice device = m_backend.logicalDevice();
-  VkBufferCreateInfo bufferInfo = {};
-  bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  bufferInfo.size = size;
-  bufferInfo.usage = usage;
-  bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-  VkResult result = vkCreateBuffer(device, &bufferInfo, nullptr, &buffer);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateBuffer failed with VkResult " << result;
-    return;
-  }
-
-  VkMemoryRequirements memoryRequirements = {};
-  vkGetBufferMemoryRequirements(device, buffer, &memoryRequirements);
-
-  VkMemoryAllocateInfo allocateInfo = {};
-  allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  allocateInfo.allocationSize = memoryRequirements.size;
-  allocateInfo.memoryTypeIndex = m_backend.findMemoryType(memoryRequirements.memoryTypeBits, properties);
-  if (allocateInfo.memoryTypeIndex == UINT32_MAX) {
-    return;
-  }
-
-  result = vkAllocateMemory(device, &allocateInfo, nullptr, &memory);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkAllocateMemory for framebuffer buffer failed with VkResult " << result;
-    return;
-  }
-
-  vkBindBufferMemory(device, buffer, memory, 0);
-}
-
-void
 Framebuffer::toImage(void* pixels)
 {
-  if (!pixels || m_colorImage == VK_NULL_HANDLE || m_width == 0 || m_height == 0) {
+  if (!pixels || colorImage() == VK_NULL_HANDLE || m_width == 0 || m_height == 0) {
     return;
   }
 
@@ -368,14 +254,11 @@ Framebuffer::toImage(void* pixels)
   }
 
   const VkDeviceSize byteCount = static_cast<VkDeviceSize>(m_width) * static_cast<VkDeviceSize>(m_height) * 4;
-  VkBuffer stagingBuffer = VK_NULL_HANDLE;
-  VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
-  createBuffer(byteCount,
-               VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-               stagingBuffer,
-               stagingMemory);
-  if (stagingBuffer == VK_NULL_HANDLE || stagingMemory == VK_NULL_HANDLE) {
+  auto staging = m_backend.device().createBuffer(byteCount,
+                                                 VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  if (!staging) {
     return;
   }
 
@@ -393,12 +276,14 @@ Framebuffer::toImage(void* pixels)
   copyRegion.imageOffset = { 0, 0, 0 };
   copyRegion.imageExtent = { m_width, m_height, 1 };
 
-  vkCmdCopyImageToBuffer(commandBuffer, m_colorImage, m_colorLayout, stagingBuffer, 1, &copyRegion);
+  vkCmdCopyImageToBuffer(commandBuffer, colorImage(), m_colorLayout, staging->get(), 1, &copyRegion);
   m_backend.endSingleTimeCommands(commandBuffer);
 
   void* mapped = nullptr;
   VkDevice device = m_backend.logicalDevice();
-  vkMapMemory(device, stagingMemory, 0, byteCount, 0, &mapped);
+  if (vkMapMemory(device, staging->memory(), 0, byteCount, 0, &mapped) != VK_SUCCESS) {
+    return;
+  }
 
   const auto* src = static_cast<const uint8_t*>(mapped);
   auto* dst = static_cast<uint8_t*>(pixels);
@@ -409,9 +294,7 @@ Framebuffer::toImage(void* pixels)
     dst[i * 4 + 3] = src[i * 4 + 3];
   }
 
-  vkUnmapMemory(device, stagingMemory);
-  vkDestroyBuffer(device, stagingBuffer, nullptr);
-  vkFreeMemory(device, stagingMemory, nullptr);
+  vkUnmapMemory(device, staging->memory());
 }
 
 } // namespace gfxvulkan

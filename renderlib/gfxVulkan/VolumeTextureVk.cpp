@@ -6,11 +6,13 @@
 #include "Logging.h"
 #include "VulkanUtil.h"
 #include "gfxVulkan/Backend.h"
+#include "gfxVulkan/Device.h"
 #include "threading.h"
 
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 namespace gfxvulkan {
@@ -53,44 +55,8 @@ VolumeTextureVk::upload(const Scene& scene, VolumeTextureMode mode, bool linearF
 void
 VolumeTextureVk::release()
 {
-  VkDevice device = m_backend.logicalDevice();
-  if (device == VK_NULL_HANDLE) {
-    return;
-  }
-
-  if (m_transferSampler != VK_NULL_HANDLE) {
-    vkDestroySampler(device, m_transferSampler, nullptr);
-    m_transferSampler = VK_NULL_HANDLE;
-  }
-  if (m_transferView != VK_NULL_HANDLE) {
-    vkDestroyImageView(device, m_transferView, nullptr);
-    m_transferView = VK_NULL_HANDLE;
-  }
-  if (m_transferImage != VK_NULL_HANDLE) {
-    vkDestroyImage(device, m_transferImage, nullptr);
-    m_transferImage = VK_NULL_HANDLE;
-  }
-  if (m_transferMemory != VK_NULL_HANDLE) {
-    vkFreeMemory(device, m_transferMemory, nullptr);
-    m_transferMemory = VK_NULL_HANDLE;
-  }
-
-  if (m_volumeSampler != VK_NULL_HANDLE) {
-    vkDestroySampler(device, m_volumeSampler, nullptr);
-    m_volumeSampler = VK_NULL_HANDLE;
-  }
-  if (m_volumeView != VK_NULL_HANDLE) {
-    vkDestroyImageView(device, m_volumeView, nullptr);
-    m_volumeView = VK_NULL_HANDLE;
-  }
-  if (m_volumeImage != VK_NULL_HANDLE) {
-    vkDestroyImage(device, m_volumeImage, nullptr);
-    m_volumeImage = VK_NULL_HANDLE;
-  }
-  if (m_volumeMemory != VK_NULL_HANDLE) {
-    vkFreeMemory(device, m_volumeMemory, nullptr);
-    m_volumeMemory = VK_NULL_HANDLE;
-  }
+  m_transferTexture.reset();
+  m_volumeTexture.reset();
 
   m_dimensions = glm::ivec3(0);
   m_lutMin = glm::vec4(0.0f);
@@ -99,8 +65,8 @@ VolumeTextureVk::release()
   m_linearFiltering = false;
 }
 
-bool
-VolumeTextureVk::createSampler(bool linearFiltering, VkSamplerAddressMode addressMode, VkSampler& sampler)
+std::optional<resources::UniqueSampler>
+VolumeTextureVk::createSampler(bool linearFiltering, VkSamplerAddressMode addressMode)
 {
   VkSamplerCreateInfo samplerInfo = {};
   samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -119,12 +85,7 @@ VolumeTextureVk::createSampler(bool linearFiltering, VkSamplerAddressMode addres
   samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
   samplerInfo.unnormalizedCoordinates = VK_FALSE;
 
-  VkResult result = vkCreateSampler(m_backend.logicalDevice(), &samplerInfo, nullptr, &sampler);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateSampler failed with VkResult " << result;
-    return false;
-  }
-  return true;
+  return m_backend.device().createSampler(samplerInfo);
 }
 
 bool
@@ -136,190 +97,189 @@ VolumeTextureVk::uploadVolumeBytes(const void* data,
                                    uint32_t depth,
                                    bool linearFiltering)
 {
-  VkBuffer stagingBuffer = VK_NULL_HANDLE;
-  VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
-  if (!createBuffer(m_backend,
-                    static_cast<VkDeviceSize>(byteCount),
-                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                    stagingBuffer,
-                    stagingMemory)) {
+  auto staging = m_backend.device().createBuffer(static_cast<VkDeviceSize>(byteCount),
+                                                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  if (!staging) {
     return false;
   }
 
   void* mapped = nullptr;
-  vkMapMemory(m_backend.logicalDevice(), stagingMemory, 0, static_cast<VkDeviceSize>(byteCount), 0, &mapped);
+  if (vkMapMemory(
+        m_backend.logicalDevice(), staging->memory(), 0, static_cast<VkDeviceSize>(byteCount), 0, &mapped) != VK_SUCCESS) {
+    return false;
+  }
   std::memcpy(mapped, data, byteCount);
-  vkUnmapMemory(m_backend.logicalDevice(), stagingMemory);
+  vkUnmapMemory(m_backend.logicalDevice(), staging->memory());
 
-  const bool ok =
-    createImage(m_backend,
-                width,
-                height,
-                depth,
-                1,
-                format,
-                VK_IMAGE_TYPE_3D,
-                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                m_volumeImage,
-                m_volumeMemory) &&
-    createImageView(
-      m_backend, m_volumeImage, format, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT, 1, m_volumeView) &&
-    // REPEAT matches the OpenGL 3D volume texture (ImageGpu::createVolumeTexture4x16
-    // and Image3D::prepareTexture both use GL_REPEAT). CLAMP_TO_EDGE would
-    // produce different color at the volume boundary when the ray sample point
-    // falls just outside the volume due to floating-point error.
-    createSampler(linearFiltering, VK_SAMPLER_ADDRESS_MODE_REPEAT, m_volumeSampler);
-
-  if (ok) {
-    transitionImageLayout(m_backend,
-                          m_volumeImage,
-                          VK_IMAGE_ASPECT_COLOR_BIT,
-                          VK_IMAGE_LAYOUT_UNDEFINED,
-                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    copyBufferToImage(m_backend, stagingBuffer, m_volumeImage, width, height, depth);
-    transitionImageLayout(m_backend,
-                          m_volumeImage,
-                          VK_IMAGE_ASPECT_COLOR_BIT,
-                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    m_dimensions = glm::ivec3(static_cast<int>(width), static_cast<int>(height), static_cast<int>(depth));
-    m_gpuBytes += byteCount;
-    m_linearFiltering = linearFiltering;
+  auto image = m_backend.device().createImage(width,
+                                              height,
+                                              depth,
+                                              1,
+                                              format,
+                                              VK_IMAGE_TYPE_3D,
+                                              VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+  if (!image) {
+    return false;
+  }
+  auto view =
+    m_backend.device().createImageView(image->get(), format, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+  if (!view) {
+    return false;
+  }
+  // REPEAT matches the OpenGL 3D volume texture (ImageGpu::createVolumeTexture4x16
+  // and Image3D::prepareTexture both use GL_REPEAT). CLAMP_TO_EDGE would
+  // produce different color at the volume boundary when the ray sample point
+  // falls just outside the volume due to floating-point error.
+  auto sampler = createSampler(linearFiltering, VK_SAMPLER_ADDRESS_MODE_REPEAT);
+  if (!sampler) {
+    return false;
   }
 
-  vkDestroyBuffer(m_backend.logicalDevice(), stagingBuffer, nullptr);
-  vkFreeMemory(m_backend.logicalDevice(), stagingMemory, nullptr);
-  return ok;
+  transitionImageLayout(m_backend,
+                        image->get(),
+                        VK_IMAGE_ASPECT_COLOR_BIT,
+                        VK_IMAGE_LAYOUT_UNDEFINED,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  copyBufferToImage(m_backend, staging->get(), image->get(), width, height, depth);
+  transitionImageLayout(m_backend,
+                        image->get(),
+                        VK_IMAGE_ASPECT_COLOR_BIT,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+  m_volumeTexture = resources::SampledImage(std::move(*image), std::move(*view), std::move(*sampler));
+  m_dimensions = glm::ivec3(static_cast<int>(width), static_cast<int>(height), static_cast<int>(depth));
+  m_gpuBytes += byteCount;
+  m_linearFiltering = linearFiltering;
+
+  return true;
 }
 
 bool
 VolumeTextureVk::uploadTransferBytes(const void* data, size_t byteCount)
 {
-  VkBuffer stagingBuffer = VK_NULL_HANDLE;
-  VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
-  if (!createBuffer(m_backend,
-                    static_cast<VkDeviceSize>(byteCount),
-                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                    stagingBuffer,
-                    stagingMemory)) {
+  auto staging = m_backend.device().createBuffer(static_cast<VkDeviceSize>(byteCount),
+                                                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  if (!staging) {
     return false;
   }
 
   void* mapped = nullptr;
-  vkMapMemory(m_backend.logicalDevice(), stagingMemory, 0, static_cast<VkDeviceSize>(byteCount), 0, &mapped);
+  if (vkMapMemory(
+        m_backend.logicalDevice(), staging->memory(), 0, static_cast<VkDeviceSize>(byteCount), 0, &mapped) != VK_SUCCESS) {
+    return false;
+  }
   std::memcpy(mapped, data, byteCount);
-  vkUnmapMemory(m_backend.logicalDevice(), stagingMemory);
+  vkUnmapMemory(m_backend.logicalDevice(), staging->memory());
 
-  const bool ok = createImage(m_backend,
-                              kTransferSize,
-                              1,
-                              1,
-                              kTransferLayers,
-                              VK_FORMAT_R8G8B8A8_UNORM,
-                              VK_IMAGE_TYPE_2D,
-                              VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                              m_transferImage,
-                              m_transferMemory) &&
-                  createImageView(m_backend,
-                                  m_transferImage,
-                                  VK_FORMAT_R8G8B8A8_UNORM,
-                                  VK_IMAGE_VIEW_TYPE_2D_ARRAY,
-                                  VK_IMAGE_ASPECT_COLOR_BIT,
-                                  kTransferLayers,
-                                  m_transferView) &&
-                  // CLAMP_TO_EDGE matches the OpenGL colormap 2D array
-                  // (ImageGpu::createVolumeTexture4x16 sets GL_CLAMP_TO_EDGE on
-                  // m_ActiveChannelColormaps).
-                  createSampler(false, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, m_transferSampler);
-
-  if (ok) {
-    transitionImageLayout(m_backend,
-                          m_transferImage,
-                          VK_IMAGE_ASPECT_COLOR_BIT,
-                          VK_IMAGE_LAYOUT_UNDEFINED,
-                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                          kTransferLayers);
-    copyBufferToImage(m_backend, stagingBuffer, m_transferImage, kTransferSize, 1, 1, kTransferLayers);
-    transitionImageLayout(m_backend,
-                          m_transferImage,
-                          VK_IMAGE_ASPECT_COLOR_BIT,
-                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                          kTransferLayers);
-    m_gpuBytes += byteCount;
+  auto image = m_backend.device().createImage(kTransferSize,
+                                              1,
+                                              1,
+                                              kTransferLayers,
+                                              VK_FORMAT_R8G8B8A8_UNORM,
+                                              VK_IMAGE_TYPE_2D,
+                                              VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+  if (!image) {
+    return false;
+  }
+  auto view = m_backend.device().createImageView(image->get(),
+                                                 VK_FORMAT_R8G8B8A8_UNORM,
+                                                 VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+                                                 VK_IMAGE_ASPECT_COLOR_BIT,
+                                                 kTransferLayers);
+  if (!view) {
+    return false;
+  }
+  // CLAMP_TO_EDGE matches the OpenGL colormap 2D array
+  // (ImageGpu::createVolumeTexture4x16 sets GL_CLAMP_TO_EDGE on
+  // m_ActiveChannelColormaps).
+  auto sampler = createSampler(false, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+  if (!sampler) {
+    return false;
   }
 
-  vkDestroyBuffer(m_backend.logicalDevice(), stagingBuffer, nullptr);
-  vkFreeMemory(m_backend.logicalDevice(), stagingMemory, nullptr);
-  return ok;
+  transitionImageLayout(m_backend,
+                        image->get(),
+                        VK_IMAGE_ASPECT_COLOR_BIT,
+                        VK_IMAGE_LAYOUT_UNDEFINED,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        kTransferLayers);
+  copyBufferToImage(m_backend, staging->get(), image->get(), kTransferSize, 1, 1, kTransferLayers);
+  transitionImageLayout(m_backend,
+                        image->get(),
+                        VK_IMAGE_ASPECT_COLOR_BIT,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        kTransferLayers);
+
+  m_transferTexture = resources::SampledImage(std::move(*image), std::move(*view), std::move(*sampler));
+  m_gpuBytes += byteCount;
+
+  return true;
 }
 
 bool
 VolumeTextureVk::updateTransferBytes(const void* data, size_t byteCount)
 {
-  if (m_transferImage == VK_NULL_HANDLE) {
+  if (!m_transferTexture) {
     return false;
   }
 
-  VkBuffer stagingBuffer = VK_NULL_HANDLE;
-  VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
-  if (!createBuffer(m_backend,
-                    static_cast<VkDeviceSize>(byteCount),
-                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                    stagingBuffer,
-                    stagingMemory)) {
+  auto staging = m_backend.device().createBuffer(static_cast<VkDeviceSize>(byteCount),
+                                                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  if (!staging) {
     return false;
   }
 
   void* mapped = nullptr;
-  vkMapMemory(m_backend.logicalDevice(), stagingMemory, 0, static_cast<VkDeviceSize>(byteCount), 0, &mapped);
+  if (vkMapMemory(
+        m_backend.logicalDevice(), staging->memory(), 0, static_cast<VkDeviceSize>(byteCount), 0, &mapped) != VK_SUCCESS) {
+    return false;
+  }
   std::memcpy(mapped, data, byteCount);
-  vkUnmapMemory(m_backend.logicalDevice(), stagingMemory);
+  vkUnmapMemory(m_backend.logicalDevice(), staging->memory());
 
   transitionImageLayout(m_backend,
-                        m_transferImage,
+                        m_transferTexture.image(),
                         VK_IMAGE_ASPECT_COLOR_BIT,
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                         kTransferLayers);
-  copyBufferToImage(m_backend, stagingBuffer, m_transferImage, kTransferSize, 1, 1, kTransferLayers);
+  copyBufferToImage(
+    m_backend, staging->get(), m_transferTexture.image(), kTransferSize, 1, 1, kTransferLayers);
   transitionImageLayout(m_backend,
-                        m_transferImage,
+                        m_transferTexture.image(),
                         VK_IMAGE_ASPECT_COLOR_BIT,
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                         kTransferLayers);
 
-  vkDestroyBuffer(m_backend.logicalDevice(), stagingBuffer, nullptr);
-  vkFreeMemory(m_backend.logicalDevice(), stagingMemory, nullptr);
   return true;
 }
 
 bool
 VolumeTextureVk::setLinearFiltering(bool linearFiltering)
 {
-  if (m_linearFiltering == linearFiltering && m_volumeSampler != VK_NULL_HANDLE) {
+  if (m_linearFiltering == linearFiltering && m_volumeTexture.sampler() != VK_NULL_HANDLE) {
     return false;
   }
 
-  VkSampler newSampler = VK_NULL_HANDLE;
   // Keep the volume-sampler wrap mode in sync with the initial upload path
   // (see uploadVolumeBytes): REPEAT to match the OpenGL 3D volume texture.
-  if (!createSampler(linearFiltering, VK_SAMPLER_ADDRESS_MODE_REPEAT, newSampler)) {
+  auto newSampler = createSampler(linearFiltering, VK_SAMPLER_ADDRESS_MODE_REPEAT);
+  if (!newSampler) {
     return false;
   }
 
-  VkDevice device = m_backend.logicalDevice();
-  if (m_volumeSampler != VK_NULL_HANDLE) {
-    // Safe to destroy immediately: endSingleTimeCommands() waits for queue
-    // idle after every submission, so no in-flight work references the old
-    // sampler. Descriptor sets are re-written each frame before drawing.
-    vkDestroySampler(device, m_volumeSampler, nullptr);
-  }
-  m_volumeSampler = newSampler;
+  // Safe to replace immediately: endSingleTimeCommands() waits for queue idle
+  // after every submission, and descriptor sets are re-written each frame.
+  m_volumeTexture.replaceSampler(std::move(*newSampler));
   m_linearFiltering = linearFiltering;
   return true;
 }
@@ -333,7 +293,7 @@ VolumeTextureVk::refreshColormap(const Scene& scene)
   if (m_mode != VolumeTextureMode::RawRgba16) {
     return false;
   }
-  if (m_transferImage == VK_NULL_HANDLE || !scene.m_volume) {
+  if (!m_transferTexture || !scene.m_volume) {
     return false;
   }
 

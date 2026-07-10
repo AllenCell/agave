@@ -14,6 +14,7 @@
 #include "Timing.h"
 #include "VulkanUtil.h"
 #include "gfxVulkan/Backend.h"
+#include "gfxVulkan/Device.h"
 #include "gfxVulkan/shadersrc/pathTraceVolume_frag_spv.hpp"
 #include "gfxVulkan/shadersrc/pathTraceVolume_vert_spv.hpp"
 #include "gfxVulkan/shadersrc/ptAccum_frag_spv.hpp"
@@ -180,41 +181,39 @@ uploadHostBuffer(Backend& backend,
                  VkBufferUsageFlags usage,
                  const T* data,
                  size_t count,
-                 VkBuffer& buffer,
-                 VkDeviceMemory& memory)
+                 resources::Buffer& buffer)
 {
   const VkDeviceSize byteCount = static_cast<VkDeviceSize>(sizeof(T) * count);
-  if (!createBuffer(backend,
-                    byteCount,
-                    usage,
-                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                    buffer,
-                    memory)) {
+  auto resource = backend.device().createBuffer(byteCount,
+                                                usage,
+                                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  if (!resource) {
     return false;
   }
 
   void* mapped = nullptr;
-  vkMapMemory(backend.logicalDevice(), memory, 0, byteCount, 0, &mapped);
+  if (vkMapMemory(backend.logicalDevice(), resource->memory(), 0, byteCount, 0, &mapped) != VK_SUCCESS) {
+    return false;
+  }
   std::memcpy(mapped, data, static_cast<size_t>(byteCount));
-  vkUnmapMemory(backend.logicalDevice(), memory);
+  vkUnmapMemory(backend.logicalDevice(), resource->memory());
+  buffer = std::move(*resource);
   return true;
 }
 
-bool
-createUniformBuffer(Backend& backend, VkDeviceSize size, VkBuffer& buffer, VkDeviceMemory& memory)
+std::optional<resources::Buffer>
+createUniformBuffer(Backend& backend, VkDeviceSize size)
 {
-  return createBuffer(backend,
-                      size,
-                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                      buffer,
-                      memory);
+  return backend.device().createBuffer(size,
+                                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 }
 
-bool
+std::optional<resources::UniqueRenderPass>
 createColorRenderPass(Backend& backend,
                       VkFormat colorFormat,
-                      VkRenderPass& renderPass,
                       VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR)
 {
   VkAttachmentDescription colorAttachment = {};
@@ -243,12 +242,7 @@ createColorRenderPass(Backend& backend,
   renderPassInfo.subpassCount = 1;
   renderPassInfo.pSubpasses = &subpass;
 
-  VkResult result = vkCreateRenderPass(backend.logicalDevice(), &renderPassInfo, nullptr, &renderPass);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateRenderPass failed with VkResult " << result;
-    return false;
-  }
-  return true;
+  return backend.device().createRenderPass(renderPassInfo);
 }
 
 } // namespace
@@ -371,35 +365,39 @@ RenderVkPT::ensureFullscreenResources(VkFormat toneMapFormat)
 {
   VkDevice device = m_backend.logicalDevice();
 
-  if (m_quadVertexBuffer == VK_NULL_HANDLE && !uploadHostBuffer(m_backend,
-                                                                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                                                kFullscreenVertices.data(),
-                                                                kFullscreenVertices.size(),
-                                                                m_quadVertexBuffer,
-                                                                m_quadVertexMemory)) {
+  if (!m_quadVertexBuffer && !uploadHostBuffer(m_backend,
+                                               VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                               kFullscreenVertices.data(),
+                                               kFullscreenVertices.size(),
+                                               m_quadVertexBuffer)) {
     return false;
   }
 
-  if (m_quadIndexBuffer == VK_NULL_HANDLE && !uploadHostBuffer(m_backend,
-                                                               VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                                                               kFullscreenIndices.data(),
-                                                               kFullscreenIndices.size(),
-                                                               m_quadIndexBuffer,
-                                                               m_quadIndexMemory)) {
+  if (!m_quadIndexBuffer && !uploadHostBuffer(m_backend,
+                                              VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                                              kFullscreenIndices.data(),
+                                              kFullscreenIndices.size(),
+                                              m_quadIndexBuffer)) {
     return false;
   }
   m_quadIndexCount = static_cast<uint32_t>(kFullscreenIndices.size());
 
-  if (m_accumUniformBuffer == VK_NULL_HANDLE &&
-      !createUniformBuffer(m_backend, sizeof(PtAccumUniforms), m_accumUniformBuffer, m_accumUniformMemory)) {
-    return false;
+  if (!m_accumUniformBuffer) {
+    auto buffer = createUniformBuffer(m_backend, sizeof(PtAccumUniforms));
+    if (!buffer) {
+      return false;
+    }
+    m_accumUniformBuffer = std::move(*buffer);
   }
-  if (m_toneMapUniformBuffer == VK_NULL_HANDLE &&
-      !createUniformBuffer(m_backend, sizeof(ToneMapUniforms), m_toneMapUniformBuffer, m_toneMapUniformMemory)) {
-    return false;
+  if (!m_toneMapUniformBuffer) {
+    auto buffer = createUniformBuffer(m_backend, sizeof(ToneMapUniforms));
+    if (!buffer) {
+      return false;
+    }
+    m_toneMapUniformBuffer = std::move(*buffer);
   }
 
-  if (m_framebufferSampler == VK_NULL_HANDLE) {
+  if (!m_framebufferSampler) {
     VkSamplerCreateInfo samplerInfo = {};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     // NEAREST matches the OpenGL RenderGLPT path (GLFramebufferObject uses
@@ -417,14 +415,14 @@ RenderVkPT::ensureFullscreenResources(VkFormat toneMapFormat)
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     samplerInfo.minLod = 0.0f;
     samplerInfo.maxLod = 0.0f;
-    VkResult result = vkCreateSampler(device, &samplerInfo, nullptr, &m_framebufferSampler);
-    if (result != VK_SUCCESS) {
-      LOG_ERROR << "vkCreateSampler for pathtrace framebuffer sampling failed with VkResult " << result;
+    auto sampler = m_backend.device().createSampler(samplerInfo);
+    if (!sampler) {
       return false;
     }
+    m_framebufferSampler = std::move(*sampler);
   }
 
-  if (m_accumDescriptorSetLayout == VK_NULL_HANDLE) {
+  if (!m_accumDescriptorSetLayout) {
     std::array<VkDescriptorSetLayoutBinding, 3> bindings = {};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -443,11 +441,11 @@ RenderVkPT::ensureFullscreenResources(VkFormat toneMapFormat)
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
     layoutInfo.pBindings = bindings.data();
-    VkResult result = vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_accumDescriptorSetLayout);
-    if (result != VK_SUCCESS) {
-      LOG_ERROR << "vkCreateDescriptorSetLayout for pathtrace accumulation failed with VkResult " << result;
+    auto descriptorSetLayoutResource = m_backend.device().createDescriptorSetLayout(layoutInfo);
+    if (!descriptorSetLayoutResource) {
       return false;
     }
+    m_accumDescriptorSetLayout = std::move(*descriptorSetLayoutResource);
 
     std::array<VkDescriptorPoolSize, 2> poolSizes = {};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -460,25 +458,26 @@ RenderVkPT::ensureFullscreenResources(VkFormat toneMapFormat)
     poolInfo.maxSets = 1;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
-    result = vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_accumDescriptorPool);
-    if (result != VK_SUCCESS) {
-      LOG_ERROR << "vkCreateDescriptorPool for pathtrace accumulation failed with VkResult " << result;
+    auto descriptorPool = m_backend.device().createDescriptorPool(poolInfo);
+    if (!descriptorPool) {
       return false;
     }
+    m_accumDescriptorPool = std::move(*descriptorPool);
 
     VkDescriptorSetAllocateInfo allocateInfo = {};
     allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocateInfo.descriptorPool = m_accumDescriptorPool;
+    allocateInfo.descriptorPool = m_accumDescriptorPool.get();
     allocateInfo.descriptorSetCount = 1;
-    allocateInfo.pSetLayouts = &m_accumDescriptorSetLayout;
-    result = vkAllocateDescriptorSets(device, &allocateInfo, &m_accumDescriptorSet);
+    VkDescriptorSetLayout descriptorSetLayout = m_accumDescriptorSetLayout.get();
+    allocateInfo.pSetLayouts = &descriptorSetLayout;
+    VkResult result = vkAllocateDescriptorSets(device, &allocateInfo, &m_accumDescriptorSet);
     if (result != VK_SUCCESS) {
       LOG_ERROR << "vkAllocateDescriptorSets for pathtrace accumulation failed with VkResult " << result;
       return false;
     }
   }
 
-  if (m_toneMapDescriptorSetLayout == VK_NULL_HANDLE) {
+  if (!m_toneMapDescriptorSetLayout) {
     std::array<VkDescriptorSetLayoutBinding, 2> bindings = {};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -493,11 +492,11 @@ RenderVkPT::ensureFullscreenResources(VkFormat toneMapFormat)
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
     layoutInfo.pBindings = bindings.data();
-    VkResult result = vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_toneMapDescriptorSetLayout);
-    if (result != VK_SUCCESS) {
-      LOG_ERROR << "vkCreateDescriptorSetLayout for pathtrace tone map failed with VkResult " << result;
+    auto descriptorSetLayoutResource = m_backend.device().createDescriptorSetLayout(layoutInfo);
+    if (!descriptorSetLayoutResource) {
       return false;
     }
+    m_toneMapDescriptorSetLayout = std::move(*descriptorSetLayoutResource);
 
     std::array<VkDescriptorPoolSize, 2> poolSizes = {};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -510,57 +509,66 @@ RenderVkPT::ensureFullscreenResources(VkFormat toneMapFormat)
     poolInfo.maxSets = 1;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
-    result = vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_toneMapDescriptorPool);
-    if (result != VK_SUCCESS) {
-      LOG_ERROR << "vkCreateDescriptorPool for pathtrace tone map failed with VkResult " << result;
+    auto descriptorPool = m_backend.device().createDescriptorPool(poolInfo);
+    if (!descriptorPool) {
       return false;
     }
+    m_toneMapDescriptorPool = std::move(*descriptorPool);
 
     VkDescriptorSetAllocateInfo allocateInfo = {};
     allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocateInfo.descriptorPool = m_toneMapDescriptorPool;
+    allocateInfo.descriptorPool = m_toneMapDescriptorPool.get();
     allocateInfo.descriptorSetCount = 1;
-    allocateInfo.pSetLayouts = &m_toneMapDescriptorSetLayout;
-    result = vkAllocateDescriptorSets(device, &allocateInfo, &m_toneMapDescriptorSet);
+    VkDescriptorSetLayout descriptorSetLayout = m_toneMapDescriptorSetLayout.get();
+    allocateInfo.pSetLayouts = &descriptorSetLayout;
+    VkResult result = vkAllocateDescriptorSets(device, &allocateInfo, &m_toneMapDescriptorSet);
     if (result != VK_SUCCESS) {
       LOG_ERROR << "vkAllocateDescriptorSets for pathtrace tone map failed with VkResult " << result;
       return false;
     }
   }
 
-  if (m_accumPipeline != VK_NULL_HANDLE && m_toneMapPipeline != VK_NULL_HANDLE &&
-      m_toneMapPipelineColorFormat == toneMapFormat) {
+  if (m_accumPipeline && m_toneMapPipeline && m_toneMapPipelineColorFormat == toneMapFormat) {
     return true;
   }
 
   destroyPipelines();
   m_toneMapPipelineColorFormat = toneMapFormat;
 
-  if (!createColorRenderPass(m_backend, VK_FORMAT_R32G32B32A32_SFLOAT, m_accumRenderPass) ||
-      // Tone map is the final blit into the caller's framebuffer. Preserve
-      // existing contents (e.g. the gesture underlay's back-facing bounding-box
-      // edges drawn beforehand) so the tone-mapped volume can alpha-blend
-      // against them.
-      !createColorRenderPass(m_backend, toneMapFormat, m_toneMapRenderPass, VK_ATTACHMENT_LOAD_OP_LOAD)) {
+  auto renderPass = createColorRenderPass(m_backend, VK_FORMAT_R32G32B32A32_SFLOAT);
+  if (!renderPass) {
     return false;
   }
+  m_accumRenderPass = std::move(*renderPass);
+
+  // Tone map is the final blit into the caller's framebuffer. Preserve
+  // existing contents (e.g. the gesture underlay's back-facing bounding-box
+  // edges drawn beforehand) so the tone-mapped volume can alpha-blend
+  // against them.
+  renderPass = createColorRenderPass(m_backend, toneMapFormat, VK_ATTACHMENT_LOAD_OP_LOAD);
+  if (!renderPass) {
+    return false;
+  }
+  m_toneMapRenderPass = std::move(*renderPass);
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   pipelineLayoutInfo.setLayoutCount = 1;
-  pipelineLayoutInfo.pSetLayouts = &m_accumDescriptorSetLayout;
-  VkResult result = vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &m_accumPipelineLayout);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreatePipelineLayout for pathtrace accumulation failed with VkResult " << result;
+  VkDescriptorSetLayout descriptorSetLayout = m_accumDescriptorSetLayout.get();
+  pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+  auto pipelineLayout = m_backend.device().createPipelineLayout(pipelineLayoutInfo);
+  if (!pipelineLayout) {
     return false;
   }
+  m_accumPipelineLayout = std::move(*pipelineLayout);
 
-  pipelineLayoutInfo.pSetLayouts = &m_toneMapDescriptorSetLayout;
-  result = vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &m_toneMapPipelineLayout);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreatePipelineLayout for pathtrace tone map failed with VkResult " << result;
+  descriptorSetLayout = m_toneMapDescriptorSetLayout.get();
+  pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+  pipelineLayout = m_backend.device().createPipelineLayout(pipelineLayoutInfo);
+  if (!pipelineLayout) {
     return false;
   }
+  m_toneMapPipelineLayout = std::move(*pipelineLayout);
 
   auto createFullscreenPipeline = [&](VkRenderPass renderPass,
                                       VkPipelineLayout pipelineLayout,
@@ -569,29 +577,22 @@ RenderVkPT::ensureFullscreenResources(VkFormat toneMapFormat)
                                       const uint32_t* fragmentWords,
                                       size_t fragmentWordCount,
                                       bool includeUv,
-                                      bool enableBlend,
-                                      VkPipeline& pipeline) -> bool {
-    VkShaderModule vertexShader = createShaderModule(vertexWords, vertexWordCount);
-    VkShaderModule fragmentShader = createShaderModule(fragmentWords, fragmentWordCount);
-    if (vertexShader == VK_NULL_HANDLE || fragmentShader == VK_NULL_HANDLE) {
-      if (vertexShader != VK_NULL_HANDLE) {
-        vkDestroyShaderModule(device, vertexShader, nullptr);
-      }
-      if (fragmentShader != VK_NULL_HANDLE) {
-        vkDestroyShaderModule(device, fragmentShader, nullptr);
-      }
-      return false;
+                                      bool enableBlend) -> std::optional<resources::UniquePipeline> {
+    auto vertexShader = m_backend.device().createShaderModule(vertexWords, vertexWordCount);
+    auto fragmentShader = m_backend.device().createShaderModule(fragmentWords, fragmentWordCount);
+    if (!vertexShader || !fragmentShader) {
+      return std::nullopt;
     }
 
     VkPipelineShaderStageCreateInfo vertexStage = {};
     vertexStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     vertexStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
-    vertexStage.module = vertexShader;
+    vertexStage.module = vertexShader->get();
     vertexStage.pName = "main";
     VkPipelineShaderStageCreateInfo fragmentStage = {};
     fragmentStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     fragmentStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    fragmentStage.module = fragmentShader;
+    fragmentStage.module = fragmentShader->get();
     fragmentStage.pName = "main";
     std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages = { vertexStage, fragmentStage };
 
@@ -680,34 +681,35 @@ RenderVkPT::ensureFullscreenResources(VkFormat toneMapFormat)
     pipelineInfo.renderPass = renderPass;
     pipelineInfo.subpass = 0;
 
-    result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline);
-    vkDestroyShaderModule(device, fragmentShader, nullptr);
-    vkDestroyShaderModule(device, vertexShader, nullptr);
-    if (result != VK_SUCCESS) {
-      LOG_ERROR << "vkCreateGraphicsPipelines for pathtrace fullscreen pass failed with VkResult " << result;
-      return false;
-    }
-    return true;
+    return m_backend.device().createPipeline(pipelineInfo);
   };
 
-  return createFullscreenPipeline(m_accumRenderPass,
-                                  m_accumPipelineLayout,
-                                  ptAccum_vert_spv,
-                                  ptAccum_vert_spv_word_count,
-                                  ptAccum_frag_spv,
-                                  ptAccum_frag_spv_word_count,
-                                  false,
-                                  false,
-                                  m_accumPipeline) &&
-         createFullscreenPipeline(m_toneMapRenderPass,
-                                  m_toneMapPipelineLayout,
-                                  toneMap_vert_spv,
-                                  toneMap_vert_spv_word_count,
-                                  toneMap_frag_spv,
-                                  toneMap_frag_spv_word_count,
-                                  true,
-                                  true,
-                                  m_toneMapPipeline);
+  auto pipeline = createFullscreenPipeline(m_accumRenderPass.get(),
+                                           m_accumPipelineLayout.get(),
+                                           ptAccum_vert_spv,
+                                           ptAccum_vert_spv_word_count,
+                                           ptAccum_frag_spv,
+                                           ptAccum_frag_spv_word_count,
+                                           false,
+                                           false);
+  if (!pipeline) {
+    return false;
+  }
+  m_accumPipeline = std::move(*pipeline);
+
+  pipeline = createFullscreenPipeline(m_toneMapRenderPass.get(),
+                                      m_toneMapPipelineLayout.get(),
+                                      toneMap_vert_spv,
+                                      toneMap_vert_spv_word_count,
+                                      toneMap_frag_spv,
+                                      toneMap_frag_spv_word_count,
+                                      true,
+                                      true);
+  if (!pipeline) {
+    return false;
+  }
+  m_toneMapPipeline = std::move(*pipeline);
+  return true;
 }
 
 bool
@@ -717,9 +719,10 @@ RenderVkPT::updateAccumUniformBuffer()
   uniforms.numIterations = std::max(1, m_renderSettings ? m_renderSettings->GetNoIterations() : 1);
 
   void* mapped = nullptr;
-  vkMapMemory(m_backend.logicalDevice(), m_accumUniformMemory, 0, sizeof(PtAccumUniforms), 0, &mapped);
+  vkMapMemory(
+    m_backend.logicalDevice(), m_accumUniformBuffer.memory(), 0, sizeof(PtAccumUniforms), 0, &mapped);
   std::memcpy(mapped, &uniforms, sizeof(PtAccumUniforms));
-  vkUnmapMemory(m_backend.logicalDevice(), m_accumUniformMemory);
+  vkUnmapMemory(m_backend.logicalDevice(), m_accumUniformBuffer.memory());
   return true;
 }
 
@@ -730,9 +733,10 @@ RenderVkPT::updateToneMapUniformBuffer(const CCamera& camera)
   uniforms.inverseExposure = 1.0f / std::max(camera.m_Film.m_Exposure, 0.0001f);
 
   void* mapped = nullptr;
-  vkMapMemory(m_backend.logicalDevice(), m_toneMapUniformMemory, 0, sizeof(ToneMapUniforms), 0, &mapped);
+  vkMapMemory(
+    m_backend.logicalDevice(), m_toneMapUniformBuffer.memory(), 0, sizeof(ToneMapUniforms), 0, &mapped);
   std::memcpy(mapped, &uniforms, sizeof(ToneMapUniforms));
-  vkUnmapMemory(m_backend.logicalDevice(), m_toneMapUniformMemory);
+  vkUnmapMemory(m_backend.logicalDevice(), m_toneMapUniformBuffer.memory());
   return true;
 }
 
@@ -740,19 +744,19 @@ bool
 RenderVkPT::updateAccumDescriptorSet()
 {
   VkDescriptorBufferInfo bufferInfo = {};
-  bufferInfo.buffer = m_accumUniformBuffer;
+  bufferInfo.buffer = m_accumUniformBuffer.get();
   bufferInfo.offset = 0;
   bufferInfo.range = sizeof(PtAccumUniforms);
 
   VkDescriptorImageInfo renderInfo = {};
   renderInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   renderInfo.imageView = m_sampleFramebuffer->colorImageView();
-  renderInfo.sampler = m_framebufferSampler;
+  renderInfo.sampler = m_framebufferSampler.get();
 
   VkDescriptorImageInfo accumInfo = {};
   accumInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   accumInfo.imageView = m_accumFramebuffer->colorImageView();
-  accumInfo.sampler = m_framebufferSampler;
+  accumInfo.sampler = m_framebufferSampler.get();
 
   std::array<VkWriteDescriptorSet, 3> writes = {};
   writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -782,14 +786,14 @@ bool
 RenderVkPT::updateToneMapDescriptorSet()
 {
   VkDescriptorBufferInfo bufferInfo = {};
-  bufferInfo.buffer = m_toneMapUniformBuffer;
+  bufferInfo.buffer = m_toneMapUniformBuffer.get();
   bufferInfo.offset = 0;
   bufferInfo.range = sizeof(ToneMapUniforms);
 
   VkDescriptorImageInfo accumInfo = {};
   accumInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   accumInfo.imageView = m_accumFramebuffer->colorImageView();
-  accumInfo.sampler = m_framebufferSampler;
+  accumInfo.sampler = m_framebufferSampler.get();
 
   std::array<VkWriteDescriptorSet, 2> writes = {};
   writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -886,36 +890,25 @@ RenderVkPT::renderToFramebufferPT(const CCamera& camera, Framebuffer& framebuffe
 bool
 RenderVkPT::ensureDummyLutTexture()
 {
-  if (m_dummyLutView != VK_NULL_HANDLE) {
+  if (m_dummyLutTexture) {
     return true;
   }
-  if (!createImage(m_backend,
-                   1,
-                   1,
-                   1,
-                   1,
-                   VK_FORMAT_R8_UNORM,
-                   VK_IMAGE_TYPE_2D,
-                   VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-                   m_dummyLutImage,
-                   m_dummyLutMemory)) {
+
+  auto image = m_backend.device().createImage(1,
+                                              1,
+                                              1,
+                                              1,
+                                              VK_FORMAT_R8_UNORM,
+                                              VK_IMAGE_TYPE_2D,
+                                              VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+  if (!image) {
     return false;
   }
-  if (!createImageView(m_backend,
-                       m_dummyLutImage,
-                       VK_FORMAT_R8_UNORM,
-                       VK_IMAGE_VIEW_TYPE_2D,
-                       VK_IMAGE_ASPECT_COLOR_BIT,
-                       1,
-                       m_dummyLutView)) {
+  auto view = m_backend.device().createImageView(
+    image->get(), VK_FORMAT_R8_UNORM, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+  if (!view) {
     return false;
   }
-  transitionImageLayout(m_backend,
-                        m_dummyLutImage,
-                        VK_IMAGE_ASPECT_COLOR_BIT,
-                        VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                        1);
 
   VkSamplerCreateInfo samplerInfo = {};
   samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -925,10 +918,18 @@ RenderVkPT::ensureDummyLutTexture()
   samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
   samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
   samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  if (vkCreateSampler(m_backend.logicalDevice(), &samplerInfo, nullptr, &m_dummyLutSampler) != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateSampler for pathtrace dummy lut failed";
+  auto sampler = m_backend.device().createSampler(samplerInfo);
+  if (!sampler) {
     return false;
   }
+
+  transitionImageLayout(m_backend,
+                        image->get(),
+                        VK_IMAGE_ASPECT_COLOR_BIT,
+                        VK_IMAGE_LAYOUT_UNDEFINED,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        1);
+  m_dummyLutTexture = resources::SampledImage(std::move(*image), std::move(*view), std::move(*sampler));
   return true;
 }
 
@@ -941,12 +942,15 @@ RenderVkPT::ensurePtVolumeResources()
     return false;
   }
 
-  if (m_ptVolumeUniformBuffer == VK_NULL_HANDLE &&
-      !createUniformBuffer(m_backend, sizeof(PtVolumeUniforms), m_ptVolumeUniformBuffer, m_ptVolumeUniformMemory)) {
-    return false;
+  if (!m_ptVolumeUniformBuffer) {
+    auto buffer = createUniformBuffer(m_backend, sizeof(PtVolumeUniforms));
+    if (!buffer) {
+      return false;
+    }
+    m_ptVolumeUniformBuffer = std::move(*buffer);
   }
 
-  if (m_ptVolumeDescriptorSetLayout == VK_NULL_HANDLE) {
+  if (!m_ptVolumeDescriptorSetLayout) {
     std::array<VkDescriptorSetLayoutBinding, 5> bindings = {};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -973,10 +977,11 @@ RenderVkPT::ensurePtVolumeResources()
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
     layoutInfo.pBindings = bindings.data();
-    if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &m_ptVolumeDescriptorSetLayout) != VK_SUCCESS) {
-      LOG_ERROR << "vkCreateDescriptorSetLayout for pathtrace volume failed";
+    auto descriptorSetLayoutResource = m_backend.device().createDescriptorSetLayout(layoutInfo);
+    if (!descriptorSetLayoutResource) {
       return false;
     }
+    m_ptVolumeDescriptorSetLayout = std::move(*descriptorSetLayoutResource);
 
     std::array<VkDescriptorPoolSize, 2> poolSizes = {};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -989,63 +994,66 @@ RenderVkPT::ensurePtVolumeResources()
     poolInfo.maxSets = 1;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
-    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_ptVolumeDescriptorPool) != VK_SUCCESS) {
-      LOG_ERROR << "vkCreateDescriptorPool for pathtrace volume failed";
+    auto descriptorPool = m_backend.device().createDescriptorPool(poolInfo);
+    if (!descriptorPool) {
       return false;
     }
+    m_ptVolumeDescriptorPool = std::move(*descriptorPool);
 
     VkDescriptorSetAllocateInfo allocateInfo = {};
     allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocateInfo.descriptorPool = m_ptVolumeDescriptorPool;
+    allocateInfo.descriptorPool = m_ptVolumeDescriptorPool.get();
     allocateInfo.descriptorSetCount = 1;
-    allocateInfo.pSetLayouts = &m_ptVolumeDescriptorSetLayout;
+    VkDescriptorSetLayout descriptorSetLayout = m_ptVolumeDescriptorSetLayout.get();
+    allocateInfo.pSetLayouts = &descriptorSetLayout;
     if (vkAllocateDescriptorSets(device, &allocateInfo, &m_ptVolumeDescriptorSet) != VK_SUCCESS) {
       LOG_ERROR << "vkAllocateDescriptorSets for pathtrace volume failed";
       return false;
     }
   }
 
-  if (m_ptVolumePipeline != VK_NULL_HANDLE) {
+  if (m_ptVolumePipeline) {
     return true;
   }
 
-  if (m_ptVolumeRenderPass == VK_NULL_HANDLE &&
-      !createColorRenderPass(m_backend, VK_FORMAT_R32G32B32A32_SFLOAT, m_ptVolumeRenderPass)) {
-    return false;
+  if (!m_ptVolumeRenderPass) {
+    auto renderPass = createColorRenderPass(m_backend, VK_FORMAT_R32G32B32A32_SFLOAT);
+    if (!renderPass) {
+      return false;
+    }
+    m_ptVolumeRenderPass = std::move(*renderPass);
   }
 
-  if (m_ptVolumePipelineLayout == VK_NULL_HANDLE) {
+  if (!m_ptVolumePipelineLayout) {
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount = 1;
-    pipelineLayoutInfo.pSetLayouts = &m_ptVolumeDescriptorSetLayout;
-    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &m_ptVolumePipelineLayout) != VK_SUCCESS) {
-      LOG_ERROR << "vkCreatePipelineLayout for pathtrace volume failed";
+    VkDescriptorSetLayout descriptorSetLayout = m_ptVolumeDescriptorSetLayout.get();
+    pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+    auto pipelineLayout = m_backend.device().createPipelineLayout(pipelineLayoutInfo);
+    if (!pipelineLayout) {
       return false;
     }
+    m_ptVolumePipelineLayout = std::move(*pipelineLayout);
   }
 
-  VkShaderModule vertexShader = createShaderModule(pathTraceVolume_vert_spv, pathTraceVolume_vert_spv_word_count);
-  VkShaderModule fragmentShader = createShaderModule(pathTraceVolume_frag_spv, pathTraceVolume_frag_spv_word_count);
-  if (vertexShader == VK_NULL_HANDLE || fragmentShader == VK_NULL_HANDLE) {
-    if (vertexShader != VK_NULL_HANDLE) {
-      vkDestroyShaderModule(device, vertexShader, nullptr);
-    }
-    if (fragmentShader != VK_NULL_HANDLE) {
-      vkDestroyShaderModule(device, fragmentShader, nullptr);
-    }
+  auto vertexShader =
+    m_backend.device().createShaderModule(pathTraceVolume_vert_spv, pathTraceVolume_vert_spv_word_count);
+  auto fragmentShader =
+    m_backend.device().createShaderModule(pathTraceVolume_frag_spv, pathTraceVolume_frag_spv_word_count);
+  if (!vertexShader || !fragmentShader) {
     return false;
   }
 
   VkPipelineShaderStageCreateInfo vertexStage = {};
   vertexStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
   vertexStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
-  vertexStage.module = vertexShader;
+  vertexStage.module = vertexShader->get();
   vertexStage.pName = "main";
   VkPipelineShaderStageCreateInfo fragmentStage = {};
   fragmentStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
   fragmentStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-  fragmentStage.module = fragmentShader;
+  fragmentStage.module = fragmentShader->get();
   fragmentStage.pName = "main";
   std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages = { vertexStage, fragmentStage };
 
@@ -1119,17 +1127,15 @@ RenderVkPT::ensurePtVolumeResources()
   pipelineInfo.pMultisampleState = &multisampling;
   pipelineInfo.pColorBlendState = &colorBlending;
   pipelineInfo.pDynamicState = &dynamicState;
-  pipelineInfo.layout = m_ptVolumePipelineLayout;
-  pipelineInfo.renderPass = m_ptVolumeRenderPass;
+  pipelineInfo.layout = m_ptVolumePipelineLayout.get();
+  pipelineInfo.renderPass = m_ptVolumeRenderPass.get();
   pipelineInfo.subpass = 0;
 
-  VkResult result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_ptVolumePipeline);
-  vkDestroyShaderModule(device, fragmentShader, nullptr);
-  vkDestroyShaderModule(device, vertexShader, nullptr);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateGraphicsPipelines for pathtrace volume failed with VkResult " << result;
+  auto pipeline = m_backend.device().createPipeline(pipelineInfo);
+  if (!pipeline) {
     return false;
   }
+  m_ptVolumePipeline = std::move(*pipeline);
   return true;
 }
 
@@ -1268,9 +1274,10 @@ RenderVkPT::updatePtVolumeUniforms(const CCamera& camera, int sampleCounter)
     glm::vec2(static_cast<float>(std::max<uint32_t>(1, m_w)), static_cast<float>(std::max<uint32_t>(1, m_h)));
 
   void* mapped = nullptr;
-  vkMapMemory(m_backend.logicalDevice(), m_ptVolumeUniformMemory, 0, sizeof(PtVolumeUniforms), 0, &mapped);
+  vkMapMemory(
+    m_backend.logicalDevice(), m_ptVolumeUniformBuffer.memory(), 0, sizeof(PtVolumeUniforms), 0, &mapped);
   std::memcpy(mapped, &u, sizeof(PtVolumeUniforms));
-  vkUnmapMemory(m_backend.logicalDevice(), m_ptVolumeUniformMemory);
+  vkUnmapMemory(m_backend.logicalDevice(), m_ptVolumeUniformBuffer.memory());
   return true;
 }
 
@@ -1280,7 +1287,7 @@ RenderVkPT::updatePtVolumeDescriptorSet(VkImageView previousAccumView)
   const VolumeTextureVk& vol = volumeTexture();
 
   VkDescriptorBufferInfo bufferInfo = {};
-  bufferInfo.buffer = m_ptVolumeUniformBuffer;
+  bufferInfo.buffer = m_ptVolumeUniformBuffer.get();
   bufferInfo.offset = 0;
   bufferInfo.range = sizeof(PtVolumeUniforms);
 
@@ -1292,8 +1299,8 @@ RenderVkPT::updatePtVolumeDescriptorSet(VkImageView previousAccumView)
   std::array<VkDescriptorImageInfo, 4> lutInfos = {};
   for (auto& info : lutInfos) {
     info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    info.imageView = m_dummyLutView;
-    info.sampler = m_dummyLutSampler;
+    info.imageView = m_dummyLutTexture.view();
+    info.sampler = m_dummyLutTexture.sampler();
   }
 
   VkDescriptorImageInfo colormapInfo = {};
@@ -1304,7 +1311,7 @@ RenderVkPT::updatePtVolumeDescriptorSet(VkImageView previousAccumView)
   VkDescriptorImageInfo previousInfo = {};
   previousInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   previousInfo.imageView = previousAccumView;
-  previousInfo.sampler = m_framebufferSampler;
+  previousInfo.sampler = m_framebufferSampler.get();
 
   std::array<VkWriteDescriptorSet, 5> writes = {};
   writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1349,14 +1356,12 @@ RenderVkPT::updatePtVolumeDescriptorSet(VkImageView previousAccumView)
 void
 RenderVkPT::renderPtVolume(Framebuffer& target)
 {
-  VkDevice device = m_backend.logicalDevice();
   VkCommandBuffer commandBuffer = m_backend.beginSingleTimeCommands();
   target.transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-  VkFramebuffer vkFramebuffer = VK_NULL_HANDLE;
   VkFramebufferCreateInfo framebufferInfo = {};
   framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-  framebufferInfo.renderPass = m_ptVolumeRenderPass;
+  framebufferInfo.renderPass = m_ptVolumeRenderPass.get();
   framebufferInfo.attachmentCount = 1;
   VkImageView attachment = target.colorImageView();
   framebufferInfo.pAttachments = &attachment;
@@ -1364,9 +1369,8 @@ RenderVkPT::renderPtVolume(Framebuffer& target)
   framebufferInfo.height = target.height();
   framebufferInfo.layers = 1;
 
-  VkResult result = vkCreateFramebuffer(device, &framebufferInfo, nullptr, &vkFramebuffer);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateFramebuffer for pathtrace volume pass failed with VkResult " << result;
+  auto vkFramebuffer = m_backend.device().createFramebuffer(framebufferInfo);
+  if (!vkFramebuffer) {
     m_backend.endSingleTimeCommands(commandBuffer);
     return;
   }
@@ -1376,8 +1380,8 @@ RenderVkPT::renderPtVolume(Framebuffer& target)
 
   VkRenderPassBeginInfo renderPassBegin = {};
   renderPassBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-  renderPassBegin.renderPass = m_ptVolumeRenderPass;
-  renderPassBegin.framebuffer = vkFramebuffer;
+  renderPassBegin.renderPass = m_ptVolumeRenderPass.get();
+  renderPassBegin.framebuffer = vkFramebuffer->get();
   renderPassBegin.renderArea.offset = { 0, 0 };
   renderPassBegin.renderArea.extent = { target.width(), target.height() };
   renderPassBegin.clearValueCount = 1;
@@ -1393,36 +1397,34 @@ RenderVkPT::renderPtVolume(Framebuffer& target)
   scissor.extent = { target.width(), target.height() };
   vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
   vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_ptVolumePipeline);
+  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_ptVolumePipeline.get());
   vkCmdBindDescriptorSets(commandBuffer,
                           VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          m_ptVolumePipelineLayout,
+                          m_ptVolumePipelineLayout.get(),
                           0,
                           1,
                           &m_ptVolumeDescriptorSet,
                           0,
                           nullptr);
   VkDeviceSize offset = 0;
-  vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_quadVertexBuffer, &offset);
-  vkCmdBindIndexBuffer(commandBuffer, m_quadIndexBuffer, 0, VK_INDEX_TYPE_UINT16);
+  VkBuffer quadVertexBuffer = m_quadVertexBuffer.get();
+  vkCmdBindVertexBuffers(commandBuffer, 0, 1, &quadVertexBuffer, &offset);
+  vkCmdBindIndexBuffer(commandBuffer, m_quadIndexBuffer.get(), 0, VK_INDEX_TYPE_UINT16);
   vkCmdDrawIndexed(commandBuffer, m_quadIndexCount, 1, 0, 0, 0);
 
   vkCmdEndRenderPass(commandBuffer);
   m_backend.endSingleTimeCommands(commandBuffer);
-  vkDestroyFramebuffer(device, vkFramebuffer, nullptr);
 }
 
 void
 RenderVkPT::runAccumulationPass(Framebuffer& framebuffer)
 {
-  VkDevice device = m_backend.logicalDevice();
   VkCommandBuffer commandBuffer = m_backend.beginSingleTimeCommands();
   framebuffer.transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-  VkFramebuffer vkFramebuffer = VK_NULL_HANDLE;
   VkFramebufferCreateInfo framebufferInfo = {};
   framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-  framebufferInfo.renderPass = m_accumRenderPass;
+  framebufferInfo.renderPass = m_accumRenderPass.get();
   framebufferInfo.attachmentCount = 1;
   VkImageView attachment = framebuffer.colorImageView();
   framebufferInfo.pAttachments = &attachment;
@@ -1430,9 +1432,8 @@ RenderVkPT::runAccumulationPass(Framebuffer& framebuffer)
   framebufferInfo.height = framebuffer.height();
   framebufferInfo.layers = 1;
 
-  VkResult result = vkCreateFramebuffer(device, &framebufferInfo, nullptr, &vkFramebuffer);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateFramebuffer for pathtrace accumulation failed with VkResult " << result;
+  auto vkFramebuffer = m_backend.device().createFramebuffer(framebufferInfo);
+  if (!vkFramebuffer) {
     m_backend.endSingleTimeCommands(commandBuffer);
     return;
   }
@@ -1442,8 +1443,8 @@ RenderVkPT::runAccumulationPass(Framebuffer& framebuffer)
 
   VkRenderPassBeginInfo renderPassBegin = {};
   renderPassBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-  renderPassBegin.renderPass = m_accumRenderPass;
-  renderPassBegin.framebuffer = vkFramebuffer;
+  renderPassBegin.renderPass = m_accumRenderPass.get();
+  renderPassBegin.framebuffer = vkFramebuffer->get();
   renderPassBegin.renderArea.offset = { 0, 0 };
   renderPassBegin.renderArea.extent = { framebuffer.width(), framebuffer.height() };
   renderPassBegin.clearValueCount = 1;
@@ -1459,30 +1460,35 @@ RenderVkPT::runAccumulationPass(Framebuffer& framebuffer)
   scissor.extent = { framebuffer.width(), framebuffer.height() };
   vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
   vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_accumPipeline);
+  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_accumPipeline.get());
   vkCmdBindDescriptorSets(
-    commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_accumPipelineLayout, 0, 1, &m_accumDescriptorSet, 0, nullptr);
+    commandBuffer,
+    VK_PIPELINE_BIND_POINT_GRAPHICS,
+    m_accumPipelineLayout.get(),
+    0,
+    1,
+    &m_accumDescriptorSet,
+    0,
+    nullptr);
   VkDeviceSize offset = 0;
-  vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_quadVertexBuffer, &offset);
-  vkCmdBindIndexBuffer(commandBuffer, m_quadIndexBuffer, 0, VK_INDEX_TYPE_UINT16);
+  VkBuffer quadVertexBuffer = m_quadVertexBuffer.get();
+  vkCmdBindVertexBuffers(commandBuffer, 0, 1, &quadVertexBuffer, &offset);
+  vkCmdBindIndexBuffer(commandBuffer, m_quadIndexBuffer.get(), 0, VK_INDEX_TYPE_UINT16);
   vkCmdDrawIndexed(commandBuffer, m_quadIndexCount, 1, 0, 0, 0);
 
   vkCmdEndRenderPass(commandBuffer);
   m_backend.endSingleTimeCommands(commandBuffer);
-  vkDestroyFramebuffer(device, vkFramebuffer, nullptr);
 }
 
 void
 RenderVkPT::runToneMapPass(Framebuffer& framebuffer)
 {
-  VkDevice device = m_backend.logicalDevice();
   VkCommandBuffer commandBuffer = m_backend.beginSingleTimeCommands();
   framebuffer.transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-  VkFramebuffer vkFramebuffer = VK_NULL_HANDLE;
   VkFramebufferCreateInfo framebufferInfo = {};
   framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-  framebufferInfo.renderPass = m_toneMapRenderPass;
+  framebufferInfo.renderPass = m_toneMapRenderPass.get();
   framebufferInfo.attachmentCount = 1;
   VkImageView attachment = framebuffer.colorImageView();
   framebufferInfo.pAttachments = &attachment;
@@ -1490,9 +1496,8 @@ RenderVkPT::runToneMapPass(Framebuffer& framebuffer)
   framebufferInfo.height = framebuffer.height();
   framebufferInfo.layers = 1;
 
-  VkResult result = vkCreateFramebuffer(device, &framebufferInfo, nullptr, &vkFramebuffer);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateFramebuffer for pathtrace tone map failed with VkResult " << result;
+  auto vkFramebuffer = m_backend.device().createFramebuffer(framebufferInfo);
+  if (!vkFramebuffer) {
     m_backend.endSingleTimeCommands(commandBuffer);
     return;
   }
@@ -1502,8 +1507,8 @@ RenderVkPT::runToneMapPass(Framebuffer& framebuffer)
 
   VkRenderPassBeginInfo renderPassBegin = {};
   renderPassBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-  renderPassBegin.renderPass = m_toneMapRenderPass;
-  renderPassBegin.framebuffer = vkFramebuffer;
+  renderPassBegin.renderPass = m_toneMapRenderPass.get();
+  renderPassBegin.framebuffer = vkFramebuffer->get();
   renderPassBegin.renderArea.offset = { 0, 0 };
   renderPassBegin.renderArea.extent = { framebuffer.width(), framebuffer.height() };
   renderPassBegin.clearValueCount = 1;
@@ -1519,17 +1524,24 @@ RenderVkPT::runToneMapPass(Framebuffer& framebuffer)
   scissor.extent = { framebuffer.width(), framebuffer.height() };
   vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
   vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_toneMapPipeline);
+  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_toneMapPipeline.get());
   vkCmdBindDescriptorSets(
-    commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_toneMapPipelineLayout, 0, 1, &m_toneMapDescriptorSet, 0, nullptr);
+    commandBuffer,
+    VK_PIPELINE_BIND_POINT_GRAPHICS,
+    m_toneMapPipelineLayout.get(),
+    0,
+    1,
+    &m_toneMapDescriptorSet,
+    0,
+    nullptr);
   VkDeviceSize offset = 0;
-  vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_quadVertexBuffer, &offset);
-  vkCmdBindIndexBuffer(commandBuffer, m_quadIndexBuffer, 0, VK_INDEX_TYPE_UINT16);
+  VkBuffer quadVertexBuffer = m_quadVertexBuffer.get();
+  vkCmdBindVertexBuffers(commandBuffer, 0, 1, &quadVertexBuffer, &offset);
+  vkCmdBindIndexBuffer(commandBuffer, m_quadIndexBuffer.get(), 0, VK_INDEX_TYPE_UINT16);
   vkCmdDrawIndexed(commandBuffer, m_quadIndexCount, 1, 0, 0, 0);
 
   vkCmdEndRenderPass(commandBuffer);
   m_backend.endSingleTimeCommands(commandBuffer);
-  vkDestroyFramebuffer(device, vkFramebuffer, nullptr);
 }
 
 void
@@ -1555,98 +1567,26 @@ RenderVkPT::destroyFullscreenResources()
     return;
   }
 
-  if (m_toneMapDescriptorPool != VK_NULL_HANDLE) {
-    vkDestroyDescriptorPool(device, m_toneMapDescriptorPool, nullptr);
-    m_toneMapDescriptorPool = VK_NULL_HANDLE;
-    m_toneMapDescriptorSet = VK_NULL_HANDLE;
-  }
-  if (m_toneMapDescriptorSetLayout != VK_NULL_HANDLE) {
-    vkDestroyDescriptorSetLayout(device, m_toneMapDescriptorSetLayout, nullptr);
-    m_toneMapDescriptorSetLayout = VK_NULL_HANDLE;
-  }
-  if (m_accumDescriptorPool != VK_NULL_HANDLE) {
-    vkDestroyDescriptorPool(device, m_accumDescriptorPool, nullptr);
-    m_accumDescriptorPool = VK_NULL_HANDLE;
-    m_accumDescriptorSet = VK_NULL_HANDLE;
-  }
-  if (m_accumDescriptorSetLayout != VK_NULL_HANDLE) {
-    vkDestroyDescriptorSetLayout(device, m_accumDescriptorSetLayout, nullptr);
-    m_accumDescriptorSetLayout = VK_NULL_HANDLE;
-  }
+  m_toneMapDescriptorPool.reset();
+  m_toneMapDescriptorSet = VK_NULL_HANDLE;
+  m_toneMapDescriptorSetLayout.reset();
+  m_accumDescriptorPool.reset();
+  m_accumDescriptorSet = VK_NULL_HANDLE;
+  m_accumDescriptorSetLayout.reset();
 
-  if (m_framebufferSampler != VK_NULL_HANDLE) {
-    vkDestroySampler(device, m_framebufferSampler, nullptr);
-    m_framebufferSampler = VK_NULL_HANDLE;
-  }
-
-  if (m_toneMapUniformBuffer != VK_NULL_HANDLE) {
-    vkDestroyBuffer(device, m_toneMapUniformBuffer, nullptr);
-    m_toneMapUniformBuffer = VK_NULL_HANDLE;
-  }
-  if (m_toneMapUniformMemory != VK_NULL_HANDLE) {
-    vkFreeMemory(device, m_toneMapUniformMemory, nullptr);
-    m_toneMapUniformMemory = VK_NULL_HANDLE;
-  }
-  if (m_accumUniformBuffer != VK_NULL_HANDLE) {
-    vkDestroyBuffer(device, m_accumUniformBuffer, nullptr);
-    m_accumUniformBuffer = VK_NULL_HANDLE;
-  }
-  if (m_accumUniformMemory != VK_NULL_HANDLE) {
-    vkFreeMemory(device, m_accumUniformMemory, nullptr);
-    m_accumUniformMemory = VK_NULL_HANDLE;
-  }
-  if (m_quadIndexBuffer != VK_NULL_HANDLE) {
-    vkDestroyBuffer(device, m_quadIndexBuffer, nullptr);
-    m_quadIndexBuffer = VK_NULL_HANDLE;
-  }
-  if (m_quadIndexMemory != VK_NULL_HANDLE) {
-    vkFreeMemory(device, m_quadIndexMemory, nullptr);
-    m_quadIndexMemory = VK_NULL_HANDLE;
-  }
-  if (m_quadVertexBuffer != VK_NULL_HANDLE) {
-    vkDestroyBuffer(device, m_quadVertexBuffer, nullptr);
-    m_quadVertexBuffer = VK_NULL_HANDLE;
-  }
-  if (m_quadVertexMemory != VK_NULL_HANDLE) {
-    vkFreeMemory(device, m_quadVertexMemory, nullptr);
-    m_quadVertexMemory = VK_NULL_HANDLE;
-  }
+  m_framebufferSampler.reset();
+  m_toneMapUniformBuffer.reset();
+  m_accumUniformBuffer.reset();
+  m_quadIndexBuffer.reset();
+  m_quadVertexBuffer.reset();
   m_quadIndexCount = 0;
 
   // Path-trace volume pass resources.
-  if (m_ptVolumeDescriptorPool != VK_NULL_HANDLE) {
-    vkDestroyDescriptorPool(device, m_ptVolumeDescriptorPool, nullptr);
-    m_ptVolumeDescriptorPool = VK_NULL_HANDLE;
-    m_ptVolumeDescriptorSet = VK_NULL_HANDLE;
-  }
-  if (m_ptVolumeDescriptorSetLayout != VK_NULL_HANDLE) {
-    vkDestroyDescriptorSetLayout(device, m_ptVolumeDescriptorSetLayout, nullptr);
-    m_ptVolumeDescriptorSetLayout = VK_NULL_HANDLE;
-  }
-  if (m_ptVolumeUniformBuffer != VK_NULL_HANDLE) {
-    vkDestroyBuffer(device, m_ptVolumeUniformBuffer, nullptr);
-    m_ptVolumeUniformBuffer = VK_NULL_HANDLE;
-  }
-  if (m_ptVolumeUniformMemory != VK_NULL_HANDLE) {
-    vkFreeMemory(device, m_ptVolumeUniformMemory, nullptr);
-    m_ptVolumeUniformMemory = VK_NULL_HANDLE;
-  }
-  if (m_dummyLutSampler != VK_NULL_HANDLE) {
-    vkDestroySampler(device, m_dummyLutSampler, nullptr);
-    m_dummyLutSampler = VK_NULL_HANDLE;
-  }
-  if (m_dummyLutView != VK_NULL_HANDLE) {
-    vkDestroyImageView(device, m_dummyLutView, nullptr);
-    m_dummyLutView = VK_NULL_HANDLE;
-  }
-  if (m_dummyLutImage != VK_NULL_HANDLE) {
-    vkDestroyImage(device, m_dummyLutImage, nullptr);
-    m_dummyLutImage = VK_NULL_HANDLE;
-  }
-  if (m_dummyLutMemory != VK_NULL_HANDLE) {
-    vkFreeMemory(device, m_dummyLutMemory, nullptr);
-    m_dummyLutMemory = VK_NULL_HANDLE;
-  }
+  m_ptVolumeDescriptorPool.reset();
+  m_ptVolumeDescriptorSet = VK_NULL_HANDLE;
+  m_ptVolumeDescriptorSetLayout.reset();
+  m_ptVolumeUniformBuffer.reset();
+  m_dummyLutTexture.reset();
 }
 
 void
@@ -1657,62 +1597,18 @@ RenderVkPT::destroyPipelines()
     return;
   }
 
-  if (m_toneMapPipeline != VK_NULL_HANDLE) {
-    vkDestroyPipeline(device, m_toneMapPipeline, nullptr);
-    m_toneMapPipeline = VK_NULL_HANDLE;
-  }
-  if (m_toneMapPipelineLayout != VK_NULL_HANDLE) {
-    vkDestroyPipelineLayout(device, m_toneMapPipelineLayout, nullptr);
-    m_toneMapPipelineLayout = VK_NULL_HANDLE;
-  }
-  if (m_toneMapRenderPass != VK_NULL_HANDLE) {
-    vkDestroyRenderPass(device, m_toneMapRenderPass, nullptr);
-    m_toneMapRenderPass = VK_NULL_HANDLE;
-  }
+  m_toneMapPipeline.reset();
+  m_toneMapPipelineLayout.reset();
+  m_toneMapRenderPass.reset();
 
-  if (m_accumPipeline != VK_NULL_HANDLE) {
-    vkDestroyPipeline(device, m_accumPipeline, nullptr);
-    m_accumPipeline = VK_NULL_HANDLE;
-  }
-  if (m_accumPipelineLayout != VK_NULL_HANDLE) {
-    vkDestroyPipelineLayout(device, m_accumPipelineLayout, nullptr);
-    m_accumPipelineLayout = VK_NULL_HANDLE;
-  }
-  if (m_accumRenderPass != VK_NULL_HANDLE) {
-    vkDestroyRenderPass(device, m_accumRenderPass, nullptr);
-    m_accumRenderPass = VK_NULL_HANDLE;
-  }
+  m_accumPipeline.reset();
+  m_accumPipelineLayout.reset();
+  m_accumRenderPass.reset();
 
-  if (m_ptVolumePipeline != VK_NULL_HANDLE) {
-    vkDestroyPipeline(device, m_ptVolumePipeline, nullptr);
-    m_ptVolumePipeline = VK_NULL_HANDLE;
-  }
-  if (m_ptVolumePipelineLayout != VK_NULL_HANDLE) {
-    vkDestroyPipelineLayout(device, m_ptVolumePipelineLayout, nullptr);
-    m_ptVolumePipelineLayout = VK_NULL_HANDLE;
-  }
-  if (m_ptVolumeRenderPass != VK_NULL_HANDLE) {
-    vkDestroyRenderPass(device, m_ptVolumeRenderPass, nullptr);
-    m_ptVolumeRenderPass = VK_NULL_HANDLE;
-  }
+  m_ptVolumePipeline.reset();
+  m_ptVolumePipelineLayout.reset();
+  m_ptVolumeRenderPass.reset();
   m_toneMapPipelineColorFormat = VK_FORMAT_UNDEFINED;
-}
-
-VkShaderModule
-RenderVkPT::createShaderModule(const uint32_t* words, size_t wordCount) const
-{
-  VkShaderModuleCreateInfo createInfo = {};
-  createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  createInfo.codeSize = wordCount * sizeof(uint32_t);
-  createInfo.pCode = words;
-
-  VkShaderModule module = VK_NULL_HANDLE;
-  VkResult result = vkCreateShaderModule(m_backend.logicalDevice(), &createInfo, nullptr, &module);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateShaderModule failed with VkResult " << result;
-    return VK_NULL_HANDLE;
-  }
-  return module;
 }
 
 } // namespace gfxvulkan

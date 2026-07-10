@@ -1,12 +1,14 @@
 #pragma once
 
 #include "glm.h"
+#include "resources/SampledImage.h"
 
 #include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 class Scene;
 
@@ -46,11 +48,11 @@ public:
   // extra work is required by the caller.
   bool setLinearFiltering(bool linearFiltering);
 
-  bool valid() const { return m_volumeImage != VK_NULL_HANDLE && m_volumeView != VK_NULL_HANDLE; }
-  VkImageView volumeView() const { return m_volumeView; }
-  VkSampler volumeSampler() const { return m_volumeSampler; }
-  VkImageView transferView() const { return m_transferView; }
-  VkSampler transferSampler() const { return m_transferSampler; }
+  bool valid() const { return m_volumeTexture.valid(); }
+  VkImageView volumeView() const { return m_volumeTexture.view(); }
+  VkSampler volumeSampler() const { return m_volumeTexture.sampler(); }
+  VkImageView transferView() const { return m_transferTexture.view(); }
+  VkSampler transferSampler() const { return m_transferTexture.sampler(); }
 
   glm::vec4 lutMin() const { return m_lutMin; }
   glm::vec4 lutMax() const { return m_lutMax; }
@@ -71,7 +73,7 @@ private:
   // Re-uploads bytes into the already-created m_transferImage. Assumes the
   // image is currently in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL.
   bool updateTransferBytes(const void* data, size_t byteCount);
-  bool createSampler(bool linearFiltering, VkSamplerAddressMode addressMode, VkSampler& sampler);
+  std::optional<resources::UniqueSampler> createSampler(bool linearFiltering, VkSamplerAddressMode addressMode);
   bool uploadFused(const Scene& scene, bool linearFiltering);
   bool uploadRaw(const Scene& scene, bool linearFiltering);
   std::array<uint32_t, 4> activeChannels(const Scene& scene) const;
@@ -91,15 +93,8 @@ private:
   size_t m_gpuBytes = 0;
   bool m_linearFiltering = false;
 
-  VkImage m_volumeImage = VK_NULL_HANDLE;
-  VkDeviceMemory m_volumeMemory = VK_NULL_HANDLE;
-  VkImageView m_volumeView = VK_NULL_HANDLE;
-  VkSampler m_volumeSampler = VK_NULL_HANDLE;
-
-  VkImage m_transferImage = VK_NULL_HANDLE;
-  VkDeviceMemory m_transferMemory = VK_NULL_HANDLE;
-  VkImageView m_transferView = VK_NULL_HANDLE;
-  VkSampler m_transferSampler = VK_NULL_HANDLE;
+  resources::SampledImage m_volumeTexture;
+  resources::SampledImage m_transferTexture;
 };
 
 } // namespace gfxvulkan

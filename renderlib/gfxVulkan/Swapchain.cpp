@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <utility>
 
 namespace gfxvulkan {
 
@@ -41,11 +42,11 @@ Swapchain::Swapchain(ISwapchainSurface* surface)
 
   VkFenceCreateInfo fenceInfo = {};
   fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  VkResult result = vkCreateFence(m_backend->logicalDevice(), &fenceInfo, nullptr, &m_acquireFence);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateFence for swapchain image acquire failed with VkResult " << result;
-    m_acquireFence = VK_NULL_HANDLE;
+  auto acquireFence = m_backend->device().createFence(fenceInfo);
+  if (!acquireFence) {
+    return;
   }
+  m_acquireFence = std::move(*acquireFence);
 }
 
 Swapchain::~Swapchain()
@@ -56,10 +57,7 @@ Swapchain::~Swapchain()
 
   destroySwapchain();
 
-  if (m_backend && m_acquireFence != VK_NULL_HANDLE) {
-    vkDestroyFence(m_backend->logicalDevice(), m_acquireFence, nullptr);
-    m_acquireFence = VK_NULL_HANDLE;
-  }
+  m_acquireFence.reset();
 
   destroySurface();
 }
@@ -148,7 +146,7 @@ Swapchain::ensureSwapchain()
     return false;
   }
 
-  if (!m_needsRecreate && m_swapchain != VK_NULL_HANDLE && desiredExtent.width == m_extent.width &&
+  if (!m_needsRecreate && m_swapchain && desiredExtent.width == m_extent.width &&
       desiredExtent.height == m_extent.height) {
     return true;
   }
@@ -228,21 +226,20 @@ Swapchain::recreateSwapchain()
   createInfo.clipped = VK_TRUE;
   createInfo.oldSwapchain = VK_NULL_HANDLE;
 
-  result = vkCreateSwapchainKHR(device, &createInfo, nullptr, &m_swapchain);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateSwapchainKHR failed with VkResult " << result;
-    m_swapchain = VK_NULL_HANDLE;
+  auto swapchain = m_backend->device().createSwapchain(createInfo);
+  if (!swapchain) {
     return false;
   }
+  m_swapchain = std::move(*swapchain);
 
   m_colorFormat = surfaceFormat.format;
   m_colorSpace = surfaceFormat.colorSpace;
   m_extent = extent;
 
   uint32_t actualImageCount = 0;
-  vkGetSwapchainImagesKHR(device, m_swapchain, &actualImageCount, nullptr);
+  vkGetSwapchainImagesKHR(device, m_swapchain.get(), &actualImageCount, nullptr);
   m_images.resize(actualImageCount);
-  vkGetSwapchainImagesKHR(device, m_swapchain, &actualImageCount, m_images.data());
+  vkGetSwapchainImagesKHR(device, m_swapchain.get(), &actualImageCount, m_images.data());
 
   m_framebuffers.clear();
   m_framebuffers.reserve(m_images.size());
@@ -258,14 +255,16 @@ Swapchain::recreateSwapchain()
 bool
 Swapchain::acquireNextImage(uint32_t& imageIndex)
 {
-  if (m_acquireFence == VK_NULL_HANDLE) {
+  if (!m_acquireFence) {
     LOG_ERROR << "Cannot acquire a swapchain image without an acquire fence";
     return false;
   }
 
   VkDevice device = m_backend->logicalDevice();
-  vkResetFences(device, 1, &m_acquireFence);
-  VkResult result = vkAcquireNextImageKHR(device, m_swapchain, UINT64_MAX, VK_NULL_HANDLE, m_acquireFence, &imageIndex);
+  VkFence acquireFence = m_acquireFence.get();
+  vkResetFences(device, 1, &acquireFence);
+  VkResult result =
+    vkAcquireNextImageKHR(device, m_swapchain.get(), UINT64_MAX, VK_NULL_HANDLE, acquireFence, &imageIndex);
   if (result == VK_ERROR_SURFACE_LOST_KHR) {
     destroySwapchain();
     destroySurface();
@@ -280,7 +279,7 @@ Swapchain::acquireNextImage(uint32_t& imageIndex)
     return false;
   }
 
-  vkWaitForFences(device, 1, &m_acquireFence, VK_TRUE, UINT64_MAX);
+  vkWaitForFences(device, 1, &acquireFence, VK_TRUE, UINT64_MAX);
   if (result == VK_SUBOPTIMAL_KHR) {
     m_needsRecreate = true;
   }
@@ -293,7 +292,8 @@ Swapchain::present(uint32_t imageIndex)
   VkPresentInfoKHR presentInfo = {};
   presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
   presentInfo.swapchainCount = 1;
-  presentInfo.pSwapchains = &m_swapchain;
+  VkSwapchainKHR swapchain = m_swapchain.get();
+  presentInfo.pSwapchains = &swapchain;
   presentInfo.pImageIndices = &imageIndex;
 
   VkResult result = vkQueuePresentKHR(m_backend->graphicsQueue(), &presentInfo);
@@ -320,14 +320,10 @@ Swapchain::destroySwapchain()
     return;
   }
 
-  VkDevice device = m_backend->logicalDevice();
   m_framebuffers.clear();
   m_images.clear();
 
-  if (m_swapchain != VK_NULL_HANDLE) {
-    vkDestroySwapchainKHR(device, m_swapchain, nullptr);
-    m_swapchain = VK_NULL_HANDLE;
-  }
+  m_swapchain.reset();
 
   m_extent = {};
 }
