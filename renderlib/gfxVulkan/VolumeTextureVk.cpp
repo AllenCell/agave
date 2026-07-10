@@ -97,29 +97,24 @@ VolumeTextureVk::uploadVolumeBytes(const void* data,
                                    uint32_t depth,
                                    bool linearFiltering)
 {
-  auto staging = m_backend.device().createBuffer(static_cast<VkDeviceSize>(byteCount),
-                                                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  auto staging =
+    m_backend.device().createBuffer(static_cast<VkDeviceSize>(byteCount),
+                                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   if (!staging) {
     return false;
   }
 
   void* mapped = nullptr;
-  if (vkMapMemory(
-        m_backend.logicalDevice(), staging->memory(), 0, static_cast<VkDeviceSize>(byteCount), 0, &mapped) != VK_SUCCESS) {
+  if (vkMapMemory(m_backend.logicalDevice(), staging->memory(), 0, static_cast<VkDeviceSize>(byteCount), 0, &mapped) !=
+      VK_SUCCESS) {
     return false;
   }
   std::memcpy(mapped, data, byteCount);
   vkUnmapMemory(m_backend.logicalDevice(), staging->memory());
 
-  auto image = m_backend.device().createImage(width,
-                                              height,
-                                              depth,
-                                              1,
-                                              format,
-                                              VK_IMAGE_TYPE_3D,
-                                              VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+  auto image = m_backend.device().createImage(
+    width, height, depth, 1, format, VK_IMAGE_TYPE_3D, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
   if (!image) {
     return false;
   }
@@ -160,17 +155,17 @@ VolumeTextureVk::uploadVolumeBytes(const void* data,
 bool
 VolumeTextureVk::uploadTransferBytes(const void* data, size_t byteCount)
 {
-  auto staging = m_backend.device().createBuffer(static_cast<VkDeviceSize>(byteCount),
-                                                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  auto staging =
+    m_backend.device().createBuffer(static_cast<VkDeviceSize>(byteCount),
+                                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   if (!staging) {
     return false;
   }
 
   void* mapped = nullptr;
-  if (vkMapMemory(
-        m_backend.logicalDevice(), staging->memory(), 0, static_cast<VkDeviceSize>(byteCount), 0, &mapped) != VK_SUCCESS) {
+  if (vkMapMemory(m_backend.logicalDevice(), staging->memory(), 0, static_cast<VkDeviceSize>(byteCount), 0, &mapped) !=
+      VK_SUCCESS) {
     return false;
   }
   std::memcpy(mapped, data, byteCount);
@@ -186,11 +181,8 @@ VolumeTextureVk::uploadTransferBytes(const void* data, size_t byteCount)
   if (!image) {
     return false;
   }
-  auto view = m_backend.device().createImageView(image->get(),
-                                                 VK_FORMAT_R8G8B8A8_UNORM,
-                                                 VK_IMAGE_VIEW_TYPE_2D_ARRAY,
-                                                 VK_IMAGE_ASPECT_COLOR_BIT,
-                                                 kTransferLayers);
+  auto view = m_backend.device().createImageView(
+    image->get(), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_COLOR_BIT, kTransferLayers);
   if (!view) {
     return false;
   }
@@ -229,17 +221,17 @@ VolumeTextureVk::updateTransferBytes(const void* data, size_t byteCount)
     return false;
   }
 
-  auto staging = m_backend.device().createBuffer(static_cast<VkDeviceSize>(byteCount),
-                                                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  auto staging =
+    m_backend.device().createBuffer(static_cast<VkDeviceSize>(byteCount),
+                                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   if (!staging) {
     return false;
   }
 
   void* mapped = nullptr;
-  if (vkMapMemory(
-        m_backend.logicalDevice(), staging->memory(), 0, static_cast<VkDeviceSize>(byteCount), 0, &mapped) != VK_SUCCESS) {
+  if (vkMapMemory(m_backend.logicalDevice(), staging->memory(), 0, static_cast<VkDeviceSize>(byteCount), 0, &mapped) !=
+      VK_SUCCESS) {
     return false;
   }
   std::memcpy(mapped, data, byteCount);
@@ -251,8 +243,7 @@ VolumeTextureVk::updateTransferBytes(const void* data, size_t byteCount)
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                         kTransferLayers);
-  copyBufferToImage(
-    m_backend, staging->get(), m_transferTexture.image(), kTransferSize, 1, 1, kTransferLayers);
+  copyBufferToImage(m_backend, staging->get(), m_transferTexture.image(), kTransferSize, 1, 1, kTransferLayers);
   transitionImageLayout(m_backend,
                         m_transferTexture.image(),
                         VK_IMAGE_ASPECT_COLOR_BIT,

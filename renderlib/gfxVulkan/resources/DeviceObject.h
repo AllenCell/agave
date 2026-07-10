@@ -83,13 +83,10 @@ private:
   ResourceRegistry::Token m_token = 0;
 };
 
-#define GFXVULKAN_DEVICE_DELETER(Name, HandleType, Function) \
-  struct Name                                                   \
-  {                                                             \
-    void operator()(VkDevice device, HandleType handle) const   \
-    {                                                           \
-      Function(device, handle, nullptr);                        \
-    }                                                           \
+#define GFXVULKAN_DEVICE_DELETER(Name, HandleType, Function)                                                           \
+  struct Name                                                                                                          \
+  {                                                                                                                    \
+    void operator()(VkDevice device, HandleType handle) const { Function(device, handle, nullptr); }                   \
   }
 
 GFXVULKAN_DEVICE_DELETER(BufferDeleter, VkBuffer, vkDestroyBuffer);

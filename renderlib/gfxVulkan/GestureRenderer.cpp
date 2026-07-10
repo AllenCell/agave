@@ -177,10 +177,10 @@ GestureRenderer::ensureCommonResources()
   VkDevice device = m_backend->logicalDevice();
 
   if (!m_uniformBuffer) {
-    auto buffer = m_backend->device().createBuffer(sizeof(GuiParams),
-                                                   VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    auto buffer =
+      m_backend->device().createBuffer(sizeof(GuiParams),
+                                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     if (!buffer) {
       return false;
     }
@@ -196,8 +196,7 @@ GestureRenderer::ensureCommonResources()
                                                  1,
                                                  VK_FORMAT_R8G8B8A8_UNORM,
                                                  VK_IMAGE_TYPE_2D,
-                                                 VK_IMAGE_USAGE_SAMPLED_BIT |
-                                                   VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+                                                 VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
     if (!image) {
       return false;
     }
@@ -335,10 +334,10 @@ GestureRenderer::ensureFontResources(const Font& font)
   // the OpenGL FontGL path so the gui shader's `result *= texture(...)`
   // multiplication produces vertex-colored glyphs with correct coverage.
   const VkDeviceSize byteCount = static_cast<VkDeviceSize>(w) * h * 4;
-  auto staging = m_backend->device().createBuffer(byteCount,
-                                                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  auto staging =
+    m_backend->device().createBuffer(byteCount,
+                                     VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   if (!staging) {
     return false;
   }
@@ -605,10 +604,10 @@ GestureRenderer::uploadVerts(const void* data, size_t byteCount)
   VkDevice device = m_backend->logicalDevice();
   if (byteCount > m_vertexCapacity) {
     m_vertexBuffer.reset();
-    auto buffer = m_backend->device().createBuffer(byteCount,
-                                                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    auto buffer =
+      m_backend->device().createBuffer(byteCount,
+                                       VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     if (!buffer) {
       m_vertexCapacity = 0;
       return;
@@ -727,10 +726,10 @@ GestureRenderer::ensureThickLinesResources()
   VkDevice device = m_backend->logicalDevice();
 
   if (!m_thickLinesUniformBuffer) {
-    auto buffer = m_backend->device().createBuffer(sizeof(ThickLinesParams),
-                                                   VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    auto buffer =
+      m_backend->device().createBuffer(sizeof(ThickLinesParams),
+                                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     if (!buffer) {
       return false;
     }
@@ -952,10 +951,10 @@ GestureRenderer::uploadStripVerts(const void* data, size_t byteCount)
   if (reallocate) {
     m_stripVertexView.reset();
     m_stripVertexBuffer.reset();
-    auto buffer = m_backend->device().createBuffer(byteCount,
-                                                   VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT,
-                                                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    auto buffer =
+      m_backend->device().createBuffer(byteCount,
+                                       VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT,
+                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     if (!buffer) {
       m_stripVertexCapacity = 0;
       return;
@@ -1045,8 +1044,7 @@ GestureRenderer::drawStrips(Framebuffer& target,
       params.thickness = graphics.stripThicknesses[i];
 
       void* mapped = nullptr;
-      vkMapMemory(
-        device, m_thickLinesUniformBuffer.memory(), 0, sizeof(ThickLinesParams), 0, &mapped);
+      vkMapMemory(device, m_thickLinesUniformBuffer.memory(), 0, sizeof(ThickLinesParams), 0, &mapped);
       std::memcpy(mapped, &params, sizeof(ThickLinesParams));
       vkUnmapMemory(device, m_thickLinesUniformBuffer.memory());
 
@@ -1150,17 +1148,11 @@ GestureRenderer::drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, con
   // are rendered afterwards to an offscreen framebuffer for next-frame picking.
   const bool clearSelection = true;
   if (hasVerts) {
-    drawSequences(
-      *target, m_displayRenderPass.get(), m_displayPipelines, false, sceneView, graphics, sequenceOrder, 0);
+    drawSequences(*target, m_displayRenderPass.get(), m_displayPipelines, false, sceneView, graphics, sequenceOrder, 0);
   }
   if (thickLinesReady) {
-    drawStrips(*target,
-               m_displayRenderPass.get(),
-               m_thickLinesDisplayPipeline.get(),
-               sceneView,
-               graphics,
-               sequenceOrder,
-               0);
+    drawStrips(
+      *target, m_displayRenderPass.get(), m_thickLinesDisplayPipeline.get(), sceneView, graphics, sequenceOrder, 0);
   }
   if (hasVerts) {
     drawSequences(*m_selectionFbo,
@@ -1177,14 +1169,13 @@ GestureRenderer::drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, con
     m_selectionFbo->clear({ 1.0f, 1.0f, 1.0f, 127.0f / 255.0f });
   }
   if (thickLinesReady) {
-    drawStrips(
-      *m_selectionFbo,
-      m_selectionRenderPass.get(),
-      m_thickLinesSelectionPipeline.get(),
-      sceneView,
-      graphics,
-      sequenceOrder,
-      1);
+    drawStrips(*m_selectionFbo,
+               m_selectionRenderPass.get(),
+               m_thickLinesSelectionPipeline.get(),
+               sceneView,
+               graphics,
+               sequenceOrder,
+               1);
   }
 
   graphics.clearCommands();
@@ -1241,17 +1232,11 @@ GestureRenderer::drawUnderlay(SceneView& sceneView, Gesture::Graphics& graphics)
     (int)Gesture::Graphics::CommandSequence::k3dStackedUnderlay,
   };
   if (hasVerts) {
-    drawSequences(
-      *target, m_displayRenderPass.get(), m_displayPipelines, false, sceneView, graphics, sequenceOrder, 0);
+    drawSequences(*target, m_displayRenderPass.get(), m_displayPipelines, false, sceneView, graphics, sequenceOrder, 0);
   }
   if (thickLinesReady) {
-    drawStrips(*target,
-               m_displayRenderPass.get(),
-               m_thickLinesDisplayPipeline.get(),
-               sceneView,
-               graphics,
-               sequenceOrder,
-               0);
+    drawStrips(
+      *target, m_displayRenderPass.get(), m_thickLinesDisplayPipeline.get(), sceneView, graphics, sequenceOrder, 0);
   }
 }
 
@@ -1286,10 +1271,10 @@ GestureRenderer::pick(const Gesture::Input& input, const SceneView::Viewport& vi
   const size_t pixelCount = size_t(regionSize.x) * size_t(regionSize.y);
   const VkDeviceSize byteCount = pixelCount * 4;
 
-  auto staging = m_backend->device().createBuffer(byteCount,
-                                                  VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  auto staging =
+    m_backend->device().createBuffer(byteCount,
+                                     VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
   if (!staging) {
     return false;
   }

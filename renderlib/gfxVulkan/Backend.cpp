@@ -28,9 +28,8 @@ containsName(const std::vector<std::string>& names, const char* name)
 bool
 containsExtension(const std::vector<const char*>& names, const char* name)
 {
-  return std::any_of(names.begin(), names.end(), [name](const char* current) {
-    return std::strcmp(current, name) == 0;
-  });
+  return std::any_of(
+    names.begin(), names.end(), [name](const char* current) { return std::strcmp(current, name) == 0; });
 }
 
 void
@@ -122,8 +121,8 @@ debugMessengerCreateInfo()
 {
   VkDebugUtilsMessengerCreateInfoEXT createInfo = {};
   createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-  createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                               VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+  createInfo.messageSeverity =
+    VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
   createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
                            VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
                            VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
@@ -264,9 +263,8 @@ Backend::createInstance()
   createInfo.ppEnabledExtensionNames = enabledExtensions.empty() ? nullptr : enabledExtensions.data();
   createInfo.enabledLayerCount = static_cast<uint32_t>(enabledLayers.size());
   createInfo.ppEnabledLayerNames = enabledLayers.empty() ? nullptr : enabledLayers.data();
-  createInfo.pNext = debugCreateInfo.sType == VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT
-                       ? &debugCreateInfo
-                       : nullptr;
+  createInfo.pNext =
+    debugCreateInfo.sType == VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT ? &debugCreateInfo : nullptr;
 
   VkResult result = vkCreateInstance(&createInfo, nullptr, &m_instance);
   if (result != VK_SUCCESS) {
@@ -283,9 +281,8 @@ Backend::setupDebugMessenger()
     return true;
   }
 
-  auto createDebugUtilsMessenger =
-    reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(m_instance,
-                                                                               "vkCreateDebugUtilsMessengerEXT"));
+  auto createDebugUtilsMessenger = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+    vkGetInstanceProcAddr(m_instance, "vkCreateDebugUtilsMessengerEXT"));
   if (!createDebugUtilsMessenger) {
     return true;
   }
@@ -430,9 +427,8 @@ Backend::destroy()
   }
 
   if (m_debugMessenger != VK_NULL_HANDLE && m_instance != VK_NULL_HANDLE) {
-    auto destroyDebugUtilsMessenger =
-      reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(m_instance,
-                                                                                  "vkDestroyDebugUtilsMessengerEXT"));
+    auto destroyDebugUtilsMessenger = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+      vkGetInstanceProcAddr(m_instance, "vkDestroyDebugUtilsMessengerEXT"));
     if (destroyDebugUtilsMessenger) {
       destroyDebugUtilsMessenger(m_instance, m_debugMessenger, nullptr);
     }
