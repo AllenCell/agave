@@ -4,6 +4,7 @@
 #include "Status.h"
 #include "VolumeTextureVk.h"
 #include "gfxapi/IRenderWindow.h"
+#include "resources/Buffer.h"
 
 #include <vulkan/vulkan.h>
 
@@ -53,8 +54,6 @@ protected:
   bool updateUniformBuffer(const CCamera& camera);
   void destroyFrameResources();
   void destroyPipeline();
-  VkShaderModule createShaderModule(const uint32_t* words, size_t wordCount) const;
-
   // Volume/colormap GPU textures, owned by the base renderer but needed by the
   // path-trace subclass to bind into its own shading pipeline.
   const VolumeTextureVk& volumeTexture() const { return m_volume; }
@@ -72,20 +71,17 @@ private:
   VolumeTextureVk m_volume;
   size_t m_gpuBytes = 0;
 
-  VkBuffer m_vertexBuffer = VK_NULL_HANDLE;
-  VkDeviceMemory m_vertexMemory = VK_NULL_HANDLE;
-  VkBuffer m_indexBuffer = VK_NULL_HANDLE;
-  VkDeviceMemory m_indexMemory = VK_NULL_HANDLE;
+  resources::Buffer m_vertexBuffer;
+  resources::Buffer m_indexBuffer;
   uint32_t m_indexCount = 0;
-  VkBuffer m_uniformBuffer = VK_NULL_HANDLE;
-  VkDeviceMemory m_uniformMemory = VK_NULL_HANDLE;
+  resources::Buffer m_uniformBuffer;
 
-  VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
-  VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
+  resources::UniqueDescriptorSetLayout m_descriptorSetLayout;
+  resources::UniqueDescriptorPool m_descriptorPool;
   VkDescriptorSet m_descriptorSet = VK_NULL_HANDLE;
-  VkRenderPass m_renderPass = VK_NULL_HANDLE;
-  VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
-  VkPipeline m_pipeline = VK_NULL_HANDLE;
+  resources::UniqueRenderPass m_renderPass;
+  resources::UniquePipelineLayout m_pipelineLayout;
+  resources::UniquePipeline m_pipeline;
   VkFormat m_pipelineColorFormat = VK_FORMAT_UNDEFINED;
 
   std::unique_ptr<Framebuffer> m_internalFramebuffer;

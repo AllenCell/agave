@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstring>
 #include <set>
+#include <utility>
 
 namespace gfxvulkan {
 
@@ -149,10 +150,10 @@ scorePhysicalDevice(VkPhysicalDevice physicalDevice)
 Backend::Backend(const gfxApi::InitParams& params)
   : m_params(params)
 {
-  m_valid = createInstance() && setupDebugMessenger() && pickPhysicalDevice() && createLogicalDevice() &&
-            createCommandPool();
+  m_valid = createInstance() && setupDebugMessenger() && pickPhysicalDevice() && createLogicalDevice();
   if (m_valid) {
-    m_device.initialize(m_deviceHandle);
+    m_device.initialize(m_physicalDevice, m_deviceHandle);
+    m_valid = createCommandPool();
   }
 }
 
@@ -403,11 +404,11 @@ Backend::createCommandPool()
   createInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
   createInfo.queueFamilyIndex = m_graphicsQueueFamilyIndex;
 
-  VkResult result = vkCreateCommandPool(m_deviceHandle, &createInfo, nullptr, &m_commandPool);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateCommandPool failed with VkResult " << result;
+  auto commandPool = m_device.createCommandPool(createInfo);
+  if (!commandPool) {
     return false;
   }
+  m_commandPool = std::move(*commandPool);
   return true;
 }
 
@@ -419,11 +420,6 @@ Backend::destroy()
   }
 
   m_device.release();
-
-  if (m_commandPool != VK_NULL_HANDLE) {
-    vkDestroyCommandPool(m_deviceHandle, m_commandPool, nullptr);
-    m_commandPool = VK_NULL_HANDLE;
-  }
 
   if (m_deviceHandle != VK_NULL_HANDLE) {
     vkDestroyDevice(m_deviceHandle, nullptr);
@@ -454,19 +450,7 @@ Backend::destroy()
 uint32_t
 Backend::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const
 {
-  VkPhysicalDeviceMemoryProperties memoryProperties = {};
-  vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memoryProperties);
-
-  for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; ++i) {
-    const bool typeMatches = (typeFilter & (1u << i)) != 0;
-    const bool propertiesMatch = (memoryProperties.memoryTypes[i].propertyFlags & properties) == properties;
-    if (typeMatches && propertiesMatch) {
-      return i;
-    }
-  }
-
-  LOG_ERROR << "Failed to find a compatible Vulkan memory type";
-  return UINT32_MAX;
+  return m_device.findMemoryType(typeFilter, properties);
 }
 
 VkCommandBuffer
@@ -475,7 +459,7 @@ Backend::beginSingleTimeCommands() const
   VkCommandBufferAllocateInfo allocateInfo = {};
   allocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
   allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  allocateInfo.commandPool = m_commandPool;
+  allocateInfo.commandPool = m_commandPool.get();
   allocateInfo.commandBufferCount = 1;
 
   VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
@@ -501,7 +485,8 @@ Backend::endSingleTimeCommands(VkCommandBuffer commandBuffer) const
 
   vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
   vkQueueWaitIdle(m_graphicsQueue);
-  vkFreeCommandBuffers(m_deviceHandle, m_commandPool, 1, &commandBuffer);
+  VkCommandPool commandPool = m_commandPool.get();
+  vkFreeCommandBuffers(m_deviceHandle, commandPool, 1, &commandBuffer);
 }
 
 void

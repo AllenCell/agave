@@ -1,6 +1,8 @@
 #pragma once
 
 #include "gfxapi/IGestureRenderer.h"
+#include "resources/Buffer.h"
+#include "resources/SampledImage.h"
 
 #include "glm.h"
 
@@ -9,6 +11,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 class Font;
@@ -64,11 +67,11 @@ private:
   bool ensureSelectionFramebuffer(int width, int height);
   bool ensureDisplayPipelines(VkFormat colorFormat);
   bool ensureSelectionPipelines();
-  VkPipeline createPipeline(VkRenderPass renderPass, Topology topology);
+  std::optional<resources::UniquePipeline> createPipeline(VkRenderPass renderPass, Topology topology);
   void uploadVerts(const void* data, size_t byteCount);
   void drawSequences(Framebuffer& target,
                      VkRenderPass renderPass,
-                     const std::array<VkPipeline, kTopologyCount>& pipelines,
+                     const std::array<resources::UniquePipeline, kTopologyCount>& pipelines,
                      bool clearFirst,
                      SceneView& sceneView,
                      Gesture::Graphics& graphics,
@@ -76,7 +79,7 @@ private:
                      int picking);
   bool ensureThickLinesResources();
   bool ensureThickLinesPipelines(VkFormat colorFormat);
-  VkPipeline createThickLinesPipeline(VkRenderPass renderPass);
+  std::optional<resources::UniquePipeline> createThickLinesPipeline(VkRenderPass renderPass);
   void uploadStripVerts(const void* data, size_t byteCount);
   void drawStrips(Framebuffer& target,
                   VkRenderPass renderPass,
@@ -85,7 +88,6 @@ private:
                   Gesture::Graphics& graphics,
                   const std::vector<int>& sequenceOrder,
                   int picking);
-  VkShaderModule createShaderModule(const uint32_t* words, size_t wordCount) const;
   void drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, const std::vector<int>& sequenceOrder);
   void destroy();
 
@@ -95,55 +97,45 @@ private:
   int m_selectionHeight = 0;
   std::unique_ptr<Framebuffer> m_selectionFbo;
 
-  VkBuffer m_vertexBuffer = VK_NULL_HANDLE;
-  VkDeviceMemory m_vertexMemory = VK_NULL_HANDLE;
+  resources::Buffer m_vertexBuffer;
   VkDeviceSize m_vertexCapacity = 0;
 
-  VkBuffer m_uniformBuffer = VK_NULL_HANDLE;
-  VkDeviceMemory m_uniformMemory = VK_NULL_HANDLE;
+  resources::Buffer m_uniformBuffer;
 
-  VkImage m_dummyImage = VK_NULL_HANDLE;
-  VkDeviceMemory m_dummyMemory = VK_NULL_HANDLE;
-  VkImageView m_dummyView = VK_NULL_HANDLE;
-  VkSampler m_dummySampler = VK_NULL_HANDLE;
+  resources::SampledImage m_dummyTexture;
 
   // Font atlas texture. Created lazily on the first draw call once
   // Gesture::Graphics::font has been loaded. Replaces the dummy sampler in
   // the descriptor set so the gui shader can composite text glyphs.
-  VkImage m_fontImage = VK_NULL_HANDLE;
-  VkDeviceMemory m_fontMemory = VK_NULL_HANDLE;
-  VkImageView m_fontView = VK_NULL_HANDLE;
-  VkSampler m_fontSampler = VK_NULL_HANDLE;
+  resources::SampledImage m_fontTexture;
   uint32_t m_fontWidth = 0;
   uint32_t m_fontHeight = 0;
 
-  VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
-  VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
+  resources::UniqueDescriptorSetLayout m_descriptorSetLayout;
+  resources::UniqueDescriptorPool m_descriptorPool;
   VkDescriptorSet m_descriptorSet = VK_NULL_HANDLE;
-  VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
+  resources::UniquePipelineLayout m_pipelineLayout;
 
-  VkRenderPass m_displayRenderPass = VK_NULL_HANDLE;
+  resources::UniqueRenderPass m_displayRenderPass;
   VkFormat m_displayColorFormat = VK_FORMAT_UNDEFINED;
-  std::array<VkPipeline, kTopologyCount> m_displayPipelines = {};
+  std::array<resources::UniquePipeline, kTopologyCount> m_displayPipelines;
 
-  VkRenderPass m_selectionRenderPass = VK_NULL_HANDLE;
-  std::array<VkPipeline, kTopologyCount> m_selectionPipelines = {};
+  resources::UniqueRenderPass m_selectionRenderPass;
+  std::array<resources::UniquePipeline, kTopologyCount> m_selectionPipelines;
 
   // Thick-line strip pipeline. Vertex data is uploaded to a separate
   // uniform-texel buffer that the shader indexes per triangle to expand each
   // line segment into a screen-space quad with mitered ends.
-  VkDescriptorSetLayout m_thickLinesDescriptorSetLayout = VK_NULL_HANDLE;
-  VkDescriptorPool m_thickLinesDescriptorPool = VK_NULL_HANDLE;
+  resources::UniqueDescriptorSetLayout m_thickLinesDescriptorSetLayout;
+  resources::UniqueDescriptorPool m_thickLinesDescriptorPool;
   VkDescriptorSet m_thickLinesDescriptorSet = VK_NULL_HANDLE;
-  VkPipelineLayout m_thickLinesPipelineLayout = VK_NULL_HANDLE;
-  VkBuffer m_thickLinesUniformBuffer = VK_NULL_HANDLE;
-  VkDeviceMemory m_thickLinesUniformMemory = VK_NULL_HANDLE;
-  VkBuffer m_stripVertexBuffer = VK_NULL_HANDLE;
-  VkDeviceMemory m_stripVertexMemory = VK_NULL_HANDLE;
+  resources::UniquePipelineLayout m_thickLinesPipelineLayout;
+  resources::Buffer m_thickLinesUniformBuffer;
+  resources::Buffer m_stripVertexBuffer;
   VkDeviceSize m_stripVertexCapacity = 0;
-  VkBufferView m_stripVertexView = VK_NULL_HANDLE;
-  VkPipeline m_thickLinesDisplayPipeline = VK_NULL_HANDLE;
-  VkPipeline m_thickLinesSelectionPipeline = VK_NULL_HANDLE;
+  resources::UniqueBufferView m_stripVertexView;
+  resources::UniquePipeline m_thickLinesDisplayPipeline;
+  resources::UniquePipeline m_thickLinesSelectionPipeline;
   VkFormat m_thickLinesDisplayColorFormat = VK_FORMAT_UNDEFINED;
 
   gfxApi::Framebuffer* m_target = nullptr;

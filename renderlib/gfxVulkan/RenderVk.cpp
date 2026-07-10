@@ -11,12 +11,14 @@
 #include "Timing.h"
 #include "VulkanUtil.h"
 #include "gfxVulkan/Backend.h"
+#include "gfxVulkan/Device.h"
 #include "gfxVulkan/shadersrc/volume_frag_spv.hpp"
 #include "gfxVulkan/shadersrc/volume_vert_spv.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <utility>
 
 namespace gfxvulkan {
 
@@ -63,23 +65,24 @@ uploadHostBuffer(Backend& backend,
                  VkBufferUsageFlags usage,
                  const T* data,
                  size_t count,
-                 VkBuffer& buffer,
-                 VkDeviceMemory& memory)
+                 resources::Buffer& buffer)
 {
   const VkDeviceSize byteCount = static_cast<VkDeviceSize>(sizeof(T) * count);
-  if (!createBuffer(backend,
-                    byteCount,
-                    usage,
-                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                    buffer,
-                    memory)) {
+  auto resource = backend.device().createBuffer(byteCount,
+                                                usage,
+                                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  if (!resource) {
     return false;
   }
 
   void* mapped = nullptr;
-  vkMapMemory(backend.logicalDevice(), memory, 0, byteCount, 0, &mapped);
+  if (vkMapMemory(backend.logicalDevice(), resource->memory(), 0, byteCount, 0, &mapped) != VK_SUCCESS) {
+    return false;
+  }
   std::memcpy(mapped, data, static_cast<size_t>(byteCount));
-  vkUnmapMemory(backend.logicalDevice(), memory);
+  vkUnmapMemory(backend.logicalDevice(), resource->memory());
+  buffer = std::move(*resource);
   return true;
 }
 
@@ -244,14 +247,12 @@ RenderVk::renderToFramebuffer(const CCamera& camera, Framebuffer& framebuffer)
     return;
   }
 
-  VkDevice device = m_backend.logicalDevice();
   VkCommandBuffer commandBuffer = m_backend.beginSingleTimeCommands();
   framebuffer.transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-  VkFramebuffer vkFramebuffer = VK_NULL_HANDLE;
   VkFramebufferCreateInfo framebufferInfo = {};
   framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-  framebufferInfo.renderPass = m_renderPass;
+  framebufferInfo.renderPass = m_renderPass.get();
   framebufferInfo.attachmentCount = 1;
   VkImageView attachment = framebuffer.colorImageView();
   framebufferInfo.pAttachments = &attachment;
@@ -259,9 +260,8 @@ RenderVk::renderToFramebuffer(const CCamera& camera, Framebuffer& framebuffer)
   framebufferInfo.height = framebuffer.height();
   framebufferInfo.layers = 1;
 
-  VkResult result = vkCreateFramebuffer(device, &framebufferInfo, nullptr, &vkFramebuffer);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateFramebuffer failed with VkResult " << result;
+  auto vkFramebuffer = m_backend.device().createFramebuffer(framebufferInfo);
+  if (!vkFramebuffer) {
     m_backend.endSingleTimeCommands(commandBuffer);
     return;
   }
@@ -272,8 +272,8 @@ RenderVk::renderToFramebuffer(const CCamera& camera, Framebuffer& framebuffer)
 
   VkRenderPassBeginInfo renderPassBegin = {};
   renderPassBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-  renderPassBegin.renderPass = m_renderPass;
-  renderPassBegin.framebuffer = vkFramebuffer;
+  renderPassBegin.renderPass = m_renderPass.get();
+  renderPassBegin.framebuffer = vkFramebuffer->get();
   renderPassBegin.renderArea.offset = { 0, 0 };
   renderPassBegin.renderArea.extent = { framebuffer.width(), framebuffer.height() };
   renderPassBegin.clearValueCount = 1;
@@ -294,18 +294,19 @@ RenderVk::renderToFramebuffer(const CCamera& camera, Framebuffer& framebuffer)
 
   vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
   vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
+  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline.get());
+  VkDescriptorSet descriptorSet = m_descriptorSet;
   vkCmdBindDescriptorSets(
-    commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &m_descriptorSet, 0, nullptr);
+    commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout.get(), 0, 1, &descriptorSet, 0, nullptr);
 
   VkDeviceSize offset = 0;
-  vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_vertexBuffer, &offset);
-  vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+  VkBuffer vertexBuffer = m_vertexBuffer.get();
+  vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffer, &offset);
+  vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer.get(), 0, VK_INDEX_TYPE_UINT16);
   vkCmdDrawIndexed(commandBuffer, m_indexCount, 1, 0, 0, 0);
 
   vkCmdEndRenderPass(commandBuffer);
   m_backend.endSingleTimeCommands(commandBuffer);
-  vkDestroyFramebuffer(device, vkFramebuffer, nullptr);
 
   if (usesProgressiveAccumulation()) {
     m_renderSettings->SetNoIterations(m_renderSettings->GetNoIterations() + 1);
@@ -323,7 +324,7 @@ RenderVk::renderToFramebuffer(const CCamera& camera, Framebuffer& framebuffer)
 bool
 RenderVk::ensureFrameResources()
 {
-  if (m_vertexBuffer != VK_NULL_HANDLE && m_indexBuffer != VK_NULL_HANDLE && m_uniformBuffer != VK_NULL_HANDLE) {
+  if (m_vertexBuffer && m_indexBuffer && m_uniformBuffer) {
     return true;
   }
 
@@ -333,8 +334,7 @@ RenderVk::ensureFrameResources()
                         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                         kCubeVertices.data(),
                         kCubeVertices.size(),
-                        m_vertexBuffer,
-                        m_vertexMemory)) {
+                        m_vertexBuffer)) {
     return false;
   }
 
@@ -342,45 +342,27 @@ RenderVk::ensureFrameResources()
                         VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                         kCubeIndices.data(),
                         kCubeIndices.size(),
-                        m_indexBuffer,
-                        m_indexMemory)) {
+                        m_indexBuffer)) {
     return false;
   }
 
-  if (!createBuffer(m_backend,
-                    sizeof(VolumeUniforms),
-                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                    m_uniformBuffer,
-                    m_uniformMemory)) {
+  auto uniformBuffer = m_backend.device().createBuffer(sizeof(VolumeUniforms),
+                                                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  if (!uniformBuffer) {
     return false;
   }
+  m_uniformBuffer = std::move(*uniformBuffer);
 
   m_indexCount = static_cast<uint32_t>(kCubeIndices.size());
   return true;
 }
 
-VkShaderModule
-RenderVk::createShaderModule(const uint32_t* words, size_t wordCount) const
-{
-  VkShaderModuleCreateInfo createInfo = {};
-  createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  createInfo.codeSize = wordCount * sizeof(uint32_t);
-  createInfo.pCode = words;
-
-  VkShaderModule module = VK_NULL_HANDLE;
-  VkResult result = vkCreateShaderModule(m_backend.logicalDevice(), &createInfo, nullptr, &module);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateShaderModule failed with VkResult " << result;
-    return VK_NULL_HANDLE;
-  }
-  return module;
-}
-
 bool
 RenderVk::ensurePipeline(VkFormat colorFormat)
 {
-  if (m_pipeline != VK_NULL_HANDLE && m_pipelineColorFormat == colorFormat) {
+  if (m_pipeline && m_pipelineColorFormat == colorFormat) {
     return true;
   }
 
@@ -406,11 +388,11 @@ RenderVk::ensurePipeline(VkFormat colorFormat)
   descriptorLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
   descriptorLayoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
   descriptorLayoutInfo.pBindings = bindings.data();
-  VkResult result = vkCreateDescriptorSetLayout(device, &descriptorLayoutInfo, nullptr, &m_descriptorSetLayout);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateDescriptorSetLayout failed with VkResult " << result;
+  auto descriptorSetLayoutResource = m_backend.device().createDescriptorSetLayout(descriptorLayoutInfo);
+  if (!descriptorSetLayoutResource) {
     return false;
   }
+  m_descriptorSetLayout = std::move(*descriptorSetLayoutResource);
 
   std::array<VkDescriptorPoolSize, 2> poolSizes = {};
   poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -423,18 +405,19 @@ RenderVk::ensurePipeline(VkFormat colorFormat)
   poolInfo.maxSets = 1;
   poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
   poolInfo.pPoolSizes = poolSizes.data();
-  result = vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_descriptorPool);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateDescriptorPool failed with VkResult " << result;
+  auto descriptorPool = m_backend.device().createDescriptorPool(poolInfo);
+  if (!descriptorPool) {
     return false;
   }
+  m_descriptorPool = std::move(*descriptorPool);
 
   VkDescriptorSetAllocateInfo descriptorSetInfo = {};
   descriptorSetInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  descriptorSetInfo.descriptorPool = m_descriptorPool;
+  descriptorSetInfo.descriptorPool = m_descriptorPool.get();
   descriptorSetInfo.descriptorSetCount = 1;
-  descriptorSetInfo.pSetLayouts = &m_descriptorSetLayout;
-  result = vkAllocateDescriptorSets(device, &descriptorSetInfo, &m_descriptorSet);
+  VkDescriptorSetLayout descriptorSetLayout = m_descriptorSetLayout.get();
+  descriptorSetInfo.pSetLayouts = &descriptorSetLayout;
+  VkResult result = vkAllocateDescriptorSets(device, &descriptorSetInfo, &m_descriptorSet);
   if (result != VK_SUCCESS) {
     LOG_ERROR << "vkAllocateDescriptorSets failed with VkResult " << result;
     return false;
@@ -468,33 +451,27 @@ RenderVk::ensurePipeline(VkFormat colorFormat)
   renderPassInfo.pAttachments = &colorAttachment;
   renderPassInfo.subpassCount = 1;
   renderPassInfo.pSubpasses = &subpass;
-  result = vkCreateRenderPass(device, &renderPassInfo, nullptr, &m_renderPass);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateRenderPass failed with VkResult " << result;
+  auto renderPass = m_backend.device().createRenderPass(renderPassInfo);
+  if (!renderPass) {
     return false;
   }
+  m_renderPass = std::move(*renderPass);
 
-  VkShaderModule vertexShader = createShaderModule(volume_vert_spv, volume_vert_spv_word_count);
-  VkShaderModule fragmentShader = createShaderModule(volume_frag_spv, volume_frag_spv_word_count);
-  if (vertexShader == VK_NULL_HANDLE || fragmentShader == VK_NULL_HANDLE) {
-    if (vertexShader != VK_NULL_HANDLE) {
-      vkDestroyShaderModule(device, vertexShader, nullptr);
-    }
-    if (fragmentShader != VK_NULL_HANDLE) {
-      vkDestroyShaderModule(device, fragmentShader, nullptr);
-    }
+  auto vertexShader = m_backend.device().createShaderModule(volume_vert_spv, volume_vert_spv_word_count);
+  auto fragmentShader = m_backend.device().createShaderModule(volume_frag_spv, volume_frag_spv_word_count);
+  if (!vertexShader || !fragmentShader) {
     return false;
   }
 
   VkPipelineShaderStageCreateInfo vertexStage = {};
   vertexStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
   vertexStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
-  vertexStage.module = vertexShader;
+  vertexStage.module = vertexShader->get();
   vertexStage.pName = "main";
   VkPipelineShaderStageCreateInfo fragmentStage = {};
   fragmentStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
   fragmentStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-  fragmentStage.module = fragmentShader;
+  fragmentStage.module = fragmentShader->get();
   fragmentStage.pName = "main";
   std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages = { vertexStage, fragmentStage };
 
@@ -564,14 +541,13 @@ RenderVk::ensurePipeline(VkFormat colorFormat)
   VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   pipelineLayoutInfo.setLayoutCount = 1;
-  pipelineLayoutInfo.pSetLayouts = &m_descriptorSetLayout;
-  result = vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &m_pipelineLayout);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreatePipelineLayout failed with VkResult " << result;
-    vkDestroyShaderModule(device, fragmentShader, nullptr);
-    vkDestroyShaderModule(device, vertexShader, nullptr);
+  descriptorSetLayout = m_descriptorSetLayout.get();
+  pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+  auto pipelineLayout = m_backend.device().createPipelineLayout(pipelineLayoutInfo);
+  if (!pipelineLayout) {
     return false;
   }
+  m_pipelineLayout = std::move(*pipelineLayout);
 
   VkGraphicsPipelineCreateInfo pipelineInfo = {};
   pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -584,17 +560,15 @@ RenderVk::ensurePipeline(VkFormat colorFormat)
   pipelineInfo.pMultisampleState = &multisampling;
   pipelineInfo.pColorBlendState = &colorBlending;
   pipelineInfo.pDynamicState = &dynamicState;
-  pipelineInfo.layout = m_pipelineLayout;
-  pipelineInfo.renderPass = m_renderPass;
+  pipelineInfo.layout = m_pipelineLayout.get();
+  pipelineInfo.renderPass = m_renderPass.get();
   pipelineInfo.subpass = 0;
 
-  result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_pipeline);
-  vkDestroyShaderModule(device, fragmentShader, nullptr);
-  vkDestroyShaderModule(device, vertexShader, nullptr);
-  if (result != VK_SUCCESS) {
-    LOG_ERROR << "vkCreateGraphicsPipelines failed with VkResult " << result;
+  auto pipeline = m_backend.device().createPipeline(pipelineInfo);
+  if (!pipeline) {
     return false;
   }
+  m_pipeline = std::move(*pipeline);
 
   return true;
 }
@@ -603,7 +577,7 @@ bool
 RenderVk::updateDescriptorSet()
 {
   VkDescriptorBufferInfo bufferInfo = {};
-  bufferInfo.buffer = m_uniformBuffer;
+  bufferInfo.buffer = m_uniformBuffer.get();
   bufferInfo.offset = 0;
   bufferInfo.range = sizeof(VolumeUniforms);
 
@@ -644,7 +618,7 @@ RenderVk::updateDescriptorSet()
 bool
 RenderVk::updateUniformBuffer(const CCamera& camera)
 {
-  if (!m_scene || !m_scene->m_volume || m_uniformMemory == VK_NULL_HANDLE) {
+  if (!m_scene || !m_scene->m_volume || !m_uniformBuffer) {
     return false;
   }
 
@@ -698,9 +672,9 @@ RenderVk::updateUniformBuffer(const CCamera& camera)
                                   1.0f);
 
   void* mapped = nullptr;
-  vkMapMemory(m_backend.logicalDevice(), m_uniformMemory, 0, sizeof(VolumeUniforms), 0, &mapped);
+  vkMapMemory(m_backend.logicalDevice(), m_uniformBuffer.memory(), 0, sizeof(VolumeUniforms), 0, &mapped);
   std::memcpy(mapped, &uniforms, sizeof(VolumeUniforms));
-  vkUnmapMemory(m_backend.logicalDevice(), m_uniformMemory);
+  vkUnmapMemory(m_backend.logicalDevice(), m_uniformBuffer.memory());
   return true;
 }
 
@@ -716,35 +690,9 @@ RenderVk::cleanUpResources()
 void
 RenderVk::destroyFrameResources()
 {
-  VkDevice device = m_backend.logicalDevice();
-  if (device == VK_NULL_HANDLE) {
-    return;
-  }
-
-  if (m_uniformBuffer != VK_NULL_HANDLE) {
-    vkDestroyBuffer(device, m_uniformBuffer, nullptr);
-    m_uniformBuffer = VK_NULL_HANDLE;
-  }
-  if (m_uniformMemory != VK_NULL_HANDLE) {
-    vkFreeMemory(device, m_uniformMemory, nullptr);
-    m_uniformMemory = VK_NULL_HANDLE;
-  }
-  if (m_indexBuffer != VK_NULL_HANDLE) {
-    vkDestroyBuffer(device, m_indexBuffer, nullptr);
-    m_indexBuffer = VK_NULL_HANDLE;
-  }
-  if (m_indexMemory != VK_NULL_HANDLE) {
-    vkFreeMemory(device, m_indexMemory, nullptr);
-    m_indexMemory = VK_NULL_HANDLE;
-  }
-  if (m_vertexBuffer != VK_NULL_HANDLE) {
-    vkDestroyBuffer(device, m_vertexBuffer, nullptr);
-    m_vertexBuffer = VK_NULL_HANDLE;
-  }
-  if (m_vertexMemory != VK_NULL_HANDLE) {
-    vkFreeMemory(device, m_vertexMemory, nullptr);
-    m_vertexMemory = VK_NULL_HANDLE;
-  }
+  m_uniformBuffer.reset();
+  m_indexBuffer.reset();
+  m_vertexBuffer.reset();
   m_indexCount = 0;
 }
 
@@ -756,27 +704,12 @@ RenderVk::destroyPipeline()
     return;
   }
 
-  if (m_pipeline != VK_NULL_HANDLE) {
-    vkDestroyPipeline(device, m_pipeline, nullptr);
-    m_pipeline = VK_NULL_HANDLE;
-  }
-  if (m_pipelineLayout != VK_NULL_HANDLE) {
-    vkDestroyPipelineLayout(device, m_pipelineLayout, nullptr);
-    m_pipelineLayout = VK_NULL_HANDLE;
-  }
-  if (m_renderPass != VK_NULL_HANDLE) {
-    vkDestroyRenderPass(device, m_renderPass, nullptr);
-    m_renderPass = VK_NULL_HANDLE;
-  }
-  if (m_descriptorPool != VK_NULL_HANDLE) {
-    vkDestroyDescriptorPool(device, m_descriptorPool, nullptr);
-    m_descriptorPool = VK_NULL_HANDLE;
-    m_descriptorSet = VK_NULL_HANDLE;
-  }
-  if (m_descriptorSetLayout != VK_NULL_HANDLE) {
-    vkDestroyDescriptorSetLayout(device, m_descriptorSetLayout, nullptr);
-    m_descriptorSetLayout = VK_NULL_HANDLE;
-  }
+  m_pipeline.reset();
+  m_pipelineLayout.reset();
+  m_renderPass.reset();
+  m_descriptorPool.reset();
+  m_descriptorSet = VK_NULL_HANDLE;
+  m_descriptorSetLayout.reset();
   m_pipelineColorFormat = VK_FORMAT_UNDEFINED;
 }
 

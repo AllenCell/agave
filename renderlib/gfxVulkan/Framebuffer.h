@@ -1,6 +1,8 @@
 #pragma once
 
 #include "gfxapi/Framebuffer.h"
+#include "resources/Buffer.h"
+#include "resources/Image.h"
 
 #include <vulkan/vulkan.h>
 
@@ -30,8 +32,8 @@ public:
   void clear(const gfxApi::ClearColor& color) override;
   void toImage(void* pixels) override;
 
-  VkImage colorImage() const { return m_colorImage; }
-  VkImageView colorImageView() const { return m_colorImageView; }
+  VkImage colorImage() const { return m_ownsColorImage ? m_colorAllocation.get() : m_externalColorImage; }
+  VkImageView colorImageView() const { return m_colorImageView.get(); }
   VkFormat colorFormat() const { return m_colorFormat; }
   VkImageLayout colorLayout() const { return m_colorLayout; }
   void transitionColorImage(VkCommandBuffer commandBuffer, VkImageLayout newLayout);
@@ -39,18 +41,6 @@ public:
 private:
   void destroy();
   void createImages();
-  void createImage(VkFormat format,
-                   VkImageUsageFlags usage,
-                   VkImageAspectFlags aspect,
-                   VkImage& image,
-                   VkDeviceMemory& memory,
-                   VkImageView& view);
-  void createImageView(VkFormat format, VkImageAspectFlags aspect, VkImage image, VkImageView& view);
-  void createBuffer(VkDeviceSize size,
-                    VkBufferUsageFlags usage,
-                    VkMemoryPropertyFlags properties,
-                    VkBuffer& buffer,
-                    VkDeviceMemory& memory);
 
   Backend& m_backend;
   uint32_t m_width = 0;
@@ -58,16 +48,14 @@ private:
   VkFormat m_colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
   bool m_hasDepthStencil = false;
 
-  VkImage m_colorImage = VK_NULL_HANDLE;
-  VkDeviceMemory m_colorMemory = VK_NULL_HANDLE;
-  VkImageView m_colorImageView = VK_NULL_HANDLE;
+  resources::Image m_colorAllocation;
+  VkImage m_externalColorImage = VK_NULL_HANDLE;
+  resources::UniqueImageView m_colorImageView;
   VkImageLayout m_colorLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   bool m_ownsColorImage = true;
-  bool m_ownsColorMemory = true;
 
-  VkImage m_depthImage = VK_NULL_HANDLE;
-  VkDeviceMemory m_depthMemory = VK_NULL_HANDLE;
-  VkImageView m_depthImageView = VK_NULL_HANDLE;
+  resources::Image m_depthAllocation;
+  resources::UniqueImageView m_depthImageView;
 };
 
 } // namespace gfxvulkan
