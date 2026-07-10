@@ -82,8 +82,8 @@ private:
   Backend* m_backend = nullptr;
 
   VkSurfaceKHR m_vkSurface = VK_NULL_HANDLE;
-  VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
-  VkFence m_acquireFence = VK_NULL_HANDLE;
+  resources::UniqueSwapchain m_swapchain;
+  resources::UniqueFence m_acquireFence;
   VkFormat m_colorFormat = VK_FORMAT_B8G8R8A8_UNORM;
   VkColorSpaceKHR m_colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
   VkExtent2D m_extent = {};

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RenderVk.h"
+#include "resources/SampledImage.h"
 
 #include <vulkan/vulkan.h>
 
@@ -48,55 +49,45 @@ private:
   void transitionToShaderRead(Framebuffer& framebuffer);
   void destroyFullscreenResources();
   void destroyPipelines();
-  VkShaderModule createShaderModule(const uint32_t* words, size_t wordCount) const;
-
   std::unique_ptr<Framebuffer> m_displayFramebuffer;
   std::unique_ptr<Framebuffer> m_sampleFramebuffer;
   std::unique_ptr<Framebuffer> m_accumFramebuffer;
   std::unique_ptr<Framebuffer> m_accumScratchFramebuffer;
 
-  VkBuffer m_quadVertexBuffer = VK_NULL_HANDLE;
-  VkDeviceMemory m_quadVertexMemory = VK_NULL_HANDLE;
-  VkBuffer m_quadIndexBuffer = VK_NULL_HANDLE;
-  VkDeviceMemory m_quadIndexMemory = VK_NULL_HANDLE;
+  resources::Buffer m_quadVertexBuffer;
+  resources::Buffer m_quadIndexBuffer;
   uint32_t m_quadIndexCount = 0;
 
-  VkBuffer m_accumUniformBuffer = VK_NULL_HANDLE;
-  VkDeviceMemory m_accumUniformMemory = VK_NULL_HANDLE;
-  VkBuffer m_toneMapUniformBuffer = VK_NULL_HANDLE;
-  VkDeviceMemory m_toneMapUniformMemory = VK_NULL_HANDLE;
-  VkSampler m_framebufferSampler = VK_NULL_HANDLE;
+  resources::Buffer m_accumUniformBuffer;
+  resources::Buffer m_toneMapUniformBuffer;
+  resources::UniqueSampler m_framebufferSampler;
 
-  VkDescriptorSetLayout m_accumDescriptorSetLayout = VK_NULL_HANDLE;
-  VkDescriptorPool m_accumDescriptorPool = VK_NULL_HANDLE;
+  resources::UniqueDescriptorSetLayout m_accumDescriptorSetLayout;
+  resources::UniqueDescriptorPool m_accumDescriptorPool;
   VkDescriptorSet m_accumDescriptorSet = VK_NULL_HANDLE;
-  VkRenderPass m_accumRenderPass = VK_NULL_HANDLE;
-  VkPipelineLayout m_accumPipelineLayout = VK_NULL_HANDLE;
-  VkPipeline m_accumPipeline = VK_NULL_HANDLE;
+  resources::UniqueRenderPass m_accumRenderPass;
+  resources::UniquePipelineLayout m_accumPipelineLayout;
+  resources::UniquePipeline m_accumPipeline;
 
-  VkDescriptorSetLayout m_toneMapDescriptorSetLayout = VK_NULL_HANDLE;
-  VkDescriptorPool m_toneMapDescriptorPool = VK_NULL_HANDLE;
+  resources::UniqueDescriptorSetLayout m_toneMapDescriptorSetLayout;
+  resources::UniqueDescriptorPool m_toneMapDescriptorPool;
   VkDescriptorSet m_toneMapDescriptorSet = VK_NULL_HANDLE;
-  VkRenderPass m_toneMapRenderPass = VK_NULL_HANDLE;
-  VkPipelineLayout m_toneMapPipelineLayout = VK_NULL_HANDLE;
-  VkPipeline m_toneMapPipeline = VK_NULL_HANDLE;
+  resources::UniqueRenderPass m_toneMapRenderPass;
+  resources::UniquePipelineLayout m_toneMapPipelineLayout;
+  resources::UniquePipeline m_toneMapPipeline;
   VkFormat m_toneMapPipelineColorFormat = VK_FORMAT_UNDEFINED;
 
   // Per-sample Monte Carlo path-trace volume pass (pathTraceVolume.frag).
-  VkBuffer m_ptVolumeUniformBuffer = VK_NULL_HANDLE;
-  VkDeviceMemory m_ptVolumeUniformMemory = VK_NULL_HANDLE;
-  VkDescriptorSetLayout m_ptVolumeDescriptorSetLayout = VK_NULL_HANDLE;
-  VkDescriptorPool m_ptVolumeDescriptorPool = VK_NULL_HANDLE;
+  resources::Buffer m_ptVolumeUniformBuffer;
+  resources::UniqueDescriptorSetLayout m_ptVolumeDescriptorSetLayout;
+  resources::UniqueDescriptorPool m_ptVolumeDescriptorPool;
   VkDescriptorSet m_ptVolumeDescriptorSet = VK_NULL_HANDLE;
-  VkRenderPass m_ptVolumeRenderPass = VK_NULL_HANDLE;
-  VkPipelineLayout m_ptVolumePipelineLayout = VK_NULL_HANDLE;
-  VkPipeline m_ptVolumePipeline = VK_NULL_HANDLE;
+  resources::UniqueRenderPass m_ptVolumeRenderPass;
+  resources::UniquePipelineLayout m_ptVolumePipelineLayout;
+  resources::UniquePipeline m_ptVolumePipeline;
 
   // 1x1 placeholder bound to the shader's deprecated g_lutTexture[4] sampler array.
-  VkImage m_dummyLutImage = VK_NULL_HANDLE;
-  VkDeviceMemory m_dummyLutMemory = VK_NULL_HANDLE;
-  VkImageView m_dummyLutView = VK_NULL_HANDLE;
-  VkSampler m_dummyLutSampler = VK_NULL_HANDLE;
+  resources::SampledImage m_dummyLutTexture;
 };
 
 } // namespace gfxvulkan
