@@ -356,13 +356,14 @@ main(int argc, char* argv[])
 
       qInstallMessageHandler(customMessageHandler);
 
-      agaveGui* w = new agaveGui();
-      a.setGUI(w);
+      auto w = std::make_unique<agaveGui>();
+      a.setGUI(w.get());
       w->show();
       if (!fileToLoad.empty()) {
         w->open(fileToLoad);
       }
       result = a.exec();
+      a.setGUI(nullptr);
     }
     renderlib::cleanup();
   } catch (const std::exception& exc) {
