@@ -419,6 +419,9 @@ Backend::destroy()
     vkDeviceWaitIdle(m_deviceHandle);
   }
 
+  // The command pool is a Backend-owned resource. Release it through its
+  // normal owner before Device checks for objects that outlived their owners.
+  m_commandPool.reset();
   m_device.release();
 
   if (m_deviceHandle != VK_NULL_HANDLE) {
