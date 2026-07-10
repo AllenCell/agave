@@ -364,6 +364,9 @@ main(int argc, char* argv[])
       }
       result = a.exec();
       a.setGUI(nullptr);
+      // Destroy the views, swapchain, and renderers while the graphics backend
+      // and its Vulkan instance/device are still alive.
+      w.reset();
     }
     renderlib::cleanup();
   } catch (const std::exception& exc) {
