@@ -1,0 +1,30 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.4"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "agave_pyvk"
+version = "1.9.0"
+description = "Headless in-process Vulkan Python bindings for AGAVE"
+readme = "README.md"
+license = { text = "Allen Institute Software License" }
+requires-python = ">=3.10"
+authors = [{ name = "Daniel Toloudis", email = "danielt@alleninstitute.org" }]
+dependencies = ["numpy", "Pillow==12.2.0"]
+
+[project.optional-dependencies]
+test = ["pytest>=5.4.3", "ruff>=0.4"]
+
+[tool.scikit-build]
+cmake.source-dir = ".."
+cmake.build-type = "Release"
+cmake.define.AGAVE_BUILD_PYVK = "ON"
+install.components = ["agave_pyvk"]
+wheel.packages = ["agave_pyvk"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "T10"]
+ignore = ["E203", "E402"]

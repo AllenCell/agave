@@ -212,6 +212,11 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 # #####################
 add_subdirectory(renderlib)
 
+option(AGAVE_BUILD_PYVK "Build the headless Vulkan Python package" OFF)
+if(AGAVE_BUILD_PYVK)
+  add_subdirectory(agave_pyvk)
+endif()
+
 set(INSTALLDIR "${CMAKE_PROJECT_NAME}-install")
 
 message(STATUS "CMAKE_INSTALL_PREFIX: ${CMAKE_INSTALL_PREFIX}")
