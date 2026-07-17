@@ -12,6 +12,7 @@
 #include "renderlib/Status.h"
 #include "renderlib/gfxapi/Backend.h"
 #include "renderlib/gfxapi/Framebuffer.h"
+#include "renderlib/gfxapi/RenderToFramebuffer.h"
 #include "renderlib/renderlib.h"
 
 #include <glm.h>
@@ -24,29 +25,14 @@
 #include <QWindow>
 
 #include <cmath>
+#include <cstddef>
 #include <iostream>
+#include <memory>
 
 // Only Microsoft issue warnings about correct behaviour...
 #ifdef _MSVC_VER
 #pragma warning(disable : 4351)
 #endif
-
-namespace {
-
-gfxApi::ClearColor
-backgroundClearColor(const Scene* scene)
-{
-  if (!scene) {
-    return {};
-  }
-
-  return { scene->m_material.m_backgroundColor[0],
-           scene->m_material.m_backgroundColor[1],
-           scene->m_material.m_backgroundColor[2],
-           1.0f };
-}
-
-} // namespace
 
 GLView3D::GLView3D(QCamera* cam, QRenderSettings* qrs, RenderSettings* rs, QWidget* parent)
   : QOpenGLWidget(parent)
@@ -578,18 +564,15 @@ GLView3D::captureQimage()
   m_viewerWindow->m_gestureRenderer->updateSelectionBuffer(captureWidth, captureHeight);
   m_viewerWindow->update(sceneView.viewport, m_viewerWindow->m_clock, m_viewerWindow->gesture);
 
-  fbo->bind();
-  fbo->clear(backgroundClearColor(sceneView.scene));
-  m_viewerWindow->m_gestureRenderer->drawUnderlay(sceneView, m_viewerWindow->gesture.graphics);
-  fbo->release();
+  gfxApi::renderToFramebuffer(*fbo,
+                              *m_viewerWindow->m_renderer,
+                              *m_viewerWindow->m_gestureRenderer,
+                              sceneView,
+                              m_viewerWindow->gesture.graphics,
+                              1.0f);
 
-  m_viewerWindow->m_renderer->renderTo(sceneView.camera, fbo.get());
-
-  fbo->bind();
-  m_viewerWindow->m_gestureRenderer->draw(sceneView, m_viewerWindow->gesture.graphics);
-  fbo->release();
-
-  std::unique_ptr<uint8_t> bytes(new uint8_t[captureWidth * captureHeight * 4]);
+  const std::size_t byteCount = static_cast<std::size_t>(captureWidth) * captureHeight * 4;
+  auto bytes = std::make_unique<uint8_t[]>(byteCount);
   fbo->toImage(bytes.get());
 
   return QImage(bytes.get(), captureWidth, captureHeight, QImage::Format_ARGB32)
