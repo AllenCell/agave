@@ -11,10 +11,14 @@
 #include "renderlib/gfxapi/Backend.h"
 #include "renderlib/gfxapi/IGLContext.h"
 #include "renderlib/gfxapi/IRenderWindow.h"
+#include "renderlib/gfxapi/RenderToFramebuffer.h"
 #include "renderlib/io/FileReader.h"
 
 #include "command.h"
 #include "commandBuffer.h"
+
+#include <cstddef>
+#include <memory>
 
 #include <QApplication>
 #include <QElapsedTimer>
@@ -22,19 +26,6 @@
 #include <QMutexLocker>
 
 namespace {
-
-gfxApi::ClearColor
-backgroundClearColor(const Scene* scene)
-{
-  if (!scene) {
-    return {};
-  }
-
-  return { scene->m_material.m_backgroundColor[0],
-           scene->m_material.m_backgroundColor[1],
-           scene->m_material.m_backgroundColor[2],
-           0.0f };
-}
 
 class MutexContextLocker
 {
@@ -400,23 +391,15 @@ Renderer::render()
   bbox.clear();
   bbox.draw(sceneView, m_myVolumeData.m_gesture);
 
-  // The gesture renderer needs to know which framebuffer to draw into (Vulkan
-  // has no bound/current framebuffer concept). Set it before drawUnderlay/draw.
-  m_myVolumeData.m_gestureRenderer->setTargetFramebuffer(m_fbo.get());
+  gfxApi::renderToFramebuffer(*m_fbo,
+                              *m_myVolumeData.m_renderer,
+                              *m_myVolumeData.m_gestureRenderer,
+                              sceneView,
+                              m_myVolumeData.m_gesture.graphics,
+                              0.0f);
 
-  m_fbo->bind();
-  m_fbo->clear(backgroundClearColor(sceneView.scene));
-  m_myVolumeData.m_gestureRenderer->drawUnderlay(sceneView, m_myVolumeData.m_gesture.graphics);
-  m_fbo->release();
-
-  // main scene rendering
-  m_myVolumeData.m_renderer->renderTo(sceneView.camera, m_fbo.get());
-
-  m_fbo->bind();
-  m_myVolumeData.m_gestureRenderer->draw(sceneView, m_myVolumeData.m_gesture.graphics);
-  m_fbo->release();
-
-  std::unique_ptr<uint8_t> bytes(new uint8_t[m_fbo->width() * m_fbo->height() * 4]);
+  const std::size_t byteCount = static_cast<std::size_t>(m_fbo->width()) * m_fbo->height() * 4;
+  auto bytes = std::make_unique<uint8_t[]>(byteCount);
   m_fbo->toImage(bytes.get());
   QImage img = QImage(bytes.get(), m_fbo->width(), m_fbo->height(), QImage::Format_ARGB32).copy();
   // OpenGL framebuffers are bottom-up in memory (glReadPixels origin is
