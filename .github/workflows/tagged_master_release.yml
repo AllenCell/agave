@@ -11,6 +11,9 @@ permissions:
   contents: read
 
 jobs:
+  build-agave-pyvk:
+    uses: ./.github/workflows/build_agave_pyvk.yml
+
   cmake-build:
     strategy:
       matrix:
@@ -309,6 +312,7 @@ jobs:
     needs:
       [
         cmake-build,
+        build-agave-pyvk,
         docs,
         docs_pythonclient,
         publish_pythonclient,
@@ -346,6 +350,12 @@ jobs:
         with:
           name: DocumentationPDF
           path: DocumentationPDF
+      - name: Get agave_pyvk wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: agave-pyvk-*
+          path: agave-pyvk-wheels
+          merge-multiple: true
       - name: Version the artifacts
         run: |
           mv ${{ github.workspace }}/agave-macos-x86_64/agave-macos-x86_64.dmg ${{ github.workspace }}/agave-macos-x86_64/agave-${{ steps.get_version.outputs.VERSION }}-macos-x86_64.dmg
@@ -365,3 +375,4 @@ jobs:
             ${{ github.workspace }}/agave-macos-arm64/agave-${{ steps.get_version.outputs.VERSION }}-macos-arm64.dmg
             ${{ github.workspace }}/agave-win/agave-${{ steps.get_version.outputs.VERSION }}-win.exe
             ${{ github.workspace }}/DocumentationPDF/agave.pdf
+            ${{ github.workspace }}/agave-pyvk-wheels/*.whl
