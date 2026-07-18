@@ -4,6 +4,9 @@ on:
     branches-ignore:
       - "master"
 jobs:
+  build-agave-pyvk:
+    uses: ./.github/workflows/build_agave_pyvk.yml
+
   docs:
     runs-on: ubuntu-latest
     steps:
