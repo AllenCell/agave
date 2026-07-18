@@ -36,9 +36,7 @@
 
 GLView3D::GLView3D(QCamera* cam, QRenderSettings* qrs, RenderSettings* rs, QWidget* parent)
   : QOpenGLWidget(parent)
-  , m_etimer()
   , m_qcamera(cam)
-  , m_viewerWindow(nullptr)
   , m_qrendersettings(qrs)
 {
   m_viewerWindow = new ViewerWindow(rs);
