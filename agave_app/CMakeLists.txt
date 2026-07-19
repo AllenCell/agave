@@ -1,3 +1,26 @@
+# Find the Qt libraries
+# In order for find_package to be successful, Qt 5 must be found below the CMAKE_PREFIX_PATH,
+# or the Qt6<Module>_DIR must be set in the CMake cache to the location of the Qt6WidgetsConfig.cmake
+# file. The easiest way to use CMake is to set the CMAKE_PREFIX_PATH environment variable to
+# the install prefix of Qt 6.
+if(DEFINED ENV{Qt6_DIR})
+  list(INSERT CMAKE_PREFIX_PATH 0 $ENV{Qt6_DIR})
+endif()
+
+set(AGAVE_QT_VERSION 6.9.3)
+
+if(WIN32)
+  set(GUESS_Qt6_DIR C:/Qt/${AGAVE_QT_VERSION}/msvc2022_64 CACHE STRING "Qt6 directory")
+elseif(APPLE)
+  set(GUESS_Qt6_DIR ~/Qt/${AGAVE_QT_VERSION}/macos)
+else()
+  set(GUESS_Qt6_DIR ~/Qt/${AGAVE_QT_VERSION}/gcc_64)
+endif(WIN32)
+
+list(INSERT CMAKE_PREFIX_PATH 0 ${GUESS_Qt6_DIR})
+
+find_package(Qt6 REQUIRED COMPONENTS Widgets Core Gui OpenGL OpenGLWidgets Network WebSockets Xml Svg REQUIRED)
+
 add_executable(agaveapp MACOSX_BUNDLE "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp")
 set_target_properties(agaveapp PROPERTIES OUTPUT_NAME "agave")
 set_property(TARGET agaveapp PROPERTY AUTOMOC ON)
@@ -170,3 +193,5 @@ else() # LINUX
 			"$<TARGET_PROPERTY:agaveapp,BINARY_DIR>/assets"
 	)
 endif(WIN32)
+
+include(${CMAKE_CURRENT_SOURCE_DIR}/Packaging.cmake)
