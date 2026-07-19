@@ -22,9 +22,6 @@ jobs:
           - os: macos-15
             artifact: agave-macos-arm64
             deployment_target: "11.0"
-          - os: macos-15-intel
-            artifact: agave-macos-x86_64
-            deployment_target: "10.15"
 
     runs-on: ${{ matrix.os }}
 
@@ -360,11 +357,6 @@ jobs:
         run: |
           echo ${GITHUB_REF/refs\/tags\/v/}
           echo "VERSION=${GITHUB_REF/refs\/tags\/v/}" >> "$GITHUB_OUTPUT"
-      - name: Get mac build artifact x86
-        uses: actions/download-artifact@v4
-        with:
-          name: agave-macos-x86_64
-          path: agave-macos-x86_64
       - name: Get mac build artifact arm64
         uses: actions/download-artifact@v4
         with:
@@ -388,7 +380,6 @@ jobs:
           merge-multiple: true
       - name: Version the artifacts
         run: |
-          mv ${{ github.workspace }}/agave-macos-x86_64/agave-macos-x86_64.dmg ${{ github.workspace }}/agave-macos-x86_64/agave-${{ steps.get_version.outputs.VERSION }}-macos-x86_64.dmg
           mv ${{ github.workspace }}/agave-macos-arm64/agave-macos-arm64.dmg ${{ github.workspace }}/agave-macos-arm64/agave-${{ steps.get_version.outputs.VERSION }}-macos-arm64.dmg
           mv ${{ github.workspace }}/agave-win/agave-win.exe ${{ github.workspace }}/agave-win/agave-${{ steps.get_version.outputs.VERSION }}-win.exe
       - name: Create Release
@@ -401,7 +392,6 @@ jobs:
           prerelease: true
           generate_release_notes: true
           files: |
-            ${{ github.workspace }}/agave-macos-x86_64/agave-${{ steps.get_version.outputs.VERSION }}-macos-x86_64.dmg
             ${{ github.workspace }}/agave-macos-arm64/agave-${{ steps.get_version.outputs.VERSION }}-macos-arm64.dmg
             ${{ github.workspace }}/agave-win/agave-${{ steps.get_version.outputs.VERSION }}-win.exe
             ${{ github.workspace }}/DocumentationPDF/agave.pdf
