@@ -52,7 +52,6 @@ def main() -> None:
                 "-B",
                 str(build_dir),
                 "-USKBUILD_*",
-                "-Unanobind_DIR",
                 "-UPython_*",
                 "-DAGAVE_BUILD_APP=OFF",
                 "-DAGAVE_BUILD_TESTS=OFF",

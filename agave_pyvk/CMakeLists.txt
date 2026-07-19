@@ -2,10 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 project(agave_pyvk VERSION 1.9.0 LANGUAGES CXX)
 
 find_package(Python 3.10 REQUIRED COMPONENTS Interpreter Development.Module)
-find_package(nanobind CONFIG QUIET)
-if(NOT nanobind_FOUND)
-  add_subdirectory(nanobind)
-endif()
+add_subdirectory(nanobind)
 
 if(NOT TARGET renderlib)
   message(FATAL_ERROR "agave_pyvk must be configured as part of AGAVE after the renderlib target")
