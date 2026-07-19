@@ -28,15 +28,20 @@ cmake -S . -B D:\agave_build -DAGAVE_BUILD_PYVK=ON
 cmake --build D:\agave_build --config Release
 ```
 
-To create a wheel without compiling renderlib again, point scikit-build-core at
-that same persistent build tree:
+To create a wheel without compiling renderlib again, have the package helper
+build the Python-specific target in that tree and stage its install component:
 
 ```powershell
-$env:SKBUILD_BUILD_DIR = "D:\agave_build"
-python -m pip install build nanobind scikit-build-core
-python -m build --wheel --no-isolation agave_pyvk
+$env:AGAVE_PYVK_CMAKE_BUILD_DIR = "D:\agave_build"
+$env:AGAVE_PYVK_PREBUILT_DIR = "D:\agave_build\agave-pyvk-stage"
+python agave_pyvk\tools\build_native.py
+
+$env:AGAVE_PYVK_USE_PREBUILT = "1"
+python -m pip install build
+python -m build --wheel agave_pyvk
 ```
 
-Scikit-build-core reconfigures the existing tree for the active Python
-interpreter. Renderlib remains up to date; only the Python-version-specific
-nanobind sources need to be rebuilt when the interpreter ABI changes.
+The helper reconfigures the CMake-owned tree for the active Python interpreter.
+Renderlib remains up to date; only the Python-version-specific nanobind sources
+need to be rebuilt when the interpreter ABI changes. Run it from the same MSVC
+x64 Native Tools prompt used for the CMake build on Windows.
