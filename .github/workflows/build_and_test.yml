@@ -214,21 +214,17 @@ jobs:
           name: ${{ matrix.artifact }}
           path: ./build/${{ matrix.artifact }}.exe
       - name: Install Python package build frontend
-        run: python -m pip install build nanobind scikit-build-core
-      - name: Build agave_pyvk wheel from the existing CMake tree
-        if: matrix.os != 'windows-latest'
+        run: python -m pip install build
+      - name: Stage the agave_py2 CMake install component
         env:
-          SKBUILD_BUILD_DIR: ${{ github.workspace }}/build
-          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
-        run: python -m build --wheel --no-isolation agave_pyvk
-      - name: Build agave_pyvk wheel from the existing CMake tree with MSVC 18
-        if: matrix.os == 'windows-latest'
+          AGAVE_PYVK_CMAKE_BUILD_DIR: ${{ github.workspace }}/build
+          AGAVE_PYVK_PREBUILT_DIR: ${{ github.workspace }}/build/agave-pyvk-stage
+        run: python agave_pyvk/tools/build_native.py --stage-only
+      - name: Build agave_pyvk wheel from the staged CMake component
         env:
-          SKBUILD_BUILD_DIR: ${{ github.workspace }}\build
-        run: |
-          call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          python -m build --wheel --no-isolation agave_pyvk
-        shell: cmd
+          AGAVE_PYVK_PREBUILT_DIR: ${{ github.workspace }}/build/agave-pyvk-stage
+          AGAVE_PYVK_USE_PREBUILT: "1"
+        run: python -m build --wheel agave_pyvk
       - name: Upload agave_pyvk wheel
         uses: actions/upload-artifact@v6
         with:
