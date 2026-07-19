@@ -1,6 +1,13 @@
 [build-system]
-requires = ["scikit-build-core>=0.10", "nanobind>=2.4"]
-build-backend = "scikit_build_core.build"
+requires = [
+    "scikit-build-core>=0.10",
+    "nanobind>=2.4",
+    "packaging>=24",
+    "tomli>=2; python_version<'3.11'",
+    "wheel>=0.43",
+]
+build-backend = "build_backend"
+backend-path = ["."]
 
 [project]
 name = "agave_pyvk"
@@ -27,13 +34,16 @@ wheel.packages = ["agave_pyvk"]
 [tool.cibuildwheel]
 build = "cp3{10,11,12,13,14}-*"
 skip = "*-musllinux_*"
+before-build = "python {project}/agave_pyvk/tools/build_native.py"
+environment = { AGAVE_PYVK_USE_PREBUILT = "1" }
 
 [tool.cibuildwheel.linux]
 manylinux-x86_64-image = "manylinux_2_35"
-environment = { VULKAN_SDK = "/opt/1.4.350.0/x86_64", SKBUILD_BUILD_DIR = "/tmp/agave-pyvk-build", SKBUILD_CMAKE_SOURCE_DIR = "/project" }
+environment = { VULKAN_SDK = "/opt/1.4.350.0/x86_64", AGAVE_PYVK_CMAKE_BUILD_DIR = "/tmp/agave-pyvk-build", AGAVE_PYVK_PREBUILT_DIR = "/tmp/agave-pyvk-stage", AGAVE_PYVK_USE_PREBUILT = "1" }
 before-all = [
     "apt-get update",
     "apt-get install -y cmake curl git libcurl4-openssl-dev libegl1-mesa-dev libgl1-mesa-dev liblzma-dev libspdlog-dev libtiff-dev libx11-dev libxcb1-dev libzstd-dev nasm ninja-build patch pkg-config xz-utils zlib1g-dev",
+    "python3 -m pip install 'cmake>=3.24' ninja",
     "curl --fail --location https://sdk.lunarg.com/sdk/download/1.4.350.0/linux/vulkan_sdk.tar.xz --output /tmp/vulkan_sdk.tar.xz",
     "echo 'b65f068ab36263559da49d7cacd7e7b9df23824ca8b68ccc522a2b06f5725df2  /tmp/vulkan_sdk.tar.xz' | sha256sum --check",
     "mkdir -p /opt && tar -xf /tmp/vulkan_sdk.tar.xz -C /opt",
