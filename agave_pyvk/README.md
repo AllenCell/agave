@@ -20,28 +20,39 @@ remaining native dependencies are the same ones used by renderlib.
 
 ## Reusing a local CMake build
 
-Configure the normal AGAVE build with `AGAVE_BUILD_PYVK=ON`. The regular build
-then compiles renderlib and the `agave_py2` nanobind target together:
+From the repository root, configure a persistent headless build and compile the
+`agave_py2` nanobind target together with renderlib:
 
-```powershell
-cmake -S . -B D:\agave_build -DAGAVE_BUILD_PYVK=ON
-cmake --build D:\agave_build --config Release
+```console
+cmake -S . -B build -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON
+cmake --build build --target agave_py2 --config Release --parallel
 ```
 
-To create a wheel without compiling renderlib again, have the package helper
-build the Python-specific target in that tree and stage its install component:
+On Windows, add the vcpkg toolchain and Ninja Multi-Config arguments shown in
+the root `README.md`, and run from a VS2026 x64 Native Tools Command Prompt.
+The helper below reconfigures this CMake-owned tree for the active Python
+interpreter; renderlib is rebuilt only when it is out of date.
 
-```powershell
-$env:AGAVE_PYVK_CMAKE_BUILD_DIR = "D:\agave_build"
-$env:AGAVE_PYVK_PREBUILT_DIR = "D:\agave_build\agave-pyvk-stage"
+For iterative development, install the staged package directly instead of
+creating a wheel file. On macOS and Linux:
+
+```console
+python agave_pyvk/tools/build_native.py
+AGAVE_PYVK_USE_PREBUILT=1 python -m pip install --force-reinstall --no-deps ./agave_pyvk
+```
+
+Or from a VS2026 x64 Native Tools Command Prompt on Windows:
+
+```console
 python agave_pyvk\tools\build_native.py
+set "AGAVE_PYVK_USE_PREBUILT=1"
+python -m pip install --force-reinstall --no-deps .\agave_pyvk
+```
 
-$env:AGAVE_PYVK_USE_PREBUILT = "1"
+To produce a wheel file from the same staged build, install the `build` frontend,
+set `AGAVE_PYVK_USE_PREBUILT=1` as above, and run:
+
+```console
 python -m pip install build
 python -m build --wheel agave_pyvk
 ```
-
-The helper reconfigures the CMake-owned tree for the active Python interpreter.
-Renderlib remains up to date; only the Python-version-specific nanobind sources
-need to be rebuilt when the interpreter ABI changes. Run it from the same MSVC
-x64 Native Tools prompt used for the CMake build on Windows.
