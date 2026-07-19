@@ -50,6 +50,9 @@ before-all = [
     "cmake --build /tmp/agave-pyvk-build --target renderlib --parallel",
 ]
 
+[tool.cibuildwheel.macos]
+archs = ["arm64"]
+
 [tool.ruff]
 line-length = 88
 
