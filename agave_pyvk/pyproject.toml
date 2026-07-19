@@ -1,7 +1,6 @@
 [build-system]
 requires = [
     "scikit-build-core>=0.10",
-    "nanobind>=2.4",
     "packaging>=24",
     "tomli>=2; python_version<'3.11'",
     "wheel>=0.43",

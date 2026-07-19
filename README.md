@@ -8,15 +8,21 @@ AGAVE is a desktop application for viewing multichannel volume data. Several for
 
 [Install instructions](INSTALL.md)
 
-## How to build from source:
+## How to build from source
 
 After cloning this repo, initialize the submodules, which contain a couple of dependency libraries:
 
-```
+```console
 git submodule update --init
 ```
 
-### For WINDOWS:
+The commands below build the desktop application, C++ tests, renderlib, and the
+standalone `agave_pyvk` native module. Building `agave_pyvk` requires a Vulkan
+1.3-capable driver and a Vulkan SDK. CMake uses the SDK named by `VULKAN_SDK`,
+or searches the platform's usual Vulkan SDK installation directory. Use Python
+3.10 or later when building the standalone package.
+
+### Windows
 
 Make sure you are in an environment where vsvarsall has been run, e.g. a "VS2026 x64 Native Tools Command Prompt"
 
@@ -30,93 +36,112 @@ Make sure you are in an environment where vsvarsall has been run, e.g. a "VS2026
 
 A convenient way to install Perl, NASM, and GNU Patch is with chocolatey.
 
-```
+```console
 choco install strawberryperl nasm patch
 ```
 
 **Install Qt LTS 6.9.3.**
 In your favorite Python virtual environment:
 
-```
+```console
 pip install aqtinstall
 aqt install-qt --outputdir C:\Qt windows desktop 6.9.3 win64_msvc2022_64 -m qtwebsockets qtimageformats
-
 ```
 
 Use vcpkg (must use target triplet x64-windows) to install the following:
 
-```
+```console
 vcpkg install spdlog zlib libjpeg-turbo liblzma tiff zstd curl --triplet x64-windows
 ```
 
 **Build AGAVE**
 
-```
-mkdir build
-cd build
-# (vs 2026)
-cmake -DCMAKE_TOOLCHAIN_FILE=D:\vcpkg\scripts\buildsystems\vcpkg.cmake -G "Visual Studio 18 2026" -A x64 -DVCPKG_TARGET_TRIPLET=x64-windows ..
-
-# or, example: ninja in separate build dir!
-cmake -DCMAKE_TOOLCHAIN_FILE=C:\Users\%USERNAME%\source\repos\vcpkg\scripts\buildsystems\vcpkg.cmake -G "Ninja Multi-Config" -DVCPKG_TARGET_TRIPLET=x64-windows C:\Users\%USERNAME%\source\repos\allen-cell-animated\agave
-cmake --build . --target install
+```console
+cmake -S . -B build -G "Ninja Multi-Config" ^
+  -DCMAKE_TOOLCHAIN_FILE=C:\path\to\vcpkg\scripts\buildsystems\vcpkg.cmake ^
+  -DVCPKG_TARGET_TRIPLET=x64-windows ^
+  -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON -DAGAVE_BUILD_PYVK=ON
+cmake --build build --config Release --parallel
+cmake --install build --config Release
 ```
 
 You may need to adjust the vcpkg path depending on your configuration.
 
 If you encounter issues during your build, check that all of your dependencies are installed and try again. You can also build to the INSTALL target with Visual Studio by opening the project solution (`agave.sln`).
 
-### For MAC OS: (using homebrew)
+### macOS (Homebrew)
 
 In your favorite Python virtual environment:
 
-```
+```console
 pip install aqtinstall
 aqt install-qt --outputdir ~/Qt mac desktop 6.9.3 -m qtwebsockets qtimageformats
 export Qt6_DIR=~/Qt/6.9.3/macos
-# and then:
 brew install spdlog libtiff nasm curl
 
-mkdir build
-cd build
-cmake ..
-make
-# after make, you should have a runnable agave.app
-# or, to build a redistributable bundle:
-sudo make install
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON -DAGAVE_BUILD_PYVK=ON
+cmake --build build --parallel
+cmake --install build
 ```
 
-### For LINUX:
+After the build, `build/agave.app` is runnable. To create the redistributable
+disk image, run `cpack --config build/CPackConfig.cmake`.
+
+### Linux
 
 Install Qt 6.9.3 in your directory of choice and tell the build where to find it.
 In your favorite Python virtual environment:
 
-```
-
+```console
 pip install aqtinstall
 aqt install-qt --outputdir ~/Qt linux desktop 6.9.3 -m qtwebsockets qtimageformats
-
-# the next line is needed for CMake
-
 export Qt6_DIR=~/Qt/6.9.3/gcc_64
 
-sudo apt install libtiff-dev
-sudo apt install libglm-dev
-sudo apt install libgl1-mesa-dev
-sudo apt install libegl1-mesa-dev
-sudo apt install libspdlog-dev
-sudo apt install libcurl4-openssl-dev
-sudo apt install nasm
-sudo apt install libxcb-xkb-dev
+sudo apt install cmake ninja-build libtiff-dev libglm-dev libgl1-mesa-dev \
+  libegl1-mesa-dev libspdlog-dev libcurl4-openssl-dev liblzma-dev \
+  libzstd-dev zlib1g-dev nasm patch libxcb1-dev
 
-mkdir build
-cd build
-cmake ..
-make
-
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON -DAGAVE_BUILD_PYVK=ON
+cmake --build build --parallel
+cmake --install build
 ```
 
 If cmake fails please refer to the Dockerfile for a more complete list of Linux dependencies.
+
+### Iterative standalone Python development
+
+The platform commands above create a persistent `build` directory containing
+renderlib and the `agave_py2` nanobind target. After changing the Python binding
+or renderlib, the following is the shortest build-and-install loop on macOS and
+Linux:
+
+```console
+python agave_pyvk/tools/build_native.py
+AGAVE_PYVK_USE_PREBUILT=1 python -m pip install --force-reinstall --no-deps ./agave_pyvk
+```
+
+Run the equivalent commands from a VS2026 x64 Native Tools Command Prompt on
+Windows:
+
+```console
+python agave_pyvk\tools\build_native.py
+set "AGAVE_PYVK_USE_PREBUILT=1"
+python -m pip install --force-reinstall --no-deps .\agave_pyvk
+```
+
+`build_native.py` reuses `build`, builds only targets that are out of date, and
+stages the `agave_pyvk` install component. The environment variable tells pip
+to package that staged native module instead of starting a separate CMake build.
+The first install should omit `--no-deps` if NumPy and Pillow are not installed.
+
+For a headless-only build tree, use the same platform-specific configure command
+with these options:
+
+```console
+-DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON
+```
 
 ## Versioned Releases
 
