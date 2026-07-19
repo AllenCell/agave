@@ -13,21 +13,9 @@ The first time, you will get a warning from Windows Defender SmartScreen. Click 
 
 ## MacOS
 
-We provide separate installers for MacOS with Apple Silicon (Macs with M1-M4 processors) and MacOS with Intel processors.
-
-The Intel (x86-64) version should work on all Macs. However, you will get the best performance by choosing the matching installer. You can check your Mac's processor architecture by clicking the Apple menu, selecting About This Mac. Look for the Processor Name.
-
-### MacOS with Apple processors
+AGAVE supports Apple Silicon Macs.
 
 Download the installer `agave-1.10.0-macos-arm64.dmg` and open it.
-
-Drag the agave icon to the Applications folder.
-
-You can now run the application from the Applications folder.
-
-### MacOS with Intel processors
-
-Download the installer `agave-1.10.0-macos-x86-64.dmg` and open it.
 
 Drag the agave icon to the Applications folder.
 

@@ -69,7 +69,7 @@ You may need to adjust the vcpkg path depending on your configuration.
 
 If you encounter issues during your build, check that all of your dependencies are installed and try again. You can also build to the INSTALL target with Visual Studio by opening the project solution (`agave.sln`).
 
-### macOS (Homebrew)
+### macOS Apple Silicon (Homebrew)
 
 In your favorite Python virtual environment:
 
