@@ -2,8 +2,13 @@ cmake_minimum_required(VERSION 3.24)
 include(FetchContent)  # Needed to recognize FetchContent_Declare in renderlib
 
 if(APPLE)
-  set(ENV{MACOSX_DEPLOYMENT_TARGET} "10.15")
-  set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum OS X deployment version" FORCE)
+  if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    if(DEFINED ENV{MACOSX_DEPLOYMENT_TARGET})
+      set(CMAKE_OSX_DEPLOYMENT_TARGET "$ENV{MACOSX_DEPLOYMENT_TARGET}" CACHE STRING "Minimum OS X deployment version")
+    else()
+      set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum OS X deployment version")
+    endif()
+  endif()
   # Ensure compile_commands.json has correct sysroot for clang-tidy
   if(NOT CMAKE_OSX_SYSROOT)
     execute_process(
@@ -34,6 +39,9 @@ project(
   LANGUAGES C CXX
 )
 
+option(AGAVE_BUILD_APP "Build the Qt desktop application and installers" ON)
+option(AGAVE_BUILD_TESTS "Build the C++ test suite" ON)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -55,6 +63,7 @@ set(CMAKE_MODULE_PATH
 # Find includes in corresponding build directories
 # set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
+if(AGAVE_BUILD_APP)
 # Find the Qt libraries
 # In order for find_package to be successful, Qt 5 must be found below the CMAKE_PREFIX_PATH,
 # or the Qt6<Module>_DIR must be set in the CMake cache to the location of the Qt6WidgetsConfig.cmake
@@ -72,13 +81,17 @@ elseif(APPLE)
   set(GUESS_Qt6_DIR ~/Qt/${AGAVE_QT_VERSION}/macos)
 else()
   set(GUESS_Qt6_DIR ~/Qt/${AGAVE_QT_VERSION}/gcc_64)
-  set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
-  set(CMAKE_INSTALL_RPATH "\$ORIGIN")
 endif(WIN32)
 
 list(INSERT CMAKE_PREFIX_PATH 0 ${GUESS_Qt6_DIR})
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets Core Gui OpenGL OpenGLWidgets Network WebSockets Xml Svg REQUIRED)
+endif()
+
+if(UNIX AND NOT APPLE)
+  set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+  set(CMAKE_INSTALL_RPATH "\$ORIGIN")
+endif()
 
 find_package(spdlog REQUIRED)
 
@@ -228,11 +241,14 @@ message(STATUS "CMAKE_RUNTIME_OUTPUT_DIRECTORY: ${CMAKE_RUNTIME_OUTPUT_DIRECTORY
 # #####################
 # UNIT TESTING
 # #####################
+if(AGAVE_BUILD_TESTS)
 add_subdirectory(test)
+endif()
 
 # #####################
 # THE FRONT END QT EXE
 # #####################
+if(AGAVE_BUILD_APP)
 add_subdirectory(agave_app)
 
 # #####################
@@ -489,5 +505,7 @@ else() # Linux
 
   include(CPack)
 endif(WIN32)
+
+endif()
 
 

@@ -4,7 +4,7 @@ configure_file(
 )
 
 add_library(renderlib "${CMAKE_CURRENT_SOURCE_DIR}/renderlib.cpp")
-set_property(TARGET renderlib PROPERTY AUTOMOC ON)
+set_property(TARGET renderlib PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 target_include_directories(renderlib PUBLIC
 	"${CMAKE_CURRENT_SOURCE_DIR}"
