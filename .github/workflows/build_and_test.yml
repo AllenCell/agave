@@ -112,9 +112,9 @@ jobs:
           version: 6.9.3
           modules: qtwebsockets qtimageformats
       - name: Install Vulkan SDK
-        uses: hollykbuck/install-vulkan-sdk@c96510125668208b8cd5069cd667322b0eaedb3d
+        uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
         with:
-          version: ${{ matrix.vulkan_version }}
+          vulkan_version: ${{ matrix.vulkan_version }}
           cache: true
       - name: Diagnose Unix Vulkan SDK installation
         if: matrix.os != 'windows-latest'
