@@ -144,13 +144,6 @@ if(AGAVE_ENABLE_VULKAN)
           "Vulkan glslangValidator executable"
           FORCE)
     endif()
-    if(EXISTS "${AGAVE_VULKAN_SDK_ROOT}/lib/libshaderc_combined.a")
-      set(Vulkan_shaderc_combined_LIBRARY
-          "${AGAVE_VULKAN_SDK_ROOT}/lib/libshaderc_combined.a"
-          CACHE FILEPATH
-          "Vulkan shaderc_combined library"
-          FORCE)
-    endif()
     if(WIN32 AND EXISTS "${AGAVE_VULKAN_SDK_ROOT}/Lib/vulkan-1.lib")
       set(Vulkan_LIBRARY "${AGAVE_VULKAN_SDK_ROOT}/Lib/vulkan-1.lib" CACHE FILEPATH "Vulkan loader library" FORCE)
     elseif(APPLE AND EXISTS "${AGAVE_VULKAN_SDK_ROOT}/lib/libvulkan.dylib")
@@ -160,7 +153,7 @@ if(AGAVE_ENABLE_VULKAN)
     endif()
   endif()
   find_package(Vulkan COMPONENTS glslc shaderc_combined QUIET)
-  if(Vulkan_FOUND AND Vulkan_shaderc_combined_FOUND)
+  if(Vulkan_FOUND AND TARGET Vulkan::shaderc_combined)
     set(AGAVE_HAS_VULKAN ON)
     set(AGAVE_VULKAN_RUNTIME_LIBRARY "${Vulkan_LIBRARY}")
     if(APPLE)
