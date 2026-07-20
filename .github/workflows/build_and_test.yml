@@ -190,6 +190,15 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           echo "C:\Program Files\git\usr\bin" >> $env:GITHUB_PATH
+      - name: Diagnose Windows Vulkan SDK installation
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          Write-Host "VULKAN_SDK=$env:VULKAN_SDK"
+          Write-Host "glslc candidates:"
+          Get-ChildItem -Path "$env:VULKAN_SDK\Bin" -Filter "glslc*" -ErrorAction Continue
+          Write-Host "shaderc candidates:"
+          Get-ChildItem -Path "$env:VULKAN_SDK\Lib" -Filter "*shaderc*" -ErrorAction Continue
       - name: windows build and test
         if: matrix.os == 'windows-latest'
         env:
@@ -199,9 +208,13 @@ jobs:
           mkdir build
           cd build
           call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          if errorlevel 1 exit /b %errorlevel%
           cmake -G "Ninja" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_PYVK=ON ..
+          if errorlevel 1 exit /b %errorlevel%
           cmake --build . --parallel --target agave_test --config Release
+          if errorlevel 1 exit /b %errorlevel%
           cmake --build . --parallel --config Release
+          if errorlevel 1 exit /b %errorlevel%
           cpack -D CPACK_PACKAGE_FILE_NAME=${{ matrix.artifact }}
         shell: cmd
       - name: Upload windows artifact
