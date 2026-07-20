@@ -162,9 +162,19 @@ if(AGAVE_ENABLE_VULKAN)
     "${AGAVE_VULKAN_SDK_ROOT}/lib/*shaderc*"
     "${AGAVE_VULKAN_SDK_ROOT}/Lib/*shaderc*"
   )
+  file(GLOB _agave_vulkan_header_candidates
+    "${AGAVE_VULKAN_SDK_ROOT}/include/vulkan/vulkan.h"
+    "${AGAVE_VULKAN_SDK_ROOT}/Include/vulkan/vulkan.h"
+  )
+  file(GLOB _agave_vulkan_loader_candidates
+    "${AGAVE_VULKAN_SDK_ROOT}/lib/libvulkan*"
+    "${AGAVE_VULKAN_SDK_ROOT}/Lib/vulkan*"
+  )
   message(STATUS "Vulkan diagnostics before find_package:")
   message(STATUS "  VULKAN_SDK environment: $ENV{VULKAN_SDK}")
   message(STATUS "  AGAVE_VULKAN_SDK_ROOT: ${AGAVE_VULKAN_SDK_ROOT}")
+  message(STATUS "  Vulkan header files in SDK: ${_agave_vulkan_header_candidates}")
+  message(STATUS "  Vulkan loader files in SDK: ${_agave_vulkan_loader_candidates}")
   message(STATUS "  glslc files in SDK: ${_agave_vulkan_glslc_candidates}")
   message(STATUS "  shaderc files in SDK: ${_agave_vulkan_shaderc_candidates}")
 
@@ -179,12 +189,13 @@ if(AGAVE_ENABLE_VULKAN)
   message(STATUS "  Vulkan_FOUND: ${Vulkan_FOUND}")
   message(STATUS "  Vulkan_VERSION: ${Vulkan_VERSION}")
   message(STATUS "  Vulkan_INCLUDE_DIR: ${Vulkan_INCLUDE_DIR}")
+  message(STATUS "  Vulkan_INCLUDE_DIRS: ${Vulkan_INCLUDE_DIRS}")
   message(STATUS "  Vulkan_LIBRARY: ${Vulkan_LIBRARY}")
+  message(STATUS "  Vulkan_LIBRARIES: ${Vulkan_LIBRARIES}")
   message(STATUS "  Vulkan_glslc_FOUND: ${Vulkan_glslc_FOUND}")
   message(STATUS "  Vulkan_GLSLC_EXECUTABLE: ${Vulkan_GLSLC_EXECUTABLE}")
   message(STATUS "  Vulkan_shaderc_combined_FOUND: ${Vulkan_shaderc_combined_FOUND}")
   message(STATUS "  Vulkan_shaderc_combined_LIBRARY: ${Vulkan_shaderc_combined_LIBRARY}")
-  message(STATUS "  Vulkan_shaderc_combined_DEBUG_LIBRARY: ${Vulkan_shaderc_combined_DEBUG_LIBRARY}")
   message(STATUS "  Vulkan::shaderc_combined target exists: ${_agave_vulkan_shaderc_target_found}")
 
   if(Vulkan_FOUND AND TARGET Vulkan::shaderc_combined)
@@ -217,6 +228,8 @@ if(AGAVE_ENABLE_VULKAN)
   endif()
   unset(_agave_vulkan_glslc_candidates)
   unset(_agave_vulkan_shaderc_candidates)
+  unset(_agave_vulkan_header_candidates)
+  unset(_agave_vulkan_loader_candidates)
   unset(_agave_vulkan_shaderc_target_found)
 endif()
 
