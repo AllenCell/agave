@@ -94,6 +94,7 @@ find_package(CURL REQUIRED)
 find_package(OpenGL)
 
 option(AGAVE_ENABLE_VULKAN "Build the Vulkan graphics backend when the Vulkan SDK is available." ON)
+option(AGAVE_BUILD_PYVK "Build the headless Vulkan Python package" ON)
 set(AGAVE_HAS_VULKAN OFF)
 set(AGAVE_VULKAN_RUNTIME_LIBRARY "")
 if(AGAVE_ENABLE_VULKAN)
@@ -152,7 +153,40 @@ if(AGAVE_ENABLE_VULKAN)
       set(Vulkan_LIBRARY "${AGAVE_VULKAN_SDK_ROOT}/lib/libvulkan.so" CACHE FILEPATH "Vulkan loader library" FORCE)
     endif()
   endif()
+
+  file(GLOB _agave_vulkan_glslc_candidates
+    "${AGAVE_VULKAN_SDK_ROOT}/bin/glslc*"
+    "${AGAVE_VULKAN_SDK_ROOT}/Bin/glslc*"
+  )
+  file(GLOB _agave_vulkan_shaderc_candidates
+    "${AGAVE_VULKAN_SDK_ROOT}/lib/*shaderc*"
+    "${AGAVE_VULKAN_SDK_ROOT}/Lib/*shaderc*"
+  )
+  message(STATUS "Vulkan diagnostics before find_package:")
+  message(STATUS "  VULKAN_SDK environment: $ENV{VULKAN_SDK}")
+  message(STATUS "  AGAVE_VULKAN_SDK_ROOT: ${AGAVE_VULKAN_SDK_ROOT}")
+  message(STATUS "  glslc files in SDK: ${_agave_vulkan_glslc_candidates}")
+  message(STATUS "  shaderc files in SDK: ${_agave_vulkan_shaderc_candidates}")
+
   find_package(Vulkan COMPONENTS glslc shaderc_combined QUIET)
+
+  if(TARGET Vulkan::shaderc_combined)
+    set(_agave_vulkan_shaderc_target_found TRUE)
+  else()
+    set(_agave_vulkan_shaderc_target_found FALSE)
+  endif()
+  message(STATUS "Vulkan diagnostics after find_package:")
+  message(STATUS "  Vulkan_FOUND: ${Vulkan_FOUND}")
+  message(STATUS "  Vulkan_VERSION: ${Vulkan_VERSION}")
+  message(STATUS "  Vulkan_INCLUDE_DIR: ${Vulkan_INCLUDE_DIR}")
+  message(STATUS "  Vulkan_LIBRARY: ${Vulkan_LIBRARY}")
+  message(STATUS "  Vulkan_glslc_FOUND: ${Vulkan_glslc_FOUND}")
+  message(STATUS "  Vulkan_GLSLC_EXECUTABLE: ${Vulkan_GLSLC_EXECUTABLE}")
+  message(STATUS "  Vulkan_shaderc_combined_FOUND: ${Vulkan_shaderc_combined_FOUND}")
+  message(STATUS "  Vulkan_shaderc_combined_LIBRARY: ${Vulkan_shaderc_combined_LIBRARY}")
+  message(STATUS "  Vulkan_shaderc_combined_DEBUG_LIBRARY: ${Vulkan_shaderc_combined_DEBUG_LIBRARY}")
+  message(STATUS "  Vulkan::shaderc_combined target exists: ${_agave_vulkan_shaderc_target_found}")
+
   if(Vulkan_FOUND AND TARGET Vulkan::shaderc_combined)
     set(AGAVE_HAS_VULKAN ON)
     set(AGAVE_VULKAN_RUNTIME_LIBRARY "${Vulkan_LIBRARY}")
@@ -173,9 +207,17 @@ if(AGAVE_ENABLE_VULKAN)
       endif()
     endif()
     message(STATUS "Vulkan backend enabled: SDK ${Vulkan_VERSION}")
+  elseif(AGAVE_BUILD_PYVK)
+    message(FATAL_ERROR
+      "AGAVE_BUILD_PYVK requires Vulkan, glslc, and shaderc_combined. "
+      "See the Vulkan diagnostics above for the missing component."
+    )
   else()
-    message(WARNING "AGAVE_ENABLE_VULKAN is ON, but Vulkan SDK with shaderc_combined was not found. Vulkan backend disabled.")
+    message(WARNING "AGAVE_ENABLE_VULKAN is ON, but a required Vulkan component was not found. Vulkan backend disabled.")
   endif()
+  unset(_agave_vulkan_glslc_candidates)
+  unset(_agave_vulkan_shaderc_candidates)
+  unset(_agave_vulkan_shaderc_target_found)
 endif()
 
 # normally CMAKE_INSTALL_PREFIX is meant to be outside of the build tree
@@ -194,7 +236,6 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 # #####################
 add_subdirectory(renderlib)
 
-option(AGAVE_BUILD_PYVK "Build the headless Vulkan Python package" ON)
 if(AGAVE_BUILD_PYVK)
   add_subdirectory(agave_pyvk)
 endif()
