@@ -38,13 +38,13 @@ environment = { AGAVE_PYVK_USE_PREBUILT = "1" }
 
 [tool.cibuildwheel.linux]
 manylinux-x86_64-image = "manylinux_2_35"
-environment = { VULKAN_SDK = "/opt/1.4.350.0/x86_64", AGAVE_PYVK_CMAKE_BUILD_DIR = "/tmp/agave-pyvk-build", AGAVE_PYVK_PREBUILT_DIR = "/tmp/agave-pyvk-stage", AGAVE_PYVK_USE_PREBUILT = "1" }
+environment = { VULKAN_SDK = "/opt/1.4.350.1/x86_64", AGAVE_PYVK_CMAKE_BUILD_DIR = "/tmp/agave-pyvk-build", AGAVE_PYVK_PREBUILT_DIR = "/tmp/agave-pyvk-stage", AGAVE_PYVK_USE_PREBUILT = "1" }
 before-all = [
     "apt-get update",
     "apt-get install -y cmake curl git libcurl4-openssl-dev libegl1-mesa-dev libgl1-mesa-dev liblzma-dev libspdlog-dev libtiff-dev libx11-dev libxcb1-dev libzstd-dev nasm ninja-build patch pkg-config xz-utils zlib1g-dev",
     "python3 -m pip install 'cmake>=3.24' ninja",
-    "curl --fail --location https://sdk.lunarg.com/sdk/download/1.4.350.0/linux/vulkan_sdk.tar.xz --output /tmp/vulkan_sdk.tar.xz",
-    "echo 'b65f068ab36263559da49d7cacd7e7b9df23824ca8b68ccc522a2b06f5725df2  /tmp/vulkan_sdk.tar.xz' | sha256sum --check",
+    "curl --fail --location https://sdk.lunarg.com/sdk/download/1.4.350.1/linux/vulkan_sdk.tar.xz --output /tmp/vulkan_sdk.tar.xz",
+    "echo '6cce33c7e5383814150c5041820769d93c65a1fd883002e5949b067045a07daa  /tmp/vulkan_sdk.tar.xz' | sha256sum --check",
     "mkdir -p /opt && tar -xf /tmp/vulkan_sdk.tar.xz -C /opt",
     "cmake -S /project -B /tmp/agave-pyvk-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=OFF",
     "cmake --build /tmp/agave-pyvk-build --target renderlib --parallel",
