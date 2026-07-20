@@ -178,7 +178,7 @@ if(AGAVE_ENABLE_VULKAN)
   message(STATUS "  glslc files in SDK: ${_agave_vulkan_glslc_candidates}")
   message(STATUS "  shaderc files in SDK: ${_agave_vulkan_shaderc_candidates}")
 
-  find_package(Vulkan COMPONENTS glslc shaderc_combined QUIET)
+  find_package(Vulkan COMPONENTS glslc shaderc_combined)
 
   if(TARGET Vulkan::shaderc_combined)
     set(_agave_vulkan_shaderc_target_found TRUE)
