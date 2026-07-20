@@ -17,11 +17,14 @@ jobs:
         include:
           - os: ubuntu-latest
             artifact: agave-linux
+            vulkan_version: 1.4.350.1
           - os: windows-latest
             artifact: agave-win
+            vulkan_version: 1.4.350.0
           - os: macos-15
             artifact: agave-macos-arm64
             deployment_target: "11.0"
+            vulkan_version: 1.4.350.1
 
     runs-on: ${{ matrix.os }}
 
@@ -41,7 +44,7 @@ jobs:
       - name: Install Vulkan SDK
         uses: hollykbuck/install-vulkan-sdk@c96510125668208b8cd5069cd667322b0eaedb3d
         with:
-          version: 1.4.350.0
+          version: ${{ matrix.vulkan_version }}
           cache: true
       - name: Diagnose Unix Vulkan SDK installation
         if: matrix.os != 'windows-latest'
