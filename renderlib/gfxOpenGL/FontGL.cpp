@@ -5,7 +5,7 @@
 #include <stdio.h>
 
 GLuint
-generateFontTexture(const Font& font)
+generateFontTexture(const AgaveFont& font)
 {
   size_t w = font.getTextureWidth();
   size_t h = font.getTextureHeight();
@@ -43,7 +43,7 @@ FontGL::~FontGL()
 }
 
 void
-FontGL::load(const Font& font)
+FontGL::load(const AgaveFont& font)
 {
   if (m_texID != 0) {
     return;
