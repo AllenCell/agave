@@ -39,10 +39,33 @@ jobs:
           version: 6.9.3
           modules: qtwebsockets qtimageformats
       - name: Install Vulkan SDK
-        uses: humbletim/install-vulkan-sdk@e7d6e7b937bde4503c7ba5c9584c9dc68f44c4b8
+        uses: hollykbuck/install-vulkan-sdk@c96510125668208b8cd5069cd667322b0eaedb3d
         with:
           version: 1.4.350.0
           cache: true
+      - name: Diagnose Unix Vulkan SDK installation
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          echo "VULKAN_SDK=$VULKAN_SDK"
+          echo "Vulkan header candidates:"
+          if [ -d "$VULKAN_SDK/include/vulkan" ]; then
+            find "$VULKAN_SDK/include/vulkan" -maxdepth 1 -name "vulkan.h" -print
+          else
+            echo "Missing $VULKAN_SDK/include/vulkan"
+          fi
+          echo "Vulkan loader and shaderc candidates:"
+          if [ -d "$VULKAN_SDK/lib" ]; then
+            find "$VULKAN_SDK/lib" -maxdepth 1 \( -name "libvulkan*" -o -name "*shaderc*" \) -print
+          else
+            echo "Missing $VULKAN_SDK/lib"
+          fi
+          echo "glslc candidates:"
+          if [ -d "$VULKAN_SDK/bin" ]; then
+            find "$VULKAN_SDK/bin" -maxdepth 1 -name "glslc*" -print
+          else
+            echo "Missing $VULKAN_SDK/bin"
+          fi
       - name: macos install deps
         if: contains(matrix.os, 'macos')
         env:
@@ -122,6 +145,19 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           echo "C:\Program Files\git\usr\bin" >> $env:GITHUB_PATH
+      - name: Diagnose Windows Vulkan SDK installation
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          Write-Host "VULKAN_SDK=$env:VULKAN_SDK"
+          Write-Host "Vulkan header candidates:"
+          Get-Item -Path "$env:VULKAN_SDK\Include\vulkan\vulkan.h" -ErrorAction Continue
+          Write-Host "Vulkan loader candidates:"
+          Get-ChildItem -Path "$env:VULKAN_SDK\Lib" -Filter "vulkan*" -ErrorAction Continue
+          Write-Host "glslc candidates:"
+          Get-ChildItem -Path "$env:VULKAN_SDK\Bin" -Filter "glslc*" -ErrorAction Continue
+          Write-Host "shaderc candidates:"
+          Get-ChildItem -Path "$env:VULKAN_SDK\Lib" -Filter "*shaderc*" -ErrorAction Continue
       - name: windows build and test
         if: matrix.os == 'windows-latest'
         env:
