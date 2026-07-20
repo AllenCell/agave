@@ -7,7 +7,7 @@
 #include <QWidget>
 
 #if defined(__linux__)
-#include <QtGui/qpa/qplatformnativeinterface.h>
+#include <QNativeInterface>
 #endif
 
 #include <algorithm>
@@ -36,8 +36,8 @@ QtVulkanSurface::nativeDisplay() const
   // when presentation happens on a different xcb_connection_t than the one
   // that owns the window (some Mesa drivers keep per-connection present
   // state).
-  if (QPlatformNativeInterface* native = QGuiApplication::platformNativeInterface()) {
-    return native->nativeResourceForIntegration(QByteArrayLiteral("connection"));
+  if (auto* x11App = qGuiApp->nativeInterface<QNativeInterface::QX11Application>()) {
+    return x11App->connection(); // returns xcb_connection_t*
   }
   return nullptr;
 #else
