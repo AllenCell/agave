@@ -7,8 +7,8 @@
 #include <QWidget>
 
 #if defined(__linux__)
-// For X11 / XCB platforms:
-#include <QtGui/qnativeinterface_x11.h>
+// For X11 / XCB platforms: provides QNativeInterface::QX11Application
+#include <QtGui/qguiapplication_platform.h>
 #endif
 
 #include <algorithm>
