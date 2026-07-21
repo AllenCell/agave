@@ -3,6 +3,15 @@ webclient/node_modules/
 webclient/es/
 
 build/
+build-cibw-linux/
+**/__pycache__/
+**/*.egg-info/
+agave_pyvk/agave_pyvk/_native*.pyd
+agave_pyvk/agave_pyvk/_native*.so
+agave_pyvk/agave_pyvk/*.dll
+agave_pyvk/agave_pyvk/*.dylib
+agave_pyvk/agave_pyvk/*.so.*
+agave_pyvk/agave_pyvk/assets/
 renderlib/version.h
 docs/_build/
 GeneratedFiles/

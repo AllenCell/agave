@@ -18,41 +18,33 @@ with AgaveRenderer(mode="pathtrace") as renderer:
 A Vulkan 1.3-capable driver and the Vulkan SDK are required to build. The
 remaining native dependencies are the same ones used by renderlib.
 
-## Reusing a local CMake build
+## Editable development install
 
-From the repository root, configure a persistent headless build and compile the
-`agave_py2` nanobind target together with renderlib:
-
-```console
-cmake -S . -B build -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON
-cmake --build build --target agave_py2 --config Release --parallel
-```
-
-On Windows, add the vcpkg toolchain and Ninja Multi-Config arguments shown in
-the root `README.md`, and run from a VS2026 x64 Native Tools Command Prompt.
-The helper below reconfigures this CMake-owned tree for the active Python
-interpreter; renderlib is rebuilt only when it is out of date.
-
-For iterative development, install the staged package directly instead of
-creating a wheel file. On macOS and Linux:
+Configure the normal top-level AGAVE build once. Then build renderlib, the AGAVE
+application, and the `agave_py2` nanobind module from that build directory:
 
 ```console
-python agave_pyvk/tools/build_native.py
-AGAVE_PYVK_USE_PREBUILT=1 python -m pip install --force-reinstall --no-deps ./agave_pyvk
+cmake --build .
 ```
 
-Or from a VS2026 x64 Native Tools Command Prompt on Windows:
+The default build stages the native module, its runtime dependencies, and its
+assets directly in the ignored portions of `agave_pyvk/agave_pyvk`. From the
+repository's `agave_pyvk` directory, install the package without another native
+build:
 
 ```console
-python agave_pyvk\tools\build_native.py
-set "AGAVE_PYVK_USE_PREBUILT=1"
-python -m pip install --force-reinstall --no-deps .\agave_pyvk
+python -m pip install -e .
 ```
 
-To produce a wheel file from the same staged build, install the `build` frontend,
-set `AGAVE_PYVK_USE_PREBUILT=1` as above, and run:
+This editable-install hook uses the staged native module and never invokes
+CMake, so it does not rebuild renderlib. Re-run `cmake --build .` after native
+code changes; Python source edits are visible immediately. On Windows, run the
+CMake build from a VS2026 x64 Native Tools Command Prompt.
+
+To produce a wheel file from the same staged native build, install the `build`
+frontend and run:
 
 ```console
 python -m pip install build
-python -m build --wheel agave_pyvk
+python -m build --wheel .
 ```

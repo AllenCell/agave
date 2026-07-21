@@ -1,12 +1,9 @@
 [build-system]
 requires = [
-    "scikit-build-core>=0.10",
-    "packaging>=24",
-    "tomli>=2; python_version<'3.11'",
+    "setuptools>=69",
     "wheel>=0.43",
 ]
-build-backend = "build_backend"
-backend-path = ["."]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "agave_pyvk"
@@ -21,24 +18,22 @@ dependencies = ["numpy", "Pillow==12.2.0"]
 [project.optional-dependencies]
 test = ["pytest>=5.4.3", "ruff>=0.4"]
 
-[tool.scikit-build]
-cmake.source-dir = ".."
-cmake.build-type = "Release"
-cmake.define.AGAVE_BUILD_PYVK = "ON"
-cmake.define.AGAVE_BUILD_APP = "OFF"
-cmake.define.AGAVE_BUILD_TESTS = "OFF"
-install.components = ["agave_pyvk"]
-wheel.packages = ["agave_pyvk"]
+[tool.setuptools]
+packages = ["agave_pyvk"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+agave_pyvk = ["*.pyd", "*.dll", "*.so", "*.so.*", "*.dylib", "assets/**/*"]
 
 [tool.cibuildwheel]
 build = "cp3{10,11,12,13,14}-*"
 skip = "*-musllinux_*"
-before-build = "python {project}/agave_pyvk/tools/build_native.py"
-environment = { AGAVE_PYVK_USE_PREBUILT = "1" }
+archs = ["auto64"]
 
 [tool.cibuildwheel.linux]
 manylinux-x86_64-image = "manylinux_2_35"
-environment = { VULKAN_SDK = "/opt/1.4.350.1/x86_64", AGAVE_PYVK_CMAKE_BUILD_DIR = "/tmp/agave-pyvk-build", AGAVE_PYVK_PREBUILT_DIR = "/tmp/agave-pyvk-stage", AGAVE_PYVK_USE_PREBUILT = "1" }
+environment = { VULKAN_SDK = "/opt/1.4.350.1/x86_64" }
+before-build = """cmake -S {package}/.. -B {package}/../build-cibw-linux -USKBUILD_* -UPython_* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build-cibw-linux --target stage_agave_pyvk --config Release --parallel"""
 before-all = [
     "apt-get update",
     "apt-get install -y cmake curl git libcurl4-openssl-dev libegl1-mesa-dev libgl1-mesa-dev liblzma-dev libspdlog-dev libtiff-dev libx11-dev libxcb1-dev libzstd-dev nasm ninja-build patch pkg-config xz-utils zlib1g-dev",
@@ -46,12 +41,16 @@ before-all = [
     "curl --fail --location https://sdk.lunarg.com/sdk/download/1.4.350.1/linux/vulkan_sdk.tar.xz --output /tmp/vulkan_sdk.tar.xz",
     "echo '6cce33c7e5383814150c5041820769d93c65a1fd883002e5949b067045a07daa  /tmp/vulkan_sdk.tar.xz' | sha256sum --check",
     "mkdir -p /opt && tar -xf /tmp/vulkan_sdk.tar.xz -C /opt",
-    "cmake -S /project -B /tmp/agave-pyvk-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=OFF",
-    "cmake --build /tmp/agave-pyvk-build --target renderlib --parallel",
+    "cmake -S /project -B /project/build-cibw-linux -G Ninja -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=OFF",
+    "cmake --build /project/build-cibw-linux --target renderlib --parallel",
 ]
 
 [tool.cibuildwheel.macos]
 archs = ["arm64"]
+before-build = """cmake -S {package}/.. -B {package}/../build -USKBUILD_* -UPython_* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel"""
+
+[tool.cibuildwheel.windows]
+before-build = '''for /f "delims=" %P in ('python -c "import sys; print(sys.executable)"') do (cmake -S {package}/.. -B {package}/../build -USKBUILD_* -UPython_* -DPython_EXECUTABLE="%P" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel)'''
 
 [tool.ruff]
 line-length = 88
