@@ -112,29 +112,25 @@ If cmake fails please refer to the Dockerfile for a more complete list of Linux 
 
 ### Iterative standalone Python development
 
-The platform commands above create a persistent `build` directory containing
-renderlib and the `agave_py2` nanobind target. After changing the Python binding
-or renderlib, the following is the shortest build-and-install loop on macOS and
-Linux:
+The platform commands above create a persistent `build` directory. Its default
+build compiles renderlib, the desktop application, and the `agave_py2` nanobind
+module. Build there, then install the Python package into the active environment:
 
 ```console
-python agave_pyvk/tools/build_native.py
-AGAVE_PYVK_USE_PREBUILT=1 python -m pip install --force-reinstall --no-deps ./agave_pyvk
+cmake --build .
 ```
 
-Run the equivalent commands from a VS2026 x64 Native Tools Command Prompt on
-Windows:
+Then, from the repository's `agave_pyvk` directory:
 
 ```console
-python agave_pyvk\tools\build_native.py
-set "AGAVE_PYVK_USE_PREBUILT=1"
-python -m pip install --force-reinstall --no-deps .\agave_pyvk
+python -m pip install -e .
 ```
 
-`build_native.py` reuses `build`, builds only targets that are out of date, and
-stages the `agave_pyvk` install component. The environment variable tells pip
-to package that staged native module instead of starting a separate CMake build.
-The first install should omit `--no-deps` if NumPy and Pillow are not installed.
+Run the same commands from a VS2026 x64 Native Tools Command Prompt on Windows.
+The CMake build stages the native module, runtime dependencies, and assets
+directly in the ignored portions of the Python package directory. The editable
+install does not configure CMake or rebuild renderlib. Re-run `cmake --build .`
+after native code changes; Python source changes are visible immediately.
 
 For a headless-only build tree, use the same platform-specific configure command
 with these options:
