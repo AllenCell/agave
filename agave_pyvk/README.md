@@ -20,26 +20,27 @@ remaining native dependencies are the same ones used by renderlib.
 
 ## Editable development install
 
-Configure the normal top-level AGAVE build once. Then build renderlib, the AGAVE
-application, and the `agave_py2` nanobind module from that build directory:
+Configure the normal top-level AGAVE build once. Then build renderlib and the
+AGAVE application from that build directory:
 
 ```console
 cmake --build .
 ```
 
-The default build stages the native module, its runtime dependencies, and its
-assets directly in the ignored portions of `agave_pyvk/agave_pyvk`. From the
-repository's `agave_pyvk` directory, install the package without another native
-build:
+The top-level configure records its build directory in the ignored
+`agave_pyvk/.cmake-build-dir` marker. From the repository's `agave_pyvk`
+directory, install the package for the active Python interpreter:
 
 ```console
 python -m pip install -e .
 ```
 
-This editable-install hook uses the staged native module and never invokes
-CMake, so it does not rebuild renderlib. Re-run `cmake --build .` after native
-code changes; Python source edits are visible immediately. On Windows, run the
-CMake build from a VS2026 x64 Native Tools Command Prompt.
+The pip backend reads the marker, reconfigures Python discovery for the active
+interpreter, and builds only the `stage_agave_pyvk` target. That target links
+against the existing renderlib CMake target, so renderlib is reused unless it is
+out of date. Python source edits are visible immediately. On Windows, run pip
+from a VS2026 x64 Native Tools Command Prompt so the compiler environment is
+available.
 
 To produce a wheel file from the same staged native build, install the `build`
 frontend and run:

@@ -90,7 +90,7 @@ jobs:
           export Qt6_DIR=${{ runner.workspace }}/Qt/6.9.3/macos
           mkdir ./build
           cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_PYVK=ON
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_PYVK=OFF
           cmake --build . --target agave_test --config Release
           cmake --build . --config Release
           cpack -D CPACK_PACKAGE_FILE_NAME=${{ matrix.artifact }}
@@ -117,7 +117,7 @@ jobs:
           pwd
           mkdir ./build
           cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_PYVK=ON
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_PYVK=OFF
           cmake --build . --target agave_test --config Release
           cmake --build . --target install --config Release
         shell: bash
@@ -170,7 +170,7 @@ jobs:
           mkdir build
           cd build
           call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          cmake -G "Ninja" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_PYVK=ON ..
+          cmake -G "Ninja" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_PYVK=OFF ..
           cmake --build . --parallel --target agave_test --config Release
           cmake --build . --parallel --config Release
           cpack -D CPACK_PACKAGE_FILE_NAME=${{ matrix.artifact }}
@@ -275,6 +275,24 @@ jobs:
           password: ${{ secrets.PYPI_TOKEN }}
           packages-dir: agave_pyclient/dist/
           verbose: true
+
+  publish_agave_pyvk:
+    needs: cmake-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download agave_pyvk wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: agave-pyvk-*
+          path: agave_pyvk_wheelhouse
+          merge-multiple: true
+      - name: Publish agave_pyvk wheels to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: agave_pyvk_wheelhouse/
+          verbose: true
   docs:
     needs: cmake-build
     runs-on: ubuntu-latest
@@ -376,6 +394,7 @@ jobs:
         cmake-build,
         docs,
         docs_pythonclient,
+        publish_agave_pyvk,
         publish_pythonclient,
         publish_webclient,
       ]
