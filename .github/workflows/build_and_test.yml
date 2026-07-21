@@ -255,15 +255,7 @@ jobs:
           path: ./build/${{ matrix.artifact }}.exe
       - name: Install Python package build frontend
         run: python -m pip install build
-      - name: Stage the agave_py2 CMake install component
-        env:
-          AGAVE_PYVK_CMAKE_BUILD_DIR: ${{ github.workspace }}/build
-          AGAVE_PYVK_PREBUILT_DIR: ${{ github.workspace }}/build/agave-pyvk-stage
-        run: python agave_pyvk/tools/build_native.py --stage-only
-      - name: Build agave_pyvk wheel from the staged CMake component
-        env:
-          AGAVE_PYVK_PREBUILT_DIR: ${{ github.workspace }}/build/agave-pyvk-stage
-          AGAVE_PYVK_USE_PREBUILT: "1"
+      - name: Build agave_pyvk wheel from the CMake-staged native module
         run: python -m build --wheel agave_pyvk
       - name: Upload agave_pyvk wheel
         uses: actions/upload-artifact@v6

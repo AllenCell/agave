@@ -189,16 +189,11 @@ jobs:
       - name: Build macOS agave_pyvk wheel matrix
         if: contains(matrix.os, 'macos')
         env:
-          AGAVE_PYVK_CMAKE_BUILD_DIR: ${{ github.workspace }}/build
-          AGAVE_PYVK_PREBUILT_DIR: ${{ github.workspace }}/build/agave-pyvk-stage
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
         run: python -m cibuildwheel agave_pyvk --output-dir wheelhouse
         shell: bash
       - name: Build Windows agave_pyvk wheel matrix with MSVC 18
         if: matrix.os == 'windows-latest'
-        env:
-          AGAVE_PYVK_CMAKE_BUILD_DIR: ${{ github.workspace }}\build
-          AGAVE_PYVK_PREBUILT_DIR: ${{ github.workspace }}\build\agave-pyvk-stage
         run: |
           call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
           python -m cibuildwheel agave_pyvk --output-dir wheelhouse

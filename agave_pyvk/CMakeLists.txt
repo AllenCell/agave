@@ -13,6 +13,11 @@ endif()
 
 nanobind_add_module(agave_py2 NB_STATIC src/bindings.cpp src/VulkanRenderer.cpp)
 set_target_properties(agave_py2 PROPERTIES OUTPUT_NAME _native)
+if(WIN32)
+  set_target_properties(agave_py2 PROPERTIES SUFFIX ".pyd")
+else()
+  set_target_properties(agave_py2 PROPERTIES SUFFIX ".so")
+endif()
 target_include_directories(agave_py2 PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
   "${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -46,3 +51,15 @@ endif()
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../renderlib/assets/"
         DESTINATION agave_pyvk/assets
         COMPONENT agave_pyvk)
+
+set(AGAVE_PYVK_STAGE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+add_custom_target(stage_agave_pyvk ALL
+  COMMAND "${CMAKE_COMMAND}"
+          --install "${CMAKE_BINARY_DIR}"
+          --config "$<CONFIG>"
+          --component agave_pyvk
+          --prefix "${AGAVE_PYVK_STAGE_DIR}"
+  DEPENDS agave_py2
+  COMMENT "Staging agave_pyvk native package files"
+  VERBATIM
+)
