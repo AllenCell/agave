@@ -43,14 +43,14 @@ before-all = [
     "cmake -S /project -B /project/build-cibw-linux -G Ninja -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=OFF",
     "cmake --build /project/build-cibw-linux --target renderlib --parallel",
 ]
-before-build = """cmake -S {package}/.. -B {package}/../build-cibw-linux -USKBUILD_* -UPython_* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build-cibw-linux --target stage_agave_pyvk --config Release --parallel"""
+before-build = """cmake -S {package}/.. -B {package}/../build-cibw-linux -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build-cibw-linux --target stage_agave_pyvk --config Release --parallel"""
 
 [tool.cibuildwheel.macos]
 archs = ["arm64"]
-before-build = """cmake -S {package}/.. -B {package}/../build -USKBUILD_* -UPython_* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel"""
+before-build = """cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel"""
 
 [tool.cibuildwheel.windows]
-before-build = '''for /f "delims=" %P in ('python -c "import sys; print(sys.executable)"') do (cmake -S {package}/.. -B {package}/../build -USKBUILD_* -UPython_* -DPython_EXECUTABLE="%P" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel)'''
+before-build = '''for /f "delims=" %P in ('python -c "import sys; print(sys.executable)"') do (cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="%P" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel)'''
 
 [tool.ruff]
 line-length = 88
