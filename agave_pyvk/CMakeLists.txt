@@ -19,6 +19,14 @@ nanobind_add_module(agave_py2 NB_STATIC src/bindings.cpp src/VulkanRenderer.cpp)
 set_target_properties(agave_py2 PROPERTIES
   OUTPUT_NAME _native
 )
+if(APPLE)
+  # Keep bundled dylibs discoverable after the extension is staged into the
+  # Python package. The build-tree rpaths point at the Vulkan SDK and are
+  # intentionally removed by CMake during installation.
+  set_target_properties(agave_py2 PROPERTIES
+    INSTALL_RPATH "@loader_path"
+  )
+endif()
 target_include_directories(agave_py2 PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
   "${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -40,6 +48,17 @@ else()
           LIBRARY DESTINATION agave_pyvk
           COMPONENT agave_pyvk
           RUNTIME DESTINATION agave_pyvk
+          COMPONENT agave_pyvk)
+endif()
+if(APPLE)
+  # Vulkan::Vulkan normally resolves to the SDK's unversioned loader symlink,
+  # while its Mach-O install name is @rpath/libvulkan.1.dylib. Install the
+  # complete loader symlink chain so both names and the real file are present.
+  get_filename_component(_agave_pyvk_vulkan_library_dir "${Vulkan_LIBRARY}" DIRECTORY)
+  file(GLOB _agave_pyvk_vulkan_loader_files
+       "${_agave_pyvk_vulkan_library_dir}/libvulkan*.dylib")
+  install(FILES ${_agave_pyvk_vulkan_loader_files}
+          DESTINATION agave_pyvk
           COMPONENT agave_pyvk)
 endif()
 if(TARGET libCZI)
