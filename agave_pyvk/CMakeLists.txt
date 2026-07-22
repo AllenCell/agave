@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.24)
 project(agave_pyvk VERSION 1.9.0 LANGUAGES CXX)
 
 find_package(Python 3.10 REQUIRED COMPONENTS Interpreter Development.Module)
+# nanobind caches the ABI extension suffix. Recompute it when an existing CMake
+# build tree is deliberately reconfigured for another Python interpreter.
+unset(NB_SUFFIX CACHE)
+unset(NB_SUFFIX_S CACHE)
 add_subdirectory(nanobind)
 
 if(NOT TARGET renderlib)
