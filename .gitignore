@@ -6,7 +6,6 @@ build/
 build-cibw-linux/
 **/__pycache__/
 **/*.egg-info/
-agave_pyvk/.cmake-build-dir
 agave_pyvk/agave_pyvk/_native*.pyd
 agave_pyvk/agave_pyvk/_native*.so
 agave_pyvk/agave_pyvk/*.dll

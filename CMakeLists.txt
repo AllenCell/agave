@@ -94,12 +94,7 @@ find_package(CURL REQUIRED)
 find_package(OpenGL)
 
 option(AGAVE_ENABLE_VULKAN "Build the Vulkan graphics backend when the Vulkan SDK is available." ON)
-option(AGAVE_BUILD_PYVK "Build the headless Vulkan Python package" OFF)
-configure_file(
-  "${CMAKE_SOURCE_DIR}/agave_pyvk/cmake_build_dir.txt.in"
-  "${CMAKE_SOURCE_DIR}/agave_pyvk/.cmake-build-dir"
-  @ONLY
-)
+option(AGAVE_BUILD_PYVK "Build the headless Vulkan Python package" ON)
 set(AGAVE_HAS_VULKAN OFF)
 set(AGAVE_VULKAN_RUNTIME_LIBRARY "")
 if(AGAVE_ENABLE_VULKAN)
