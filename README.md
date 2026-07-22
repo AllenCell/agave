@@ -60,7 +60,7 @@ vcpkg install spdlog zlib libjpeg-turbo liblzma tiff zstd curl --triplet x64-win
 cmake -S . -B build -G "Ninja Multi-Config" ^
   -DCMAKE_TOOLCHAIN_FILE=C:\path\to\vcpkg\scripts\buildsystems\vcpkg.cmake ^
   -DVCPKG_TARGET_TRIPLET=x64-windows ^
-  -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON -DAGAVE_BUILD_PYVK=OFF
+  -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON -DAGAVE_BUILD_PYVK=ON
 cmake --build build --config Release --parallel
 cmake --install build --config Release
 ```
@@ -80,7 +80,7 @@ export Qt6_DIR=~/Qt/6.9.3/macos
 brew install spdlog libtiff nasm curl
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON -DAGAVE_BUILD_PYVK=OFF
+  -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON -DAGAVE_BUILD_PYVK=ON
 cmake --build build --parallel
 cmake --install build
 ```
@@ -103,7 +103,7 @@ sudo apt install cmake ninja-build libtiff-dev libglm-dev libgl1-mesa-dev \
   libzstd-dev zlib1g-dev nasm patch libxcb1-dev
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON -DAGAVE_BUILD_PYVK=OFF
+  -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON -DAGAVE_BUILD_PYVK=ON
 cmake --build build --parallel
 cmake --install build
 ```
@@ -112,9 +112,9 @@ If cmake fails please refer to the Dockerfile for a more complete list of Linux 
 
 ### Iterative standalone Python development
 
-The platform commands above create a persistent `build` directory. Its default
-build compiles renderlib and the desktop application. Build there, then install
-the Python package into the active environment:
+The platform commands above create a persistent `build` directory. CMake uses
+the active Python interpreter and its default build compiles renderlib, the
+desktop application, and the ABI-specific `agave_py2` native module:
 
 ```console
 cmake --build .
@@ -127,17 +127,16 @@ python -m pip install -e .
 ```
 
 Run the same commands from a VS2026 x64 Native Tools Command Prompt on Windows.
-The CMake configure records its build directory in the ignored
-`agave_pyvk/.cmake-build-dir` marker. The editable install reads that marker,
-configures the `agave_py2` target for the active Python interpreter, and links
-it against renderlib in the existing build tree. It does not rebuild renderlib
-unless renderlib is out of date. Python source changes are visible immediately.
+The CMake build stages the native module and its runtime dependencies directly
+in the Python package. The editable install performs only normal Python
+packaging; it does not invoke CMake or rebuild renderlib. Python source changes
+are visible immediately.
 
 For a headless-only build tree, use the same platform-specific configure command
 with these options:
 
 ```console
--DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=OFF
+-DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON
 ```
 
 ## Versioned Releases

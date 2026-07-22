@@ -20,27 +20,24 @@ remaining native dependencies are the same ones used by renderlib.
 
 ## Editable development install
 
-Configure the normal top-level AGAVE build once. Then build renderlib and the
-AGAVE application from that build directory:
+Configure the normal top-level AGAVE build using the Python environment where
+the package will be installed. Then build renderlib, the AGAVE application, and
+the ABI-specific native module from that build directory:
 
 ```console
 cmake --build .
 ```
 
-The top-level configure records its build directory in the ignored
-`agave_pyvk/.cmake-build-dir` marker. From the repository's `agave_pyvk`
-directory, install the package for the active Python interpreter:
+From the repository's `agave_pyvk` directory, install the package into that
+same Python environment:
 
 ```console
 python -m pip install -e .
 ```
 
-The pip backend reads the marker, reconfigures Python discovery for the active
-interpreter, and builds only the `stage_agave_pyvk` target. That target links
-against the existing renderlib CMake target, so renderlib is reused unless it is
-out of date. Python source edits are visible immediately. On Windows, run pip
-from a VS2026 x64 Native Tools Command Prompt so the compiler environment is
-available.
+The CMake build stages `_native` and its runtime dependencies into the package
+directory. Pip performs only normal Python packaging and does not invoke CMake.
+Python source edits are visible immediately.
 
 To produce a wheel file from the same staged native build, install the `build`
 frontend and run:
