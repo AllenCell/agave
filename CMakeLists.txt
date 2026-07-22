@@ -94,7 +94,6 @@ find_package(CURL REQUIRED)
 find_package(OpenGL)
 
 option(AGAVE_ENABLE_VULKAN "Build the Vulkan graphics backend when the Vulkan SDK is available." ON)
-option(AGAVE_BUILD_PYVK "Build the headless Vulkan Python package" ON)
 set(AGAVE_HAS_VULKAN OFF)
 set(AGAVE_VULKAN_RUNTIME_LIBRARY "")
 if(AGAVE_ENABLE_VULKAN)
@@ -218,19 +217,20 @@ if(AGAVE_ENABLE_VULKAN)
       endif()
     endif()
     message(STATUS "Vulkan backend enabled: SDK ${Vulkan_VERSION}")
-  elseif(AGAVE_BUILD_PYVK)
+  else()
     message(FATAL_ERROR
-      "AGAVE_BUILD_PYVK requires Vulkan, glslc, and shaderc_combined. "
+      "AGAVE requires Vulkan, glslc, and shaderc_combined. "
       "See the Vulkan diagnostics above for the missing component."
     )
-  else()
-    message(WARNING "AGAVE_ENABLE_VULKAN is ON, but a required Vulkan component was not found. Vulkan backend disabled.")
   endif()
   unset(_agave_vulkan_glslc_candidates)
   unset(_agave_vulkan_shaderc_candidates)
   unset(_agave_vulkan_header_candidates)
   unset(_agave_vulkan_loader_candidates)
   unset(_agave_vulkan_shaderc_target_found)
+endif()
+if(NOT AGAVE_HAS_VULKAN)
+  message(FATAL_ERROR "AGAVE_ENABLE_VULKAN must be ON because agave_pyvk is always built")
 endif()
 
 # normally CMAKE_INSTALL_PREFIX is meant to be outside of the build tree
@@ -249,9 +249,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 # #####################
 add_subdirectory(renderlib)
 
-if(AGAVE_BUILD_PYVK)
-  add_subdirectory(agave_pyvk)
-endif()
+add_subdirectory(agave_pyvk)
 
 set(INSTALLDIR "${CMAKE_PROJECT_NAME}-install")
 
