@@ -60,7 +60,7 @@ vcpkg install spdlog zlib libjpeg-turbo liblzma tiff zstd curl --triplet x64-win
 cmake -S . -B build -G "Ninja Multi-Config" ^
   -DCMAKE_TOOLCHAIN_FILE=C:\path\to\vcpkg\scripts\buildsystems\vcpkg.cmake ^
   -DVCPKG_TARGET_TRIPLET=x64-windows ^
-  -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON -DAGAVE_BUILD_PYVK=ON
+  -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON
 cmake --build build --config Release --parallel
 cmake --install build --config Release
 ```
@@ -80,7 +80,7 @@ export Qt6_DIR=~/Qt/6.9.3/macos
 brew install spdlog libtiff nasm curl
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON -DAGAVE_BUILD_PYVK=ON
+  -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON
 cmake --build build --parallel
 cmake --install build
 ```
@@ -103,7 +103,7 @@ sudo apt install cmake ninja-build libtiff-dev libglm-dev libgl1-mesa-dev \
   libzstd-dev zlib1g-dev nasm patch libxcb1-dev
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON -DAGAVE_BUILD_PYVK=ON
+  -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON
 cmake --build build --parallel
 cmake --install build
 ```
@@ -136,7 +136,7 @@ For a headless-only build tree, use the same platform-specific configure command
 with these options:
 
 ```console
--DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON
+-DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF
 ```
 
 ## Versioned Releases
