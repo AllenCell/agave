@@ -93,7 +93,8 @@ find_package(CURL REQUIRED)
 
 find_package(OpenGL)
 
-include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/ConfigureVulkan.cmake")
+# this is my find_package(Vulkan) with some extra checks
+include("${CMAKE_CURRENT_SOURCE_DIR}/CMake/ConfigureVulkan.cmake")
 
 # normally CMAKE_INSTALL_PREFIX is meant to be outside of the build tree
 if("${CMAKE_BUILD_TYPE}" STREQUAL "")

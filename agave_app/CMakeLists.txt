@@ -1,8 +1,4 @@
 # Find the Qt libraries
-# In order for find_package to be successful, Qt 5 must be found below the CMAKE_PREFIX_PATH,
-# or the Qt6<Module>_DIR must be set in the CMake cache to the location of the Qt6WidgetsConfig.cmake
-# file. The easiest way to use CMake is to set the CMAKE_PREFIX_PATH environment variable to
-# the install prefix of Qt 6.
 if(DEFINED ENV{Qt6_DIR})
   list(INSERT CMAKE_PREFIX_PATH 0 $ENV{Qt6_DIR})
 endif()
