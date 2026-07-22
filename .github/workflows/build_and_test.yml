@@ -80,192 +80,155 @@ jobs:
         with:
           name: DocumentationPythonClientPDF
           path: agave_pyclient/docs/_build/latex/agave_pyclient.pdf
-  cmake-build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            artifact: agave-linux
-            vulkan_version: 1.4.350.1
-          - os: windows-latest
-            artifact: agave-win
-            vulkan_version: 1.4.350.0
-          - os: macos-15
-            artifact: agave-macos-arm64
-            deployment_target: "11.0"
-            vulkan_version: 1.4.350.1
-
-    runs-on: ${{ matrix.os }}
-
+  linux-build:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: "recursive"
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+      - uses: jurplel/install-qt-action@v4
         with:
           version: 6.9.3
           modules: qtwebsockets qtimageformats
-      - name: Install Vulkan SDK
-        uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
+      - uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
         with:
-          vulkan_version: ${{ matrix.vulkan_version }}
+          vulkan_version: 1.4.350.1
           cache: true
-      - name: Diagnose Unix Vulkan SDK installation
-        if: matrix.os != 'windows-latest'
+      - name: Diagnose Vulkan SDK installation
         shell: bash
         run: |
           echo "VULKAN_SDK=$VULKAN_SDK"
-          echo "Vulkan header candidates:"
-          if [ -d "$VULKAN_SDK/include/vulkan" ]; then
-            find "$VULKAN_SDK/include/vulkan" -maxdepth 1 -name "vulkan.h" -print
-          else
-            echo "Missing $VULKAN_SDK/include/vulkan"
-          fi
-          echo "Vulkan loader and shaderc candidates:"
-          if [ -d "$VULKAN_SDK/lib" ]; then
-            find "$VULKAN_SDK/lib" -maxdepth 1 \( -name "libvulkan*" -o -name "*shaderc*" \) -print
-          else
-            echo "Missing $VULKAN_SDK/lib"
-          fi
-          echo "glslc candidates:"
-          if [ -d "$VULKAN_SDK/bin" ]; then
-            find "$VULKAN_SDK/bin" -maxdepth 1 -name "glslc*" -print
-          else
-            echo "Missing $VULKAN_SDK/bin"
-          fi
-      - name: macos install deps
-        if: contains(matrix.os, 'macos')
-        env:
-          CC: clang
-          CXX: clang++
-        run: |
-          export MACOSX_DEPLOYMENT_TARGET=${{ matrix.deployment_target }}
-          brew install spdlog nasm curl
-          if [ -d /usr/local/include/openssl ]; then
-            mv /usr/local/include/openssl /usr/local/include/openssl.bak
-          fi
-      - name: macos build and test
-        if: contains(matrix.os, 'macos')
-        env:
-          CC: clang
-          CXX: clang++
-        run: |
-          export MACOSX_DEPLOYMENT_TARGET=${{ matrix.deployment_target }}
-          export Qt6_DIR=${{ runner.workspace }}/Qt/6.9.3/macos
-          mkdir ./build
-          cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_PYVK=ON
-          cmake --build . --target agave_test --config Release
-          cmake --build . --config Release
-          cpack -D CPACK_PACKAGE_FILE_NAME=${{ matrix.artifact }}
-        shell: bash
-      - name: Upload mac artifact
-        if: contains(matrix.os, 'macos')
-        uses: actions/upload-artifact@v6
-        with:
-          name: ${{ matrix.artifact }}
-          path: ./build/${{ matrix.artifact }}.dmg
-      - name: linux install deps
-        if: matrix.os == 'ubuntu-latest'
-        env:
-          CC: gcc
-          CXX: g++
-        run: |
-          sudo apt-get install libspdlog-dev libglm-dev libgl1-mesa-dev libegl1-mesa-dev libtiff-dev libzstd-dev libcurl4-openssl-dev nasm
-      - name: linux build and test
-        if: matrix.os == 'ubuntu-latest'
+          find "$VULKAN_SDK/include/vulkan" -maxdepth 1 -name "vulkan.h" -print
+          find "$VULKAN_SDK/lib" -maxdepth 1 \( -name "libvulkan*" -o -name "*shaderc*" \) -print
+          find "$VULKAN_SDK/bin" -maxdepth 1 -name "glslc*" -print
+      - name: Install dependencies
+        run: sudo apt-get install libspdlog-dev libglm-dev libgl1-mesa-dev libegl1-mesa-dev libtiff-dev libzstd-dev libcurl4-openssl-dev nasm
+      - name: Build and test
         env:
           CC: gcc-13
           CXX: g++-13
         run: |
-          mkdir ./build
-          cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_PYVK=ON
-          cmake --build . --target agave_test --config Release
-          cmake --build . --target install --config Release
-        shell: bash
-      - name: linux upload artifact
-        if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v6
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_PYVK=ON
+          cmake --build build --target agave_test --config Release
+          cmake --build build --target install --config Release
+      - uses: actions/upload-artifact@v6
         with:
-          name: ${{ matrix.artifact }}
+          name: agave-linux
           path: ./build/install/Release/agave-install
-      - name: windows install nasm
-        if: matrix.os == 'windows-latest'
+      - name: Install and test agave_pyvk
         run: |
-          choco install nasm
-      - name: windows install nsis
-        if: matrix.os == 'windows-latest'
-        run: choco install nsis -y
-      - name: windows install deps
-        if: matrix.os == 'windows-latest'
-        shell: cmd
+          python -m pip install -e "agave_pyvk[test]"
+          python -c "from agave_pyvk import AgaveRenderer; import agave_pyvk._native"
+          python -m pytest agave_pyvk/tests
+
+  macos-build:
+    runs-on: macos-15
+    env:
+      CC: clang
+      CXX: clang++
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: "recursive"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.9.3
+          modules: qtwebsockets qtimageformats
+      - uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
+        with:
+          vulkan_version: 1.4.350.1
+          cache: true
+      - name: Diagnose Vulkan SDK installation
+        run: |
+          echo "VULKAN_SDK=$VULKAN_SDK"
+          find "$VULKAN_SDK/include/vulkan" -maxdepth 1 -name "vulkan.h" -print
+          find "$VULKAN_SDK/lib" -maxdepth 1 \( -name "libvulkan*" -o -name "*shaderc*" \) -print
+          find "$VULKAN_SDK/bin" -maxdepth 1 -name "glslc*" -print
+      - name: Install dependencies
+        run: |
+          brew install spdlog nasm curl
+          if [ -d /usr/local/include/openssl ]; then
+            mv /usr/local/include/openssl /usr/local/include/openssl.bak
+          fi
+      - name: Build and test
         env:
-          vc_arch: "x64"
+          Qt6_DIR: ${{ runner.workspace }}/Qt/6.9.3/macos
         run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_PYVK=ON
+          cmake --build build --target agave_test --config Release
+          cmake --build build --config Release
+          cpack --config build/CPackConfig.cmake -B build -D CPACK_PACKAGE_FILE_NAME=agave-macos-arm64
+      - uses: actions/upload-artifact@v6
+        with:
+          name: agave-macos-arm64
+          path: ./build/agave-macos-arm64.dmg
+      - name: Install and test agave_pyvk
+        run: |
+          python -m pip install -e "agave_pyvk[test]"
+          python -c "from agave_pyvk import AgaveRenderer; import agave_pyvk._native"
+          python -m pytest agave_pyvk/tests
+
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: "recursive"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.9.3
+          modules: qtwebsockets qtimageformats
+      - uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
+        with:
+          vulkan_version: 1.4.350.0
+          cache: true
+      - name: Install dependencies
+        shell: cmd
+        run: |
+          choco install nasm nsis -y
           call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
           vcpkg install --triplet x64-windows tiff glm zlib libjpeg-turbo liblzma spdlog zstd curl
       - name: Remove bad Strawberry Perl patch binary in search path
-        # https://github.com/actions/runner-images/issues/5459#issuecomment-1532856844
-        if: matrix.os == 'windows-latest'
-        run: |
-          echo "C:\Program Files\git\usr\bin" >> $env:GITHUB_PATH
-      - name: Diagnose Windows Vulkan SDK installation
-        if: matrix.os == 'windows-latest'
+        run: echo "C:\Program Files\git\usr\bin" >> $env:GITHUB_PATH
+      - name: Diagnose Vulkan SDK installation
         shell: pwsh
         run: |
           Write-Host "VULKAN_SDK=$env:VULKAN_SDK"
-          Write-Host "Vulkan header candidates:"
-          Get-Item -Path "$env:VULKAN_SDK\Include\vulkan\vulkan.h" -ErrorAction Continue
-          Write-Host "Vulkan loader candidates:"
-          Get-ChildItem -Path "$env:VULKAN_SDK\Lib" -Filter "vulkan*" -ErrorAction Continue
-          Write-Host "glslc candidates:"
-          Get-ChildItem -Path "$env:VULKAN_SDK\Bin" -Filter "glslc*" -ErrorAction Continue
-          Write-Host "shaderc candidates:"
-          Get-ChildItem -Path "$env:VULKAN_SDK\Lib" -Filter "*shaderc*" -ErrorAction Continue
-      - name: windows build and test
-        if: matrix.os == 'windows-latest'
-        env:
-          vc_arch: "x64"
-        # use older sdk to work around https://github.com/grpc/grpc/issues/37210
-        run: |
-          mkdir build
-          cd build
-          call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          if errorlevel 1 exit /b %errorlevel%
-          cmake -G "Ninja" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_PYVK=ON ..
-          if errorlevel 1 exit /b %errorlevel%
-          cmake --build . --parallel --target agave_test --config Release
-          if errorlevel 1 exit /b %errorlevel%
-          cmake --build . --parallel --config Release
-          if errorlevel 1 exit /b %errorlevel%
-          cpack -D CPACK_PACKAGE_FILE_NAME=${{ matrix.artifact }}
+          Get-Item "$env:VULKAN_SDK\Include\vulkan\vulkan.h" -ErrorAction Continue
+          Get-ChildItem "$env:VULKAN_SDK\Lib" -Filter "vulkan*" -ErrorAction Continue
+          Get-ChildItem "$env:VULKAN_SDK\Bin" -Filter "glslc*" -ErrorAction Continue
+          Get-ChildItem "$env:VULKAN_SDK\Lib" -Filter "*shaderc*" -ErrorAction Continue
+      - name: Build and test
         shell: cmd
-      - name: Upload windows artifact
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v6
-        with:
-          name: ${{ matrix.artifact }}
-          path: ./build/${{ matrix.artifact }}.exe
-      - name: Install agave_pyvk from the existing CMake build
-        if: matrix.os != 'windows-latest'
-        run: python -m pip install -e "agave_pyvk[test]"
-      - name: Install agave_pyvk from the existing CMake build with MSVC 18
-        if: matrix.os == 'windows-latest'
         run: |
           call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          cmake -S . -B build -G "Ninja" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_PYVK=ON
           if errorlevel 1 exit /b %errorlevel%
+          cmake --build build --parallel --target agave_test --config Release
+          if errorlevel 1 exit /b %errorlevel%
+          cmake --build build --parallel --config Release
+          if errorlevel 1 exit /b %errorlevel%
+          cpack --config build\CPackConfig.cmake -B build -D CPACK_PACKAGE_FILE_NAME=agave-win
+      - uses: actions/upload-artifact@v6
+        with:
+          name: agave-win
+          path: ./build/agave-win.exe
+      - name: Install and test agave_pyvk
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
           python -m pip install -e "agave_pyvk[test]"
           if errorlevel 1 exit /b %errorlevel%
-        shell: cmd
-      - name: Test installed agave_pyvk package
-        run: |
           python -c "from agave_pyvk import AgaveRenderer; import agave_pyvk._native"
           python -m pytest agave_pyvk/tests
 
