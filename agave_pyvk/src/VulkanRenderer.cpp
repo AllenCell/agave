@@ -47,6 +47,34 @@ requireArgs(int commandId, const nb::args& args, size_t expected)
   }
 }
 
+LoadDataCommandD
+makeLoadDataCommandData(const nb::args& args)
+{
+  const auto region = arg<std::vector<int32_t>>(args, 5);
+  LoadDataCommandD data{ arg<std::string>(args, 0),
+                         arg<int32_t>(args, 1),
+                         arg<int32_t>(args, 2),
+                         arg<int32_t>(args, 3),
+                         arg<std::vector<int32_t>>(args, 4),
+                         0,
+                         0,
+                         0,
+                         0,
+                         0,
+                         0 };
+  if (region.size() == 6) {
+    data.m_xmin = region[0];
+    data.m_xmax = region[1];
+    data.m_ymin = region[2];
+    data.m_ymax = region[3];
+    data.m_zmin = region[4];
+    data.m_zmax = region[5];
+  } else if (!region.empty()) {
+    throw nb::value_error("LOAD_DATA region must be empty or contain six integers");
+  }
+  return data;
+}
+
 } // namespace
 
 VulkanRenderer::VulkanRenderer(const std::string& mode, const std::string& assetPath, int selectedGpu)
@@ -174,6 +202,13 @@ VulkanRenderer::run(Command& command)
 }
 
 nb::object
+VulkanRenderer::run(RequestRedrawCommand& command)
+{
+  run(static_cast<Command&>(command));
+  return redraw();
+}
+
+nb::object
 VulkanRenderer::redraw()
 {
   m_camera->Update();
@@ -208,7 +243,7 @@ VulkanRenderer::execute(int commandId, const nb::args& args)
 {
 #define EXECUTE_COMMAND(ID, COUNT, TYPE, ...)                                                                          \
   case ID: {                                                                                                           \
-    requireArgs(ID, args, COUNT);                                                                                      \
+    requireArgs(ID, args, TYPE::ArgTypes().size());                                                                    \
     TYPE command(__VA_ARGS__);                                                                                         \
     return run(command);                                                                                               \
   }
@@ -250,150 +285,116 @@ VulkanRenderer::execute(int commandId, const nb::args& args)
         arg<int32_t>(args, 0), arg<float>(args, 1), arg<float>(args, 2), arg<float>(args, 3), arg<float>(args, 4) });
     EXECUTE_COMMAND(13, 1, SetRenderIterationsCommand, SetRenderIterationsCommandD{ arg<int32_t>(args, 0) });
     EXECUTE_COMMAND(14, 1, SetStreamModeCommand, SetStreamModeCommandD{ arg<int32_t>(args, 0) });
-    case 15:
-      requireArgs(15, args, 0);
-      return redraw();
-      EXECUTE_COMMAND(
-        16, 2, SetResolutionCommand, SetResolutionCommandD{ arg<int32_t>(args, 0), arg<int32_t>(args, 1) });
-      EXECUTE_COMMAND(17, 1, SetDensityCommand, SetDensityCommandD{ arg<float>(args, 0) });
-      EXECUTE_COMMAND(18, 0, FrameSceneCommand, FrameSceneCommandD{});
-      EXECUTE_COMMAND(19, 2, SetGlossinessCommand, SetGlossinessCommandD{ arg<int32_t>(args, 0), arg<float>(args, 1) });
-      EXECUTE_COMMAND(
-        20, 2, EnableChannelCommand, EnableChannelCommandD{ arg<int32_t>(args, 0), arg<int32_t>(args, 1) });
-      EXECUTE_COMMAND(21,
-                      3,
-                      SetWindowLevelCommand,
-                      SetWindowLevelCommandD{ arg<int32_t>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
-      EXECUTE_COMMAND(22, 2, OrbitCameraCommand, OrbitCameraCommandD{ arg<float>(args, 0), arg<float>(args, 1) });
-      EXECUTE_COMMAND(23,
-                      3,
-                      SetSkylightTopColorCommand,
-                      SetSkylightTopColorCommandD{ arg<float>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
-      EXECUTE_COMMAND(24,
-                      3,
-                      SetSkylightMiddleColorCommand,
-                      SetSkylightMiddleColorCommandD{ arg<float>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
-      EXECUTE_COMMAND(25,
-                      3,
-                      SetSkylightBottomColorCommand,
-                      SetSkylightBottomColorCommandD{ arg<float>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
-      EXECUTE_COMMAND(
-        26,
-        4,
-        SetLightPosCommand,
-        SetLightPosCommandD{ arg<int32_t>(args, 0), arg<float>(args, 1), arg<float>(args, 2), arg<float>(args, 3) });
-      EXECUTE_COMMAND(
-        27,
-        4,
-        SetLightColorCommand,
-        SetLightColorCommandD{ arg<int32_t>(args, 0), arg<float>(args, 1), arg<float>(args, 2), arg<float>(args, 3) });
-      EXECUTE_COMMAND(28,
-                      3,
-                      SetLightSizeCommand,
-                      SetLightSizeCommandD{ arg<int32_t>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
-      EXECUTE_COMMAND(29,
-                      6,
-                      SetClipRegionCommand,
-                      SetClipRegionCommandD{ arg<float>(args, 0),
-                                             arg<float>(args, 1),
-                                             arg<float>(args, 2),
-                                             arg<float>(args, 3),
-                                             arg<float>(args, 4),
-                                             arg<float>(args, 5) });
-      EXECUTE_COMMAND(30,
-                      3,
-                      SetVoxelScaleCommand,
-                      SetVoxelScaleCommandD{ arg<float>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
-      EXECUTE_COMMAND(
-        31, 2, AutoThresholdCommand, AutoThresholdCommandD{ arg<int32_t>(args, 0), arg<int32_t>(args, 1) });
-      EXECUTE_COMMAND(
-        32,
-        3,
-        SetPercentileThresholdCommand,
-        SetPercentileThresholdCommandD{ arg<int32_t>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
-      EXECUTE_COMMAND(33, 2, SetOpacityCommand, SetOpacityCommandD{ arg<int32_t>(args, 0), arg<float>(args, 1) });
-      EXECUTE_COMMAND(34, 1, SetPrimaryRayStepSizeCommand, SetPrimaryRayStepSizeCommandD{ arg<float>(args, 0) });
-      EXECUTE_COMMAND(35, 1, SetSecondaryRayStepSizeCommand, SetSecondaryRayStepSizeCommandD{ arg<float>(args, 0) });
-      EXECUTE_COMMAND(36,
-                      3,
-                      SetBackgroundColorCommand,
-                      SetBackgroundColorCommandD{ arg<float>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
-      EXECUTE_COMMAND(37,
-                      3,
-                      SetIsovalueThresholdCommand,
-                      SetIsovalueThresholdCommandD{ arg<int32_t>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
-      EXECUTE_COMMAND(38,
-                      2,
-                      SetControlPointsCommand,
-                      SetControlPointsCommandD{ arg<int32_t>(args, 0), arg<std::vector<float>>(args, 1) });
-      EXECUTE_COMMAND(
-        39,
-        3,
-        LoadVolumeFromFileCommand,
-        LoadVolumeFromFileCommandD{ arg<std::string>(args, 0), arg<int32_t>(args, 1), arg<int32_t>(args, 2) });
-      EXECUTE_COMMAND(40, 1, SetTimeCommand, SetTimeCommandD{ arg<int32_t>(args, 0) });
-      EXECUTE_COMMAND(41,
-                      3,
-                      SetBoundingBoxColorCommand,
-                      SetBoundingBoxColorCommandD{ arg<float>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
-      EXECUTE_COMMAND(42, 1, ShowBoundingBoxCommand, ShowBoundingBoxCommandD{ arg<int32_t>(args, 0) });
-      EXECUTE_COMMAND(
-        43, 2, TrackballCameraCommand, TrackballCameraCommandD{ arg<float>(args, 0), arg<float>(args, 1) });
-    case 44: {
-      requireArgs(44, args, 6);
-      const auto region = arg<std::vector<int32_t>>(args, 5);
-      LoadDataCommandD data{ arg<std::string>(args, 0),
-                             arg<int32_t>(args, 1),
-                             arg<int32_t>(args, 2),
-                             arg<int32_t>(args, 3),
-                             arg<std::vector<int32_t>>(args, 4),
-                             0,
-                             0,
-                             0,
-                             0,
-                             0,
-                             0 };
-      if (region.size() == 6) {
-        data.m_xmin = region[0];
-        data.m_xmax = region[1];
-        data.m_ymin = region[2];
-        data.m_ymax = region[3];
-        data.m_zmin = region[4];
-        data.m_zmax = region[5];
-      } else if (!region.empty()) {
-        throw nb::value_error("LOAD_DATA region must be empty or contain six integers");
-      }
-      LoadDataCommand command(std::move(data));
-      return run(command);
-    }
-      EXECUTE_COMMAND(45, 1, ShowScaleBarCommand, ShowScaleBarCommandD{ arg<int32_t>(args, 0) });
-      EXECUTE_COMMAND(46,
-                      3,
-                      SetFlipAxisCommand,
-                      SetFlipAxisCommandD{ arg<int32_t>(args, 0), arg<int32_t>(args, 1), arg<int32_t>(args, 2) });
-      EXECUTE_COMMAND(47, 1, SetInterpolationCommand, SetInterpolationCommandD{ arg<int32_t>(args, 0) });
-      EXECUTE_COMMAND(
-        48,
-        4,
-        SetClipPlaneCommand,
-        SetClipPlaneCommandD{ arg<float>(args, 0), arg<float>(args, 1), arg<float>(args, 2), arg<float>(args, 3) });
-      EXECUTE_COMMAND(
-        49,
-        3,
-        SetColorRampCommand,
-        SetColorRampCommandD{ arg<int32_t>(args, 0), arg<std::string>(args, 1), arg<std::vector<float>>(args, 2) });
-      EXECUTE_COMMAND(
-        50,
-        3,
-        SetMinMaxThresholdCommand,
-        SetMinMaxThresholdCommandD{ arg<int32_t>(args, 0), arg<int32_t>(args, 1), arg<int32_t>(args, 2) });
-      EXECUTE_COMMAND(51,
-                      4,
-                      SetSkylightRotationCommand,
-                      SetSkylightRotationCommandD{
-                        arg<float>(args, 0), arg<float>(args, 1), arg<float>(args, 2), arg<float>(args, 3) });
-      EXECUTE_COMMAND(52, 1, ShowTimeStampCommand, ShowTimeStampCommandD{ arg<int32_t>(args, 0) });
-      EXECUTE_COMMAND(53, 1, SetTimeStampFormatCommand, SetTimeStampFormatCommandD{ arg<int32_t>(args, 0) });
+    EXECUTE_COMMAND(15, 0, RequestRedrawCommand, RequestRedrawCommandD{});
+    EXECUTE_COMMAND(16, 2, SetResolutionCommand, SetResolutionCommandD{ arg<int32_t>(args, 0), arg<int32_t>(args, 1) });
+    EXECUTE_COMMAND(17, 1, SetDensityCommand, SetDensityCommandD{ arg<float>(args, 0) });
+    EXECUTE_COMMAND(18, 0, FrameSceneCommand, FrameSceneCommandD{});
+    EXECUTE_COMMAND(19, 2, SetGlossinessCommand, SetGlossinessCommandD{ arg<int32_t>(args, 0), arg<float>(args, 1) });
+    EXECUTE_COMMAND(20, 2, EnableChannelCommand, EnableChannelCommandD{ arg<int32_t>(args, 0), arg<int32_t>(args, 1) });
+    EXECUTE_COMMAND(21,
+                    3,
+                    SetWindowLevelCommand,
+                    SetWindowLevelCommandD{ arg<int32_t>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
+    EXECUTE_COMMAND(22, 2, OrbitCameraCommand, OrbitCameraCommandD{ arg<float>(args, 0), arg<float>(args, 1) });
+    EXECUTE_COMMAND(23,
+                    3,
+                    SetSkylightTopColorCommand,
+                    SetSkylightTopColorCommandD{ arg<float>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
+    EXECUTE_COMMAND(24,
+                    3,
+                    SetSkylightMiddleColorCommand,
+                    SetSkylightMiddleColorCommandD{ arg<float>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
+    EXECUTE_COMMAND(25,
+                    3,
+                    SetSkylightBottomColorCommand,
+                    SetSkylightBottomColorCommandD{ arg<float>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
+    EXECUTE_COMMAND(
+      26,
+      4,
+      SetLightPosCommand,
+      SetLightPosCommandD{ arg<int32_t>(args, 0), arg<float>(args, 1), arg<float>(args, 2), arg<float>(args, 3) });
+    EXECUTE_COMMAND(
+      27,
+      4,
+      SetLightColorCommand,
+      SetLightColorCommandD{ arg<int32_t>(args, 0), arg<float>(args, 1), arg<float>(args, 2), arg<float>(args, 3) });
+    EXECUTE_COMMAND(28,
+                    3,
+                    SetLightSizeCommand,
+                    SetLightSizeCommandD{ arg<int32_t>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
+    EXECUTE_COMMAND(29,
+                    6,
+                    SetClipRegionCommand,
+                    SetClipRegionCommandD{ arg<float>(args, 0),
+                                           arg<float>(args, 1),
+                                           arg<float>(args, 2),
+                                           arg<float>(args, 3),
+                                           arg<float>(args, 4),
+                                           arg<float>(args, 5) });
+    EXECUTE_COMMAND(30,
+                    3,
+                    SetVoxelScaleCommand,
+                    SetVoxelScaleCommandD{ arg<float>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
+    EXECUTE_COMMAND(31, 2, AutoThresholdCommand, AutoThresholdCommandD{ arg<int32_t>(args, 0), arg<int32_t>(args, 1) });
+    EXECUTE_COMMAND(32,
+                    3,
+                    SetPercentileThresholdCommand,
+                    SetPercentileThresholdCommandD{ arg<int32_t>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
+    EXECUTE_COMMAND(33, 2, SetOpacityCommand, SetOpacityCommandD{ arg<int32_t>(args, 0), arg<float>(args, 1) });
+    EXECUTE_COMMAND(34, 1, SetPrimaryRayStepSizeCommand, SetPrimaryRayStepSizeCommandD{ arg<float>(args, 0) });
+    EXECUTE_COMMAND(35, 1, SetSecondaryRayStepSizeCommand, SetSecondaryRayStepSizeCommandD{ arg<float>(args, 0) });
+    EXECUTE_COMMAND(36,
+                    3,
+                    SetBackgroundColorCommand,
+                    SetBackgroundColorCommandD{ arg<float>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
+    EXECUTE_COMMAND(37,
+                    3,
+                    SetIsovalueThresholdCommand,
+                    SetIsovalueThresholdCommandD{ arg<int32_t>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
+    EXECUTE_COMMAND(38,
+                    2,
+                    SetControlPointsCommand,
+                    SetControlPointsCommandD{ arg<int32_t>(args, 0), arg<std::vector<float>>(args, 1) });
+    EXECUTE_COMMAND(
+      39,
+      3,
+      LoadVolumeFromFileCommand,
+      LoadVolumeFromFileCommandD{ arg<std::string>(args, 0), arg<int32_t>(args, 1), arg<int32_t>(args, 2) });
+    EXECUTE_COMMAND(40, 1, SetTimeCommand, SetTimeCommandD{ arg<int32_t>(args, 0) });
+    EXECUTE_COMMAND(41,
+                    3,
+                    SetBoundingBoxColorCommand,
+                    SetBoundingBoxColorCommandD{ arg<float>(args, 0), arg<float>(args, 1), arg<float>(args, 2) });
+    EXECUTE_COMMAND(42, 1, ShowBoundingBoxCommand, ShowBoundingBoxCommandD{ arg<int32_t>(args, 0) });
+    EXECUTE_COMMAND(43, 2, TrackballCameraCommand, TrackballCameraCommandD{ arg<float>(args, 0), arg<float>(args, 1) });
+    EXECUTE_COMMAND(44, 6, LoadDataCommand, makeLoadDataCommandData(args));
+    EXECUTE_COMMAND(45, 1, ShowScaleBarCommand, ShowScaleBarCommandD{ arg<int32_t>(args, 0) });
+    EXECUTE_COMMAND(46,
+                    3,
+                    SetFlipAxisCommand,
+                    SetFlipAxisCommandD{ arg<int32_t>(args, 0), arg<int32_t>(args, 1), arg<int32_t>(args, 2) });
+    EXECUTE_COMMAND(47, 1, SetInterpolationCommand, SetInterpolationCommandD{ arg<int32_t>(args, 0) });
+    EXECUTE_COMMAND(
+      48,
+      4,
+      SetClipPlaneCommand,
+      SetClipPlaneCommandD{ arg<float>(args, 0), arg<float>(args, 1), arg<float>(args, 2), arg<float>(args, 3) });
+    EXECUTE_COMMAND(
+      49,
+      3,
+      SetColorRampCommand,
+      SetColorRampCommandD{ arg<int32_t>(args, 0), arg<std::string>(args, 1), arg<std::vector<float>>(args, 2) });
+    EXECUTE_COMMAND(50,
+                    3,
+                    SetMinMaxThresholdCommand,
+                    SetMinMaxThresholdCommandD{ arg<int32_t>(args, 0), arg<int32_t>(args, 1), arg<int32_t>(args, 2) });
+    EXECUTE_COMMAND(51,
+                    4,
+                    SetSkylightRotationCommand,
+                    SetSkylightRotationCommandD{
+                      arg<float>(args, 0), arg<float>(args, 1), arg<float>(args, 2), arg<float>(args, 3) });
+    EXECUTE_COMMAND(52, 1, ShowTimeStampCommand, ShowTimeStampCommandD{ arg<int32_t>(args, 0) });
+    EXECUTE_COMMAND(53, 1, SetTimeStampFormatCommand, SetTimeStampFormatCommandD{ arg<int32_t>(args, 0) });
     default:
       throw nb::value_error(("Unknown AGAVE command id " + std::to_string(commandId)).c_str());
   }
