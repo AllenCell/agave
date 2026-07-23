@@ -35,6 +35,7 @@ public:
 
 private:
   nanobind::object run(Command& command);
+  nanobind::object run(RequestRedrawCommand& command);
   nanobind::object redraw();
   void initialize(const std::string& mode, const std::string& assetPath, int selectedGpu);
 
