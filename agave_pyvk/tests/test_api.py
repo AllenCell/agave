@@ -6,7 +6,7 @@ import types
 from pathlib import Path
 
 
-class FakeVulkanRenderer:
+class FakePythonRenderer:
     def __init__(self, mode, asset_path, gpu):
         self.constructor_args = (mode, asset_path, gpu)
         self.calls = []
@@ -27,7 +27,7 @@ class FakeVulkanRenderer:
 def load_api(monkeypatch):
     fake_native = types.ModuleType("agave_pyvk._native")
     fake_native.__file__ = str(Path(__file__).parent / "_native.pyd")
-    fake_native.VulkanRenderer = FakeVulkanRenderer
+    fake_native.PythonRenderer = FakePythonRenderer
     monkeypatch.setitem(sys.modules, "agave_pyvk._native", fake_native)
     sys.modules.pop("agave_pyvk.agave", None)
     return importlib.import_module("agave_pyvk.agave")
