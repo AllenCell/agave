@@ -96,6 +96,8 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/ViewerWindow.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/VolumeDimensions.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/VolumeDimensions.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/PythonRenderer.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/PythonRenderer.h"
 )
 add_subdirectory(gesture)
 add_subdirectory(gfxapi)

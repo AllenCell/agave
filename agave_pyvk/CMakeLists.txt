@@ -15,7 +15,7 @@ if(NOT AGAVE_HAS_VULKAN)
   message(FATAL_ERROR "agave_pyvk requires an AGAVE renderlib target with Vulkan enabled")
 endif()
 
-nanobind_add_module(agave_py2 NB_STATIC src/bindings.cpp src/VulkanRenderer.cpp)
+nanobind_add_module(agave_py2 NB_STATIC src/bindings.cpp)
 set_target_properties(agave_py2 PROPERTIES
   OUTPUT_NAME _native
 )
