@@ -1,29 +1,24 @@
-#include "VulkanRenderer.h"
+#include "PythonRenderer.h"
 
-#include "renderlib/AppScene.h"
-#include "renderlib/BoundingBoxTool.h"
-#include "renderlib/CCamera.h"
-#include "renderlib/RenderSettings.h"
-#include "renderlib/ScaleBarTool.h"
-#include "renderlib/SceneView.h"
-#include "renderlib/TimeStampTool.h"
-#include "renderlib/gfxapi/Backend.h"
-#include "renderlib/gfxapi/Framebuffer.h"
-#include "renderlib/gfxapi/IGestureRenderer.h"
-#include "renderlib/gfxapi/IRenderWindow.h"
-#include "renderlib/gfxapi/RenderToFramebuffer.h"
-#include "renderlib/gesture/gesture.h"
-#include "renderlib/renderlib.h"
-
-#include <nanobind/stl/string.h>
-#include <nanobind/stl/vector.h>
+#include "AppScene.h"
+#include "BoundingBoxTool.h"
+#include "CCamera.h"
+#include "RenderSettings.h"
+#include "ScaleBarTool.h"
+#include "SceneView.h"
+#include "TimeStampTool.h"
+#include "gfxapi/Backend.h"
+#include "gfxapi/Framebuffer.h"
+#include "gfxapi/IGestureRenderer.h"
+#include "gfxapi/IRenderWindow.h"
+#include "gfxapi/RenderToFramebuffer.h"
+#include "gesture/gesture.h"
+#include "renderlib.h"
 
 #include <mutex>
 #include <stdexcept>
 #include <utility>
 #include <vector>
-
-namespace nb = nanobind;
 
 namespace {
 
@@ -32,23 +27,26 @@ int s_runtimeUsers = 0;
 
 template<typename T>
 T
-arg(const nb::args& args, size_t index)
+arg(const PythonRendererArguments& args, size_t index)
 {
-  return nb::cast<T>(args[index]);
+  try {
+    return std::get<T>(args[index]);
+  } catch (const std::bad_variant_access&) {
+    throw PythonRendererArgumentError("command argument " + std::to_string(index) + " has the wrong type");
+  }
 }
 
 void
-requireArgs(int commandId, const nb::args& args, size_t expected)
+requireArgs(int commandId, const PythonRendererArguments& args, size_t expected)
 {
   if (args.size() != expected) {
-    throw nb::type_error(("command " + std::to_string(commandId) + " expects " + std::to_string(expected) +
-                          " arguments, got " + std::to_string(args.size()))
-                           .c_str());
+    throw PythonRendererArgumentError("command " + std::to_string(commandId) + " expects " + std::to_string(expected) +
+                                      " arguments, got " + std::to_string(args.size()));
   }
 }
 
 LoadDataCommandD
-makeLoadDataCommandData(const nb::args& args)
+makeLoadDataCommandData(const PythonRendererArguments& args)
 {
   const auto region = arg<std::vector<int32_t>>(args, 5);
   LoadDataCommandD data{ arg<std::string>(args, 0),
@@ -70,25 +68,25 @@ makeLoadDataCommandData(const nb::args& args)
     data.m_zmin = region[4];
     data.m_zmax = region[5];
   } else if (!region.empty()) {
-    throw nb::value_error("LOAD_DATA region must be empty or contain six integers");
+    throw PythonRendererValueError("LOAD_DATA region must be empty or contain six integers");
   }
   return data;
 }
 
 } // namespace
 
-VulkanRenderer::VulkanRenderer(const std::string& mode, const std::string& assetPath, int selectedGpu)
+PythonRenderer::PythonRenderer(const std::string& mode, const std::string& assetPath, int selectedGpu)
 {
   initialize(mode, assetPath, selectedGpu);
 }
 
-VulkanRenderer::~VulkanRenderer()
+PythonRenderer::~PythonRenderer()
 {
   close();
 }
 
 void
-VulkanRenderer::initialize(const std::string& mode, const std::string& assetPath, int selectedGpu)
+PythonRenderer::initialize(const std::string& mode, const std::string& assetPath, int selectedGpu)
 {
   std::lock_guard<std::mutex> lock(s_runtimeMutex);
   if (s_runtimeUsers == 0) {
@@ -147,7 +145,7 @@ VulkanRenderer::initialize(const std::string& mode, const std::string& assetPath
 }
 
 void
-VulkanRenderer::close()
+PythonRenderer::close()
 {
   if (m_closed) {
     return;
@@ -172,13 +170,13 @@ VulkanRenderer::close()
 }
 
 void
-VulkanRenderer::setStreamMode(int32_t)
+PythonRenderer::setStreamMode(int32_t)
 {
   // Synchronous in-process rendering has no streaming mode.
 }
 
 void
-VulkanRenderer::resizeGL(int x, int y)
+PythonRenderer::resizeGL(int x, int y)
 {
   m_width = x;
   m_height = y;
@@ -187,8 +185,8 @@ VulkanRenderer::resizeGL(int x, int y)
     { static_cast<uint32_t>(x), static_cast<uint32_t>(y), gfxApi::FramebufferColorFormat::Rgba8, true });
 }
 
-nb::object
-VulkanRenderer::run(Command& command)
+PythonRendererResult
+PythonRenderer::run(Command& command)
 {
   if (m_closed) {
     throw std::runtime_error("Renderer is closed");
@@ -196,20 +194,20 @@ VulkanRenderer::run(Command& command)
   m_executionContext.m_message.clear();
   command.execute(&m_executionContext);
   if (!m_executionContext.m_message.empty()) {
-    return nb::str(m_executionContext.m_message.c_str());
+    return m_executionContext.m_message;
   }
-  return nb::none();
+  return std::monostate{};
 }
 
-nb::object
-VulkanRenderer::run(RequestRedrawCommand& command)
+PythonRendererResult
+PythonRenderer::run(RequestRedrawCommand& command)
 {
   run(static_cast<Command&>(command));
   return redraw();
 }
 
-nb::object
-VulkanRenderer::redraw()
+PythonRendererResult
+PythonRenderer::redraw()
 {
   m_camera->Update();
 
@@ -233,13 +231,84 @@ VulkanRenderer::redraw()
 
   gfxApi::renderToFramebuffer(*m_framebuffer, *m_renderer, *m_gestureRenderer, sceneView, gesture.graphics, 0.0f);
 
-  std::vector<uint8_t> pixels(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 4);
-  m_framebuffer->toImage(pixels.data());
-  return nb::make_tuple(m_width, m_height, nb::bytes(reinterpret_cast<const char*>(pixels.data()), pixels.size()));
+  PythonRendererImage image{ m_width,
+                             m_height,
+                             std::vector<uint8_t>(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 4) };
+  m_framebuffer->toImage(image.pixels.data());
+  return image;
 }
 
-nb::object
-VulkanRenderer::execute(int commandId, const nb::args& args)
+std::vector<CommandArgType>
+PythonRenderer::commandArgumentTypes(int commandId)
+{
+#define COMMAND_ARGUMENT_TYPES(ID, TYPE)                                                                               \
+  case ID:                                                                                                             \
+    return TYPE::ArgTypes()
+
+  switch (commandId) {
+    COMMAND_ARGUMENT_TYPES(0, SessionCommand);
+    COMMAND_ARGUMENT_TYPES(1, AssetPathCommand);
+    COMMAND_ARGUMENT_TYPES(2, LoadOmeTifCommand);
+    COMMAND_ARGUMENT_TYPES(3, SetCameraPosCommand);
+    COMMAND_ARGUMENT_TYPES(4, SetCameraTargetCommand);
+    COMMAND_ARGUMENT_TYPES(5, SetCameraUpCommand);
+    COMMAND_ARGUMENT_TYPES(6, SetCameraApertureCommand);
+    COMMAND_ARGUMENT_TYPES(7, SetCameraProjectionCommand);
+    COMMAND_ARGUMENT_TYPES(8, SetCameraFocalDistanceCommand);
+    COMMAND_ARGUMENT_TYPES(9, SetCameraExposureCommand);
+    COMMAND_ARGUMENT_TYPES(10, SetDiffuseColorCommand);
+    COMMAND_ARGUMENT_TYPES(11, SetSpecularColorCommand);
+    COMMAND_ARGUMENT_TYPES(12, SetEmissiveColorCommand);
+    COMMAND_ARGUMENT_TYPES(13, SetRenderIterationsCommand);
+    COMMAND_ARGUMENT_TYPES(14, SetStreamModeCommand);
+    COMMAND_ARGUMENT_TYPES(15, RequestRedrawCommand);
+    COMMAND_ARGUMENT_TYPES(16, SetResolutionCommand);
+    COMMAND_ARGUMENT_TYPES(17, SetDensityCommand);
+    COMMAND_ARGUMENT_TYPES(18, FrameSceneCommand);
+    COMMAND_ARGUMENT_TYPES(19, SetGlossinessCommand);
+    COMMAND_ARGUMENT_TYPES(20, EnableChannelCommand);
+    COMMAND_ARGUMENT_TYPES(21, SetWindowLevelCommand);
+    COMMAND_ARGUMENT_TYPES(22, OrbitCameraCommand);
+    COMMAND_ARGUMENT_TYPES(23, SetSkylightTopColorCommand);
+    COMMAND_ARGUMENT_TYPES(24, SetSkylightMiddleColorCommand);
+    COMMAND_ARGUMENT_TYPES(25, SetSkylightBottomColorCommand);
+    COMMAND_ARGUMENT_TYPES(26, SetLightPosCommand);
+    COMMAND_ARGUMENT_TYPES(27, SetLightColorCommand);
+    COMMAND_ARGUMENT_TYPES(28, SetLightSizeCommand);
+    COMMAND_ARGUMENT_TYPES(29, SetClipRegionCommand);
+    COMMAND_ARGUMENT_TYPES(30, SetVoxelScaleCommand);
+    COMMAND_ARGUMENT_TYPES(31, AutoThresholdCommand);
+    COMMAND_ARGUMENT_TYPES(32, SetPercentileThresholdCommand);
+    COMMAND_ARGUMENT_TYPES(33, SetOpacityCommand);
+    COMMAND_ARGUMENT_TYPES(34, SetPrimaryRayStepSizeCommand);
+    COMMAND_ARGUMENT_TYPES(35, SetSecondaryRayStepSizeCommand);
+    COMMAND_ARGUMENT_TYPES(36, SetBackgroundColorCommand);
+    COMMAND_ARGUMENT_TYPES(37, SetIsovalueThresholdCommand);
+    COMMAND_ARGUMENT_TYPES(38, SetControlPointsCommand);
+    COMMAND_ARGUMENT_TYPES(39, LoadVolumeFromFileCommand);
+    COMMAND_ARGUMENT_TYPES(40, SetTimeCommand);
+    COMMAND_ARGUMENT_TYPES(41, SetBoundingBoxColorCommand);
+    COMMAND_ARGUMENT_TYPES(42, ShowBoundingBoxCommand);
+    COMMAND_ARGUMENT_TYPES(43, TrackballCameraCommand);
+    COMMAND_ARGUMENT_TYPES(44, LoadDataCommand);
+    COMMAND_ARGUMENT_TYPES(45, ShowScaleBarCommand);
+    COMMAND_ARGUMENT_TYPES(46, SetFlipAxisCommand);
+    COMMAND_ARGUMENT_TYPES(47, SetInterpolationCommand);
+    COMMAND_ARGUMENT_TYPES(48, SetClipPlaneCommand);
+    COMMAND_ARGUMENT_TYPES(49, SetColorRampCommand);
+    COMMAND_ARGUMENT_TYPES(50, SetMinMaxThresholdCommand);
+    COMMAND_ARGUMENT_TYPES(51, SetSkylightRotationCommand);
+    COMMAND_ARGUMENT_TYPES(52, ShowTimeStampCommand);
+    COMMAND_ARGUMENT_TYPES(53, SetTimeStampFormatCommand);
+    default:
+      throw PythonRendererValueError("Unknown AGAVE command id " + std::to_string(commandId));
+  }
+
+#undef COMMAND_ARGUMENT_TYPES
+}
+
+PythonRendererResult
+PythonRenderer::execute(int commandId, const PythonRendererArguments& args)
 {
 #define EXECUTE_COMMAND(ID, COUNT, TYPE, ...)                                                                          \
   case ID: {                                                                                                           \
@@ -396,7 +465,7 @@ VulkanRenderer::execute(int commandId, const nb::args& args)
     EXECUTE_COMMAND(52, 1, ShowTimeStampCommand, ShowTimeStampCommandD{ arg<int32_t>(args, 0) });
     EXECUTE_COMMAND(53, 1, SetTimeStampFormatCommand, SetTimeStampFormatCommandD{ arg<int32_t>(args, 0) });
     default:
-      throw nb::value_error(("Unknown AGAVE command id " + std::to_string(commandId)).c_str());
+      throw PythonRendererValueError("Unknown AGAVE command id " + std::to_string(commandId));
   }
 
 #undef EXECUTE_COMMAND

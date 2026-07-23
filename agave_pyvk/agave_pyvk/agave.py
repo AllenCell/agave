@@ -89,7 +89,7 @@ class AgaveRenderer:
         if mode not in ("pathtrace", "raymarch"):
             mode = "pathtrace"
         asset_path = Path(_native.__file__).resolve().parent / "assets"
-        self._renderer = _native.VulkanRenderer(mode, str(asset_path), 0)
+        self._renderer = _native.PythonRenderer(mode, str(asset_path), 0)
         self.session_name = ""
 
     def __enter__(self):
