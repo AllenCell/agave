@@ -1,8 +1,7 @@
 # agave_pyvk
 
 `agave_pyvk` is the standalone, headless, in-process Vulkan Python package for
-AGAVE. Its `AgaveRenderer` API mirrors `agave_pyclient`, but commands cross a
-nanobind boundary and execute synchronously in renderlib. It has no Qt or
+AGAVE. It uses nanobind to execute Python commands directly in renderlib. It has no Qt or
 WebSocket dependency.
 
 ```python
@@ -38,6 +37,8 @@ python -m pip install -e .
 The CMake build stages `_native` and its runtime dependencies into the package
 directory. Pip performs only normal Python packaging and does not invoke CMake.
 Python source edits are visible immediately.
+
+From this point you can import agave_pyvk and its AgaveRenderer class.
 
 To produce a wheel file from the same staged native build, install the `build`
 frontend and run:

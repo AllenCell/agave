@@ -16,11 +16,14 @@ After cloning this repo, initialize the submodules, which contain a couple of de
 git submodule update --init
 ```
 
-The commands below build the desktop application, C++ tests, renderlib, and the
-standalone `agave_pyvk` native module. Building `agave_pyvk` requires a Vulkan
-1.3-capable driver and a Vulkan SDK. CMake uses the SDK named by `VULKAN_SDK`,
-or searches the platform's usual Vulkan SDK installation directory. Use Python
-3.10 or later when building the standalone package.
+The commands below build the desktop application, unit tests, and the
+Python native module (use Python 3.10 or later).
+CMake options are provided for AGAVE_BUILD_APP and AGAVE_BUILD_TESTS, and both default to "ON".
+
+Building requires the Vulkan SDK. CMake uses the SDK named by `VULKAN_SDK`,
+or searches the platform's usual Vulkan SDK installation directory.
+
+You may also refer to the github actions workflows for reference building AGAVE.
 
 ### Windows
 
@@ -59,15 +62,19 @@ vcpkg install spdlog zlib libjpeg-turbo liblzma tiff zstd curl --triplet x64-win
 ```console
 cmake -S . -B build -G "Ninja Multi-Config" ^
   -DCMAKE_TOOLCHAIN_FILE=C:\path\to\vcpkg\scripts\buildsystems\vcpkg.cmake ^
-  -DVCPKG_TARGET_TRIPLET=x64-windows ^
-  -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON
+  -DVCPKG_TARGET_TRIPLET=x64-windows
 cmake --build build --config Release --parallel
 cmake --install build --config Release
+
+# you may also choose --config RelWithDebInfo or Debug
+# for day to day Windows dev / debugging of the app executable
+# Alternative build command:
+cmake --build build --target install
 ```
 
-You may need to adjust the vcpkg path depending on your configuration.
+Adjust the vcpkg path depending on your configuration.
 
-If you encounter issues during your build, check that all of your dependencies are installed and try again. You can also build to the INSTALL target with Visual Studio by opening the project solution (`agave.sln`).
+If you encounter issues during your build, check that all of your dependencies are installed and try again. It can be helpful to delete the \_deps subdirectory in your build path.
 
 ### macOS Apple Silicon (Homebrew)
 
@@ -82,6 +89,7 @@ brew install spdlog libtiff nasm curl
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON
 cmake --build build --parallel
+# optional
 cmake --install build
 ```
 
@@ -105,16 +113,18 @@ sudo apt install cmake ninja-build libtiff-dev libglm-dev libgl1-mesa-dev \
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DAGAVE_BUILD_APP=ON -DAGAVE_BUILD_TESTS=ON
 cmake --build build --parallel
+# optional
 cmake --install build
 ```
 
-If cmake fails please refer to the Dockerfile for a more complete list of Linux dependencies.
+If cmake fails please refer to the Dockerfile or the github actions workflows for a more complete list of Linux dependencies.
 
 ### Iterative standalone Python development
 
 The platform commands above create a persistent `build` directory. CMake uses
-the active Python interpreter and its default build compiles renderlib, the
-desktop application, and the ABI-specific `agave_py2` native module:
+the active Python interpreter and C++ compiler environment, and its default
+build compiles the shared static renderlib, the desktop application,
+and the ABI-specific `agave_py2` native module:
 
 ```console
 cmake --build .
@@ -132,11 +142,11 @@ in the Python package. The editable install performs only normal Python
 packaging; it does not invoke CMake or rebuild renderlib. Python source changes
 are visible immediately.
 
-For a headless-only build tree, use the same platform-specific configure command
-with these options:
+Optional: To save a little time in building the Python module only, use the same
+platform-specific CMake configure command with these options:
 
 ```console
--DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF
+-DAGAVE_BUILD_APP=OFF
 ```
 
 ## Versioned Releases
