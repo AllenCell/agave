@@ -545,7 +545,7 @@ export class AgaveClient {
    * channel.
    *
    * @param channel Which channel index, 0 based.
-   * @param opacity A multiplier between 0 and 1. Default is 1
+   * @param opacity A multiplier between 0 and 100. Default is 1
    */
   matOpacity(channel: number, opacity: number) {
     // 33
