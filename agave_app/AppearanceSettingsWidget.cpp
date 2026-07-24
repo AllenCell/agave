@@ -213,7 +213,7 @@ QAppearanceSettingsWidget::QAppearanceSettingsWidget(QWidget* pParent,
   Controls::addFormRow(
     m_MainLayout, "Renderer", &m_RendererType, tr("Select volume rendering type"), tr("Select volume rendering type"));
 
-  m_DensityScaleSlider.setRange(0.001, 1000.0);
+  m_DensityScaleSlider.setRange(0.001, 100.0);
   m_DensityScaleSlider.setDecimals(3);
   m_DensityScaleSlider.setValue(rs->m_RenderSettings.m_DensityScale);
   Controls::addFormRow(m_MainLayout,
@@ -1390,7 +1390,7 @@ QAppearanceSettingsWidget::onNewImage(Scene* scene)
     this->OnUpdateLut(i, std::vector<LutControlPoint>());
 
     QNumericSlider* opacitySlider = new QNumericSlider();
-    opacitySlider->setRange(0.0, 1.0);
+    opacitySlider->setRange(0.0, 100.0);
     opacitySlider->setSingleStep(0.01);
     opacitySlider->setValue(scene->m_material.m_opacity[i], true);
     Controls::addFormRow(

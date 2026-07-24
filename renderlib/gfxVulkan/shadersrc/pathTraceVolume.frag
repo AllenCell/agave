@@ -210,13 +210,24 @@ evalTf4ch(in vec4 intensity)
 }
 
 // from iq https://www.shadertoy.com/view/4tXyWN
+uint hash21( inout uvec2 p )
+{
+    p *= uvec2(73333,7777);
+    p ^= (uvec2(3333777777)>>(p>>28));
+    uint n = p.x*p.y;
+    return n^(n>>15);
+}
+
 float
 rand(inout uvec2 seed)
 {
-  seed += uvec2(1);
-  uvec2 q = 1103515245U * ((seed >> 1U) ^ (seed.yx));
-  uint n = 1103515245U * ((q.x) ^ (q.y >> 3U));
-  return float(n) * (1.0 / float(0xffffffffU));
+    // we only need the top 24 bits to be good really
+    uint h = hash21( seed );
+
+    // straight to float, see https://iquilezles.org/articles/sfrand/
+    // return uintBitsToFloat((h>>9)|0x3f800000u)-1.0;
+    
+    return float(h)*(1.0/float(0xffffffffU));
 }
 
 vec3
