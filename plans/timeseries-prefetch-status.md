@@ -231,6 +231,46 @@ a different timepoint is racing its own prefetch. Three tests were rewritten to 
 (prefetch disabled → interactive load → enable prefetch → wait for `Loading`) instead of assuming an
 ordering. Worth remembering when adding tests here.
 
+## Phase 6 — COMPLETE (automated checks pass; needs interactive verification)
+
+Suite green: 920 assertions / 50 cases. App builds via `--target install`, launches, and shuts down
+cleanly (which also exercises the loader thread's join path). **The interactive behaviour itself —
+scrubbing a real time series without the UI blocking — has NOT been verified; that needs a
+time-series file and a human.**
+
+### Shared logic moved into renderlib
+- New `renderlib/io/ApplyVolumeToScene.{h,cpp}`: LUT remap from the outgoing volume's histograms +
+  volume swap + dirty flags, extracted from the two near-identical copies in
+  `QTimelineWidget::OnTimeChanged` and `SetTimeCommand::execute`. Both now call it, so the GUI and the
+  command/websocket paths cannot drift apart again.
+  - It also **fixes a latent out-of-bounds**: both originals looped to `image->sizeC()` while indexing
+    `scene->m_volume->channel(i)`, so a time step with more channels than the previous volume would have
+    read past the end. It now clamps to the smaller count (the channel-count mismatch warning is kept).
+
+### Qt layer (deliberately thin)
+- New `agave_app/TimeSeriesLoaderBridge.{h,cpp}`: implements `ITimeSeriesLoaderObserver` and re-emits each
+  callback as a queued Qt signal on the main thread. No logic beyond the thread hop. Registers
+  `std::shared_ptr<ImageXYZC>` as a metatype so it can cross a queued connection.
+- `QTimelineWidget` rebuilt: owns a `TimeSeriesLoader`, and `OnTimeChanged` is now just
+  `m_loader->requestTime(t)` and return. The wait cursor is gone. Completion arrives on the main thread
+  and calls `applyVolumeToScene`. Completions whose sequence number is not the newest are discarded.
+- **Slider tracking enabled** (`setTracking(true)`), so live scrubbing works now that loads are async.
+- **Removed the spinner-disable workaround** in `Controls.cpp`. It only triggered when a slider had
+  tracking disabled, and the time slider was the only slider in the app that did — verified by grep — so
+  it is now fully dead code. Its comment explicitly blamed slow blocking loads.
+- Fixed the two long-standing TODOs: `setTime` takes a `blockSignals` argument (it previously always
+  triggered a load, a trap for programmatic callers, and `agaveGui.cpp` was calling it that way after the
+  render dialog closed); and a failed load now restores the slider to the scene's actual time instead of
+  leaving it desynced.
+- `setSeries` is called for **every** newly opened image, including single-timepoint files. Only doing it
+  when `maxT > minT` would leave the loader still prefetching the previously opened series through a
+  reader for a file no longer on screen.
+
+### Note
+Prefetch currently defaults to enabled with depth 4 (the `PrefetchConfig` defaults), because
+`CacheSettings` is not wired to it until phase 9. So this phase already changes runtime behaviour, not
+just plumbing.
+
 ## Next up
 
 - **Phase 0** — observability: surface `CacheManager::getStats()` (still has no consumer) plus a

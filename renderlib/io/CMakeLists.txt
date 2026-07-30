@@ -7,6 +7,8 @@ target_sources(renderlib PRIVATE
 "${CMAKE_CURRENT_SOURCE_DIR}/ConvertChannelData.h"
 "${CMAKE_CURRENT_SOURCE_DIR}/BlockingFileReader.cpp"
 "${CMAKE_CURRENT_SOURCE_DIR}/BlockingFileReader.h"
+"${CMAKE_CURRENT_SOURCE_DIR}/ApplyVolumeToScene.cpp"
+"${CMAKE_CURRENT_SOURCE_DIR}/ApplyVolumeToScene.h"
 "${CMAKE_CURRENT_SOURCE_DIR}/FileReader.cpp"
 "${CMAKE_CURRENT_SOURCE_DIR}/FileReader.h"
 "${CMAKE_CURRENT_SOURCE_DIR}/FileReaderCCP4.cpp"
