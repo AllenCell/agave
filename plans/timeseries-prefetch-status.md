@@ -187,6 +187,50 @@ the loader thread. Splitting that onto a low-priority writer thread (bounded que
 pressure, drain on shutdown) is the remaining Phase 4 item. Not required for Phase 5 to function — it is
 a playback-smoothness optimization — but it should land before prefetch is enabled by default.
 
+## Phase 5 — COMPLETE and verified
+
+Suite green: **920 assertions in 50 test cases**, and the `[timeSeriesLoader]` tag was run 5 times
+consecutively with identical results to check for flakiness (these are concurrency tests). App builds.
+
+New `renderlib/io/TimeSeriesLoader.{h,cpp}` plus `test/test_timeSeriesLoader.cpp` (17 cases).
+
+- One loader thread, one reused `IFileReader` per series. Concurrency within a load comes from the
+  reader via `maxConcurrentLoads()`, not from more loader threads.
+- Interactive requests preempt prefetch, and are themselves **preemptible**: a newer scrub cancels an
+  in-flight interactive load rather than making the user wait for a frame they have already left.
+- `requestTime` returns a monotonic sequence number so the GUI can discard stale completions.
+- Forward-only prefetch, `depth` or `fillCache`. Throttles on
+  `CacheManager::getRamBytesAvailable()` **counting in-flight bytes as reserved headroom**, so N
+  in-flight full-volume buffers cannot silently overshoot the budget. Per-frame size is measured from
+  the first completed load rather than estimated; until it is known, only one prefetch runs.
+- Pins the displayed timepoint (new pin taken before the old is released) so prefetch can never evict it.
+- Per-timepoint status vector (`NotCached`/`Queued`/`Loading`/`RamCached`/`Failed`) for the slider
+  indicator, kept current by `CacheManager::IEvictionObserver`. Deliberately **not** backed by cache
+  queries: building a `CacheKey` stats the file, so polling per repaint would be a stat storm.
+- Also added `CacheManager::containsInMemory()` — a residency probe that, unlike `findImage`, does not
+  count as a hit/miss or touch LRU order, so prefetch bookkeeping does not distort the statistics.
+- `CacheManager` is **injected** into the constructor (defaulting to the singleton) so tests use
+  isolated caches, matching how `test_cacheManager.cpp` already avoids the singleton.
+
+### Three real bugs found by the tests, all fixed
+
+1. **Adopting a cancelled request.** Scrub away (cancelling a prefetch), then scrub back before the
+   loader reaped it: the loader adopted the doomed request and reported a spurious `Failed` with no image
+   displayed. Now it checks `isCancelled()` and starts a fresh load. Regression test added.
+2. **Over-eager cancel on scrub.** `requestTime` cancelled *every* other in-flight prefetch, including
+   ones still inside the new prefetch window — so every scrub threw away work it was about to re-request.
+   Now only prefetches outside `[newTime, newTime + depth]` are cancelled. Regression test added.
+3. **Idle loader ignored config changes.** The idle `wait` predicate only covered new interactive work,
+   so enabling prefetch, raising the depth, or an eviction freeing room left the loader parked until the
+   next scrub. In the app, toggling the prefetch setting would have appeared to do nothing. The predicate
+   now includes `canStartPrefetchLocked() && nextPrefetchTimeLocked()`.
+
+### Testing note
+Prefetch starts as soon as `setSeries` is called, so a test that sets the series at t=0 and then requests
+a different timepoint is racing its own prefetch. Three tests were rewritten to sequence this explicitly
+(prefetch disabled → interactive load → enable prefetch → wait for `Loading`) instead of assuming an
+ordering. Worth remembering when adding tests here.
+
 ## Next up
 
 - **Phase 0** — observability: surface `CacheManager::getStats()` (still has no consumer) plus a

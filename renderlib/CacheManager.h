@@ -99,6 +99,11 @@ public:
   void unpin(const LoadSpec& loadSpec);
   bool isPinned(const LoadSpec& loadSpec) const;
 
+  // Residency probe. Unlike findImage this does NOT count as a hit or a miss and
+  // does NOT touch LRU order, so prefetch can reconcile its own bookkeeping
+  // against the cache without distorting either.
+  bool containsInMemory(const LoadSpec& loadSpec) const;
+
   std::shared_ptr<ImageXYZC> findImage(const LoadSpec& loadSpec);
   void storeImage(const LoadSpec& loadSpec, const std::shared_ptr<ImageXYZC>& image);
   // Drop all entries from the in-memory cache. Disk cache is untouched.

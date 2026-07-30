@@ -21,6 +21,8 @@ target_sources(renderlib PRIVATE
 "${CMAKE_CURRENT_SOURCE_DIR}/FileReaderZarr.h"
 "${CMAKE_CURRENT_SOURCE_DIR}/LoadRequest.cpp"
 "${CMAKE_CURRENT_SOURCE_DIR}/LoadRequest.h"
+"${CMAKE_CURRENT_SOURCE_DIR}/TimeSeriesLoader.cpp"
+"${CMAKE_CURRENT_SOURCE_DIR}/TimeSeriesLoader.h"
 )
 
 # libCZI dependency for renderlib
