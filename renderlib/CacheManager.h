@@ -84,6 +84,27 @@ public:
   // missing the AGAVE marker file). Memory cache is untouched.
   void clearDiskCache();
 
+  // A point-in-time view of how full each tier is. Reported in the GUI
+  // statistics panel and used by prefetch to decide whether another timepoint
+  // will fit. diskBytesUsed is only meaningful once the disk index has been
+  // built (which happens lazily on first disk access).
+  struct CacheUsage
+  {
+    std::uint64_t ramBytesUsed = 0;
+    std::uint64_t ramBytesLimit = 0;
+    std::uint64_t diskBytesUsed = 0;
+    std::uint64_t diskBytesLimit = 0;
+    std::size_t ramEntryCount = 0;
+    std::size_t diskEntryCount = 0;
+  };
+  CacheUsage getUsage() const;
+
+  std::uint64_t getRamBytesUsed() const;
+  // How many more bytes fit before eviction would begin. Zero once the tier is
+  // at or over its limit. Prefetch throttles on this rather than letting LRU
+  // evict timepoints the playhead has not reached yet.
+  std::uint64_t getRamBytesAvailable() const;
+
   CacheStats getStats() const;
   void resetStats();
 

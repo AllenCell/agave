@@ -2,6 +2,7 @@
 
 #include "gfxOpenGL/Backend.h"
 
+#include "CacheStatusReport.h"
 #include "ImageXYZC.h"
 #include "Logging.h"
 #include "RenderSettings.h"
@@ -146,6 +147,7 @@ RenderGL::render(const CCamera& camera)
   std::chrono::duration<double> elapsed = endTime - mStartTime;
   m_timingRender.AddDuration((float)(elapsed.count() * 1000.0));
   m_status->SetStatisticChanged("Performance", "Render Image", m_timingRender.filteredDurationAsString(), "ms.");
+  reportCacheStatistics(m_status.get());
   mStartTime = std::chrono::high_resolution_clock::now();
 }
 
