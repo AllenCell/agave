@@ -271,6 +271,39 @@ Prefetch currently defaults to enabled with depth 4 (the `PrefetchConfig` defaul
 `CacheSettings` is not wired to it until phase 9. So this phase already changes runtime behaviour, not
 just plumbing.
 
+## Phase 7 — COMPLETE (automated checks pass; needs interactive verification)
+
+Suite green: **976 assertions in 66 test cases** (16 new player cases). App builds, launches and shuts
+down cleanly. **Playback has not been watched running against a real time series** — that needs a human.
+
+### renderlib: `io/TimeSeriesPlayer.{h,cpp}`
+Qt-free playback state machine. The clock and the "is this frame ready" predicate are both injected, so
+every behaviour below is unit-tested with no timers, threads or I/O.
+- `ShowEveryFrame` (default): never skips. If the next frame is not ready it holds, and **the frame
+  interval is measured from when a frame was actually shown**, so a long stall is not followed by a burst
+  of catch-up frames. There is a test for that specifically.
+- `RealTime`: holds wall-clock rate by skipping frames that are not ready, counting `droppedFrames()`.
+  Walks forward at most one pass per tick, so a cold cache cannot spin or loop indefinitely inside a
+  single tick.
+- Play records an origin frame; `stop()` returns it so the caller can restore it. Loop wraps to
+  `minTime`, not to zero. With loop off it stops at the end.
+- Edge cases covered: single-timepoint range (stops rather than re-showing the same frame forever),
+  play position outside the range (clamped), non-positive fps (clamped), and a clock that goes backwards.
+
+### Qt: timeline dock
+Play/pause toggle, stop, fps spinbox, "Loop" and "Smooth" (drop-frames) checkboxes. Icons come from
+`QStyle::standardIcon` (`SP_MediaPlay`/`SP_MediaPause`/`SP_MediaStop`) rather than new SVG assets, so
+they follow the platform style and the existing light/dark switch for free. A 5 ms `PreciseTimer` calls
+`advance()`; all rate limiting is in the player. Controls are disabled for single-timepoint files, and
+opening a new image stops playback.
+
+### Naming fix prompted by review
+`applyVolumeToScene` was renamed to **`applyTimeStepToScene`** (files renamed to match). Its strict
+channel-count check is only correct because both call sites are time-step paths; a genuinely new image
+may legitimately differ in channel count and ordering and goes through `Scene::initSceneFromImg`, which
+rebuilds the scene. The old name invited exactly that misuse. Verified both call sites and that
+`initSceneFromImg` is the new-image path (`agaveGui.cpp:772`, `command.cpp:70/512/677`).
+
 ## Next up
 
 - **Phase 0** — observability: surface `CacheManager::getStats()` (still has no consumer) plus a

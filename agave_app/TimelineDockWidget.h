@@ -2,17 +2,23 @@
 
 #include "renderlib/io/FileReader.h"
 #include "renderlib/io/TimeSeriesLoader.h"
+#include "renderlib/io/TimeSeriesPlayer.h"
 
 #include <QDockWidget>
 #include <QGridLayout>
 
+#include <chrono>
 #include <memory>
 
 class ImageXYZC;
 class IFileReader;
+class QCheckBox;
 class QIntSlider;
+class QSpinBox;
 class QTimelineDockWidget;
 class QRenderSettings;
+class QTimer;
+class QToolButton;
 class Scene;
 class TimeSeriesLoaderBridge;
 
@@ -36,6 +42,10 @@ public:
   void setPrefetchConfig(const TimeSeriesLoader::PrefetchConfig& config);
   void cancelPrefetch();
 
+  // Playback settings (frame rate, loop, stall vs drop-frames).
+  void setPlaybackConfig(const TimeSeriesPlayer::Config& config);
+  TimeSeriesPlayer::Config playbackConfig() const;
+
   TimeSeriesLoader* loader() { return m_loader.get(); }
 
 signals:
@@ -44,6 +54,14 @@ signals:
 private:
   void onLoadComplete(uint32_t time, std::shared_ptr<ImageXYZC> image, uint64_t seq);
   void onLoadFailed(uint32_t time, uint64_t seq);
+
+  void buildPlaybackControls(QVBoxLayout* layout);
+  void togglePlayPause();
+  void stopPlayback();
+  void onPlaybackTick();
+  // Reflect player state in the buttons and start/stop the tick timer.
+  void syncPlaybackUi();
+  uint64_t nowMs() const;
 
 protected:
   QGridLayout m_MainLayout;
@@ -56,6 +74,17 @@ protected:
 
   std::unique_ptr<TimeSeriesLoader> m_loader;
   TimeSeriesLoaderBridge* m_bridge;
+
+  // Playback. The state machine lives in renderlib; these are just its controls
+  // and the clock that drives it.
+  TimeSeriesPlayer m_player;
+  QToolButton* m_playPauseButton = nullptr;
+  QToolButton* m_stopButton = nullptr;
+  QSpinBox* m_fpsSpinner = nullptr;
+  QCheckBox* m_loopCheckbox = nullptr;
+  QCheckBox* m_dropFramesCheckbox = nullptr;
+  QTimer* m_playbackTimer = nullptr;
+  std::chrono::steady_clock::time_point m_clockOrigin;
   // Newest interactive request we have issued. Completions carrying an older
   // sequence number are discarded: the user has already moved on.
   uint64_t m_latestRequestSeq = 0;

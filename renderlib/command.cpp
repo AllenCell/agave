@@ -7,7 +7,7 @@
 #include "RenderSettings.h"
 #include "StringUtil.h"
 #include "VolumeDimensions.h"
-#include "io/ApplyVolumeToScene.h"
+#include "io/ApplyTimeStepToScene.h"
 
 #include "json/json.hpp"
 
@@ -590,7 +590,7 @@ SetTimeCommand::execute(ExecutionContext* c)
   // Applied before advancing the timeline or the context's loadSpec, so a
   // rejected volume does not leave the scene claiming to be at a time it never
   // reached.
-  if (!applyVolumeToScene(c->m_appScene, image, c->m_renderSettings)) {
+  if (!applyTimeStepToScene(c->m_appScene, image, c->m_renderSettings)) {
     LOG_ERROR << "Failed to apply time " << m_data.m_time << " to the scene";
     return;
   }
