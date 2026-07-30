@@ -146,6 +146,8 @@ tryReadJson(const std::string& zarrurl, const std::string& jsonfile)
 ::nlohmann::json
 FileReaderZarr::jsonRead(const std::string& zarrurl)
 {
+  std::lock_guard<std::recursive_mutex> lock(m_metadataMutex);
+
   if (m_zattrs.is_object()) {
     return m_zattrs;
   }
@@ -376,6 +378,25 @@ FileReaderZarr::tensorstoreZarrDriverName()
 std::vector<MultiscaleDims>
 FileReaderZarr::loadMultiscaleDims(const std::string& filepath, uint32_t scene)
 {
+  const std::string key = filepath + "|" + std::to_string(scene);
+
+  std::lock_guard<std::recursive_mutex> lock(m_metadataMutex);
+
+  auto cached = m_multiscaleDims.find(key);
+  if (cached != m_multiscaleDims.end()) {
+    return cached->second;
+  }
+
+  std::vector<MultiscaleDims> dims = readMultiscaleDims(filepath, scene);
+  // Cache even an empty result: a failed parse will fail identically on every
+  // timepoint, and retrying it per load just repeats the tensorstore opens.
+  m_multiscaleDims.emplace(key, dims);
+  return dims;
+}
+
+std::vector<MultiscaleDims>
+FileReaderZarr::readMultiscaleDims(const std::string& filepath, uint32_t scene)
+{
   std::vector<MultiscaleDims> multiscaleDims;
 
   nlohmann::json attrs = jsonRead(filepath);
@@ -465,7 +486,7 @@ FileReaderZarr::loadDimensions(const std::string& filepath, uint32_t scene)
 }
 
 std::shared_ptr<ImageXYZC>
-FileReaderZarr::loadFromFile(const LoadSpec& loadSpec)
+FileReaderZarr::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progress)
 {
   auto tStart = std::chrono::high_resolution_clock::now();
   // load channels
@@ -497,26 +518,33 @@ FileReaderZarr::loadFromFile(const LoadSpec& loadSpec)
 
   uint32_t nch = loadSpec.channels.empty() ? dims.sizeC : loadSpec.channels.size();
 
-  if (!m_store.valid()) {
-    // TODO this is the tensorstore in-memory cache.  This could be reused across many instances of FileReaderZarr and
-    // hooked up to the CacheManager.
-    auto context = tensorstore::Context::FromJson({ { "cache_pool", { { "total_bytes_limit", 100000000 } } } }).value();
+  {
+    // Guarded because several loads may be in flight on this reader at once;
+    // without the lock two of them could race to open and assign m_store.
+    std::lock_guard<std::mutex> storeLock(m_storeMutex);
+    if (!m_store.valid()) {
+      // TODO this is the tensorstore in-memory cache.  This could be reused across many instances of FileReaderZarr and
+      // hooked up to the CacheManager.
+      auto context =
+        tensorstore::Context::FromJson({ { "cache_pool", { { "total_bytes_limit", 100000000 } } } }).value();
 
-    auto openFuture = tensorstore::Open({ { "driver", tensorstoreZarrDriverName() },
-                                          { "kvstore", getKvStoreDriverParams(loadSpec.filepath, loadSpec.subpath) } },
-                                        context,
-                                        tensorstore::OpenMode::open,
-                                        tensorstore::RecheckCached{ false },
-                                        tensorstore::RecheckCachedData{ false },
-                                        tensorstore::ReadWriteMode::read);
+      auto openFuture =
+        tensorstore::Open({ { "driver", tensorstoreZarrDriverName() },
+                            { "kvstore", getKvStoreDriverParams(loadSpec.filepath, loadSpec.subpath) } },
+                          context,
+                          tensorstore::OpenMode::open,
+                          tensorstore::RecheckCached{ false },
+                          tensorstore::RecheckCachedData{ false },
+                          tensorstore::ReadWriteMode::read);
 
-    const auto& result = openFuture.result();
-    if (!result.ok()) {
-      LOG_ERROR << "Error: " << result.status();
-      return emptyimage;
+      const auto& result = openFuture.result();
+      if (!result.ok()) {
+        LOG_ERROR << "Error: " << result.status();
+        return emptyimage;
+      }
+
+      m_store = result.value();
     }
-
-    m_store = result.value();
   }
   // auto domain = m_store.domain();
   // std::cout << "domain.shape(): " << domain.shape() << std::endl;
@@ -559,6 +587,11 @@ FileReaderZarr::loadFromFile(const LoadSpec& loadSpec)
 
   // now ready to read channels one by one.
   for (uint32_t channel = 0; channel < nch; ++channel) {
+    // Cancellation boundary: a channel read is the smallest unit we can abandon
+    // without leaving a partially converted volume behind.
+    if (progress.isCancelled()) {
+      return emptyimage;
+    }
     uint32_t channelToLoad = channel;
     if (!loadSpec.channels.empty()) {
       channelToLoad = loadSpec.channels[channel];
@@ -622,6 +655,8 @@ FileReaderZarr::loadFromFile(const LoadSpec& loadSpec)
     if (!FileReaderUtil::convertChannelData(data + channel * channelsize_bytes, channelRawMem, dims)) {
       return emptyimage;
     }
+
+    progress.setProgress(channel + 1, nch);
   }
 
   auto tEnd = std::chrono::high_resolution_clock::now();
