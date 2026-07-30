@@ -300,8 +300,14 @@ CacheManager::setConfig(const CacheConfig& config)
     evictDiskIfNeeded(configCopy, 0);
   }
 
-  std::scoped_lock lock(m_mutex);
-  evictIfNeededLocked(0);
+  // A tightened maxRamBytes can push the tier over its new limit, so trim it
+  // here rather than waiting for the next store.
+  std::vector<CacheKey> evicted;
+  {
+    std::scoped_lock lock(m_mutex);
+    evictIfNeededLocked(0, evicted);
+  }
+  notifyEvicted(evicted);
 }
 
 CacheConfig
@@ -399,10 +405,18 @@ CacheManager::storeImage(const LoadSpec& loadSpec, const std::shared_ptr<ImageXY
 void
 CacheManager::clearMemoryCache()
 {
-  std::scoped_lock lock(m_mutex);
-  m_entries.clear();
-  m_lruKeys.clear();
-  m_currentRamBytes = 0;
+  // Clears pinned entries too: this is an explicit "drop everything" request,
+  // not eviction under pressure. Pin refcounts are left alone, so a caller
+  // holding a pin still has it and will protect the entry once it is reloaded.
+  std::vector<CacheKey> evicted;
+  {
+    std::scoped_lock lock(m_mutex);
+    evicted.assign(m_lruKeys.begin(), m_lruKeys.end());
+    m_entries.clear();
+    m_lruKeys.clear();
+    m_currentRamBytes = 0;
+  }
+  notifyEvicted(evicted);
 }
 
 void
@@ -600,52 +614,150 @@ CacheManager::touchEntry(std::list<CacheKey>::iterator it)
 }
 
 void
-CacheManager::evictIfNeededLocked(std::uint64_t incomingBytes)
+CacheManager::evictIfNeededLocked(std::uint64_t incomingBytes, std::vector<CacheKey>& evicted)
 {
   if (m_config.maxRamBytes == 0) {
     return;
   }
 
-  while (!m_lruKeys.empty() && (m_currentRamBytes + incomingBytes) > m_config.maxRamBytes) {
-    const CacheKey& key = m_lruKeys.back();
-    auto it = m_entries.find(key);
-    if (it != m_entries.end()) {
-      m_currentRamBytes -= it->second.bytes;
-      m_entries.erase(it);
+  // Walk from least- to most-recently used, skipping pinned entries. If
+  // everything still resident is pinned we stop and let the tier sit over its
+  // limit rather than dropping data that is in use -- overshooting is
+  // recoverable, evicting the displayed timepoint is not.
+  auto it = m_lruKeys.end();
+  while (it != m_lruKeys.begin()) {
+    if ((m_currentRamBytes + incomingBytes) <= m_config.maxRamBytes) {
+      return;
     }
-    m_lruKeys.pop_back();
+    --it;
+
+    auto entryIt = m_entries.find(*it);
+    if (entryIt == m_entries.end()) {
+      // LRU key with no matching entry: stale bookkeeping, just drop the key.
+      // erase returns the following element, so the next --it lands on the
+      // predecessor of what we removed.
+      it = m_lruKeys.erase(it);
+      continue;
+    }
+
+    if (m_pinned.find(*it) != m_pinned.end()) {
+      // Leave it in place and keep walking toward the most-recently-used end.
+      continue;
+    }
+
+    evicted.push_back(*it);
+    m_currentRamBytes -= entryIt->second.bytes;
+    m_entries.erase(entryIt);
+    it = m_lruKeys.erase(it);
   }
+}
+
+void
+CacheManager::notifyEvicted(const std::vector<CacheKey>& keys)
+{
+  if (keys.empty()) {
+    return;
+  }
+  // Copy the observer list under the lock, then notify without it, so an
+  // observer is free to call back into the cache.
+  std::vector<IEvictionObserver*> observers;
+  {
+    std::scoped_lock lock(m_mutex);
+    observers = m_evictionObservers;
+  }
+  for (IEvictionObserver* observer : observers) {
+    for (const CacheKey& key : keys) {
+      observer->onEvictedFromMemory(key);
+    }
+  }
+}
+
+void
+CacheManager::addEvictionObserver(IEvictionObserver* observer)
+{
+  if (!observer) {
+    return;
+  }
+  std::scoped_lock lock(m_mutex);
+  if (std::find(m_evictionObservers.begin(), m_evictionObservers.end(), observer) == m_evictionObservers.end()) {
+    m_evictionObservers.push_back(observer);
+  }
+}
+
+void
+CacheManager::removeEvictionObserver(IEvictionObserver* observer)
+{
+  std::scoped_lock lock(m_mutex);
+  auto it = std::find(m_evictionObservers.begin(), m_evictionObservers.end(), observer);
+  if (it != m_evictionObservers.end()) {
+    m_evictionObservers.erase(it);
+  }
+}
+
+void
+CacheManager::pin(const LoadSpec& loadSpec)
+{
+  CacheKey key = makeKey(loadSpec);
+  std::scoped_lock lock(m_mutex);
+  ++m_pinned[key];
+}
+
+void
+CacheManager::unpin(const LoadSpec& loadSpec)
+{
+  CacheKey key = makeKey(loadSpec);
+  std::scoped_lock lock(m_mutex);
+  auto it = m_pinned.find(key);
+  if (it == m_pinned.end()) {
+    LOG_WARNING << "CacheManager::unpin called for a key that was not pinned";
+    return;
+  }
+  if (--it->second == 0) {
+    m_pinned.erase(it);
+  }
+}
+
+bool
+CacheManager::isPinned(const LoadSpec& loadSpec) const
+{
+  CacheKey key = makeKey(loadSpec);
+  std::scoped_lock lock(m_mutex);
+  return m_pinned.find(key) != m_pinned.end();
 }
 
 void
 CacheManager::storeImageInMemory(const CacheKey& key, const std::shared_ptr<ImageXYZC>& image)
 {
-  std::scoped_lock lock(m_mutex);
-  if (!m_config.enabled || m_config.maxRamBytes == 0) {
-    return;
+  std::vector<CacheKey> evicted;
+  {
+    std::scoped_lock lock(m_mutex);
+    if (!m_config.enabled || m_config.maxRamBytes == 0) {
+      return;
+    }
+
+    std::uint64_t bytes = estimateImageBytes(*image);
+    if (bytes == 0 || bytes > m_config.maxRamBytes) {
+      return;
+    }
+
+    auto existing = m_entries.find(key);
+    if (existing != m_entries.end()) {
+      m_currentRamBytes -= existing->second.bytes;
+      m_lruKeys.erase(existing->second.lruIt);
+      m_entries.erase(existing);
+    }
+
+    evictIfNeededLocked(bytes, evicted);
+
+    m_lruKeys.push_front(key);
+    CacheEntry entry;
+    entry.image = image;
+    entry.bytes = bytes;
+    entry.lruIt = m_lruKeys.begin();
+    m_entries.emplace(key, entry);
+    m_currentRamBytes += bytes;
   }
-
-  std::uint64_t bytes = estimateImageBytes(*image);
-  if (bytes == 0 || bytes > m_config.maxRamBytes) {
-    return;
-  }
-
-  auto existing = m_entries.find(key);
-  if (existing != m_entries.end()) {
-    m_currentRamBytes -= existing->second.bytes;
-    m_lruKeys.erase(existing->second.lruIt);
-    m_entries.erase(existing);
-  }
-
-  evictIfNeededLocked(bytes);
-
-  m_lruKeys.push_front(key);
-  CacheEntry entry;
-  entry.image = image;
-  entry.bytes = bytes;
-  entry.lruIt = m_lruKeys.begin();
-  m_entries.emplace(key, entry);
-  m_currentRamBytes += bytes;
+  notifyEvicted(evicted);
 }
 
 std::shared_ptr<ImageXYZC>
