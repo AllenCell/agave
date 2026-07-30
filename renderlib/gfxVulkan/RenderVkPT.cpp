@@ -1,6 +1,7 @@
 #include "RenderVkPT.h"
 
 #include "AppScene.h"
+#include "CacheStatusReport.h"
 #include "CCamera.h"
 #include "Framebuffer.h"
 #include "GradientData.h"
@@ -158,10 +159,8 @@ struct alignas(16) PtVolumeUniforms
 static_assert(offsetof(PtVolumeUniforms, gLights) == 112, "PtVolumeUniforms.gLights offset");
 static_assert(offsetof(PtVolumeUniforms, gClippedAaBbMin) == 496, "PtVolumeUniforms.gClippedAaBbMin offset");
 static_assert(offsetof(PtVolumeUniforms, gPosToUVW) == 544, "PtVolumeUniforms.gPosToUVW offset");
-static_assert(offsetof(PtVolumeUniforms, gUseWoodcockTracking) == 564,
-              "PtVolumeUniforms.gUseWoodcockTracking offset");
-static_assert(offsetof(PtVolumeUniforms, gExtinctionMajorant) == 568,
-              "PtVolumeUniforms.gExtinctionMajorant offset");
+static_assert(offsetof(PtVolumeUniforms, gUseWoodcockTracking) == 564, "PtVolumeUniforms.gUseWoodcockTracking offset");
+static_assert(offsetof(PtVolumeUniforms, gExtinctionMajorant) == 568, "PtVolumeUniforms.gExtinctionMajorant offset");
 static_assert(offsetof(PtVolumeUniforms, gGradientDeltaX) == 576, "PtVolumeUniforms.gGradientDeltaX offset");
 static_assert(offsetof(PtVolumeUniforms, g_intensityMax) == 640, "PtVolumeUniforms.g_intensityMax offset");
 static_assert(offsetof(PtVolumeUniforms, g_opacity) == 720, "PtVolumeUniforms.g_opacity offset");
@@ -880,6 +879,7 @@ RenderVkPT::renderToFramebufferPT(const CCamera& camera, Framebuffer& framebuffe
   m_status->SetStatisticChanged("Performance", "Path Trace Samples", formatDurationMs(sampleMs), "ms.");
   m_status->SetStatisticChanged("Performance", "Tone Map", formatDurationMs(toneMapMs), "ms.");
   m_status->SetStatisticChanged("Performance", "No. Iterations", std::to_string(m_renderSettings->GetNoIterations()));
+  reportCacheStatistics(m_status.get());
 }
 
 bool
