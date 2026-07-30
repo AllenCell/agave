@@ -498,6 +498,8 @@ FileReaderZarr::loadFromFile(const LoadSpec& loadSpec)
   uint32_t nch = loadSpec.channels.empty() ? dims.sizeC : loadSpec.channels.size();
 
   if (!m_store.valid()) {
+    // TODO this is the tensorstore in-memory cache.  This could be reused across many instances of FileReaderZarr and
+    // hooked up to the CacheManager.
     auto context = tensorstore::Context::FromJson({ { "cache_pool", { { "total_bytes_limit", 100000000 } } } }).value();
 
     auto openFuture = tensorstore::Open({ { "driver", tensorstoreZarrDriverName() },
