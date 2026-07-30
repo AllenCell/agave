@@ -26,6 +26,17 @@ Run a subset directly:
 cd <repo>\test && D:\agave_build\Debug\agave_test.exe "[loadRequest]"
 ```
 
+Formatting — run clang-format on every added/modified C++ file before committing:
+```
+& "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\Llvm\x64\bin\clang-format.exe" -i -style=file <files>
+```
+
+**Watch out for line endings.** `core.autocrlf=true` and no `.gitattributes`, and some tracked files
+(e.g. `renderlib/CMakeLists.txt`) have mixed CRLF/LF. An editing tool that normalizes a whole file
+produces a diff full of invisible whitespace changes. After editing, check
+`git diff --numstat` against `git diff -w --numstat` per file; if they disagree and it is not explained
+by intentional re-indentation, restore the file and re-apply the edit preserving byte patterns.
+
 ## Phase 1 — COMPLETE and verified
 
 Full suite green: **802 assertions in 30 test cases**. New `[loadRequest]` tag: 38 assertions, 9 cases.
@@ -115,6 +126,36 @@ cache only pays off when the same subblock is read more than once, but each time
 distinct set of subblocks, and within one load each plane is read exactly once. It would add memory
 pressure and a pruning policy for no reuse — and whole-timepoint caching is already `CacheManager`'s job.
 Revisit only if a real access pattern shows repeated subblock reads.
+
+## Phase 0 — COMPLETE and verified
+
+Full suite green: **818 assertions in 31 test cases**. App builds via `--target install`.
+
+- `CacheManager` gained `getUsage()` (returning a `CacheUsage` struct: ram/disk bytes used, the
+  corresponding limits, and entry counts for both tiers), plus `getRamBytesUsed()` and
+  `getRamBytesAvailable()`. The latter clamps at zero rather than underflowing — prefetch throttling in
+  phase 5 depends on that, and there is a test for it.
+- New `renderlib/CacheStatusReport.{h,cpp}` with a single free function `reportCacheStatistics(CStatus*)`
+  that publishes a **"Cache"** group: Enabled, Memory used/limit, Memory Entries, Disk used/limit,
+  Disk Entries, Hit Rate %, Memory Hits, Disk Hits, Disk Writes, Misses. Byte formatting reuses the
+  existing `LoadSpec::bytesToStringLabel`. `CacheManager::getStats()` finally has a consumer.
+- Wired into all four renderers' existing statistics blocks: `RenderVk`, `RenderVkPT`, `RenderGL`,
+  `RenderGLPT`. `m_status` is a `std::shared_ptr<CStatus>`, so the call sites pass `.get()`.
+- 5 new sections in `test_cacheManager.cpp` covering empty usage, usage tracking stores, clamping at the
+  limit, clearing, and the disabled-disk case.
+
+### Notes
+- **Why not a single call site:** `CStatus::SetPostRenderFrame()` and `SetRenderEnd()` looked like the
+  natural single hook, but **nothing in the codebase calls either of them** — they are dead. The four
+  per-frame statistics blocks are the only live emit points, matching how every other statistic is
+  reported.
+- **Threading:** `reportCacheStatistics` must only be called from the render/GUI thread. `CStatus`
+  notifies observers synchronously and in the GUI those are Qt widgets, so calling it from the phase-5
+  loader thread would touch Qt off-thread. This is documented in the header.
+- Reporting happens per frame, which re-locks the CacheManager mutex each frame. Uncontended and cheap,
+  and consistent with the existing per-frame timing statistics. Revisit only if it shows up in a profile.
+- Visual confirmation of the dock is a manual step (View > Statistics); it was not automatically
+  verified, since the test suite links renderlib only and has no Qt.
 
 ## Next up
 

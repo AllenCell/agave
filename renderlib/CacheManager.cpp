@@ -488,6 +488,37 @@ CacheManager::isAgaveCacheDir(const std::string& path) const
   return std::filesystem::exists(marker, ec);
 }
 
+CacheManager::CacheUsage
+CacheManager::getUsage() const
+{
+  std::scoped_lock lock(m_mutex);
+  CacheUsage usage;
+  usage.ramBytesUsed = m_currentRamBytes;
+  usage.ramBytesLimit = m_config.maxRamBytes;
+  usage.diskBytesUsed = m_currentDiskBytes;
+  usage.diskBytesLimit = m_config.enableDisk ? m_config.maxDiskBytes : 0;
+  usage.ramEntryCount = m_entries.size();
+  usage.diskEntryCount = m_diskEntries.size();
+  return usage;
+}
+
+std::uint64_t
+CacheManager::getRamBytesUsed() const
+{
+  std::scoped_lock lock(m_mutex);
+  return m_currentRamBytes;
+}
+
+std::uint64_t
+CacheManager::getRamBytesAvailable() const
+{
+  std::scoped_lock lock(m_mutex);
+  if (m_currentRamBytes >= m_config.maxRamBytes) {
+    return 0;
+  }
+  return m_config.maxRamBytes - m_currentRamBytes;
+}
+
 CacheManager::CacheStats
 CacheManager::getStats() const
 {
