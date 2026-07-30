@@ -671,7 +671,7 @@ FileReaderTIFF::loadDimensions(const std::string& filepath, uint32_t scene)
 }
 
 std::shared_ptr<ImageXYZC>
-FileReaderTIFF::loadFromFile(const LoadSpec& loadSpec)
+FileReaderTIFF::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progress)
 {
   std::string filepath = loadSpec.filepath;
   uint32_t time = loadSpec.time;
@@ -753,6 +753,11 @@ FileReaderTIFF::loadFromFile(const LoadSpec& loadSpec)
 
     // read entire channel into its native size
     for (uint32_t slice = 0; slice < dims.sizeZ; ++slice) {
+      // Cancellation boundary: one IFD read per plane, so this is a fine-grained
+      // place to abandon an unwanted prefetch.
+      if (progress.isCancelled()) {
+        return emptyimage;
+      }
       uint32_t planeIndex = dims.getPlaneIndex(slice, channelToLoad, time);
       destptr = channelRawMem + slice * rawPlanesize;
       if (!readTiffPlane(tiff, planeIndex, dims, destptr)) {
@@ -764,6 +769,8 @@ FileReaderTIFF::loadFromFile(const LoadSpec& loadSpec)
     if (!FileReaderUtil::convertChannelData(data + channel * channelsize_bytes, channelRawMem, dims)) {
       return emptyimage;
     }
+
+    progress.setProgress(channel + 1, nch);
   }
 
   auto tEnd = std::chrono::high_resolution_clock::now();
