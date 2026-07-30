@@ -7,6 +7,7 @@
 #include <vector>
 
 class ImageXYZC;
+class LoadRequest;
 struct MultiscaleDims;
 
 // TODO this is sort of zarr specific
@@ -74,6 +75,19 @@ public:
   // return dimensions from scene in file
   virtual std::vector<MultiscaleDims> loadMultiscaleDims(const std::string& filepath, uint32_t scene = 0) = 0;
 
-  // load image data from file
-  virtual std::shared_ptr<ImageXYZC> loadFromFile(const LoadSpec& loadSpec) = 0;
+  // Begin loading image data from file and return immediately. The returned
+  // LoadRequest can be polled for completion, queried for progress, and
+  // cancelled. Returns null if the load could not be started at all.
+  //
+  // Readers backed by a blocking library implement this by deriving from
+  // BlockingFileReader rather than overriding it here.
+  virtual std::shared_ptr<LoadRequest> submitLoad(const LoadSpec& loadSpec) = 0;
+
+  // How many loads this reader can usefully have in flight at once. 1 means the
+  // reader offers no concurrency; callers must not exceed this value.
+  virtual uint32_t maxConcurrentLoads() const { return 1; }
+
+  // Load image data from file, blocking until done. Convenience wrapper around
+  // submitLoad; returns null on failure.
+  std::shared_ptr<ImageXYZC> loadFromFile(const LoadSpec& loadSpec);
 };
