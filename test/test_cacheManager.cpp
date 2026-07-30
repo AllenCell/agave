@@ -733,3 +733,150 @@ TEST_CASE("CacheManager reports tier usage", "[cacheManager]")
     REQUIRE(cache.getUsage().diskBytesLimit == 0);
   }
 }
+
+namespace {
+
+class RecordingEvictionObserver : public CacheManager::IEvictionObserver
+{
+public:
+  void onEvictedFromMemory(const CacheKey& key) override { evicted.push_back(key.filepath); }
+  std::vector<std::string> evicted;
+};
+
+} // namespace
+
+TEST_CASE("CacheManager pinning protects entries from eviction", "[cacheManager]")
+{
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  CacheManager cache;
+
+  SECTION("A pinned entry survives pressure that would otherwise evict it")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 2));
+
+    auto specA = makeSpec("a");
+    cache.storeImage(specA, makeImage(4, 4, 4, 1));
+    cache.pin(specA);
+    REQUIRE(cache.isPinned(specA));
+
+    // "a" is now least-recently-used, so without the pin it would be the first
+    // thing dropped when "c" needs room.
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
+
+    REQUIRE(cache.findImage(specA) != nullptr);
+    REQUIRE(cache.findImage(makeSpec("b")) == nullptr);
+  }
+
+  SECTION("Unpinning makes an entry evictable again")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 2));
+
+    auto specA = makeSpec("a");
+    cache.storeImage(specA, makeImage(4, 4, 4, 1));
+    cache.pin(specA);
+    cache.unpin(specA);
+    REQUIRE_FALSE(cache.isPinned(specA));
+
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
+
+    REQUIRE(cache.findImage(specA) == nullptr);
+  }
+
+  SECTION("Pins are refcounted")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 2));
+
+    auto specA = makeSpec("a");
+    cache.storeImage(specA, makeImage(4, 4, 4, 1));
+    cache.pin(specA);
+    cache.pin(specA);
+    cache.unpin(specA);
+    // Still pinned: one pin outstanding.
+    REQUIRE(cache.isPinned(specA));
+
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
+    REQUIRE(cache.findImage(specA) != nullptr);
+
+    cache.unpin(specA);
+    REQUIRE_FALSE(cache.isPinned(specA));
+  }
+
+  SECTION("Pinning a key that is not resident yet still protects it once stored")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 2));
+
+    auto specA = makeSpec("a");
+    cache.pin(specA);
+    cache.storeImage(specA, makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
+
+    REQUIRE(cache.findImage(specA) != nullptr);
+  }
+
+  SECTION("The tier may exceed its limit when everything resident is pinned")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 2));
+
+    auto specA = makeSpec("a");
+    auto specB = makeSpec("b");
+    cache.storeImage(specA, makeImage(4, 4, 4, 1));
+    cache.storeImage(specB, makeImage(4, 4, 4, 1));
+    cache.pin(specA);
+    cache.pin(specB);
+
+    // Nothing is evictable, so we overshoot rather than dropping data in use.
+    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
+
+    REQUIRE(cache.findImage(specA) != nullptr);
+    REQUIRE(cache.findImage(specB) != nullptr);
+    REQUIRE(cache.getRamBytesUsed() > oneImage * 2);
+  }
+}
+
+TEST_CASE("CacheManager notifies eviction observers", "[cacheManager]")
+{
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  CacheManager cache;
+  RecordingEvictionObserver observer;
+  cache.addEvictionObserver(&observer);
+
+  SECTION("Eviction under pressure notifies with the evicted key")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 2));
+
+    cache.storeImage(makeSpec("a"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+    REQUIRE(observer.evicted.empty());
+
+    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
+    REQUIRE(observer.evicted.size() == 1);
+    REQUIRE(observer.evicted[0].find("a") != std::string::npos);
+  }
+
+  SECTION("clearMemoryCache notifies for every dropped entry")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 4));
+
+    cache.storeImage(makeSpec("a"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+    cache.clearMemoryCache();
+
+    REQUIRE(observer.evicted.size() == 2);
+  }
+
+  SECTION("A removed observer stops receiving notifications")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 2));
+    cache.removeEvictionObserver(&observer);
+
+    cache.storeImage(makeSpec("a"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
+
+    REQUIRE(observer.evicted.empty());
+  }
+}

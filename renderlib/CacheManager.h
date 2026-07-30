@@ -76,6 +76,29 @@ public:
   void setConfig(const CacheConfig& config);
   CacheConfig getConfig() const;
 
+  // Notified when an entry leaves the in-memory tier, so a caller tracking
+  // per-timepoint cache state can mark it uncached again instead of polling.
+  // Invoked with no CacheManager lock held, so an observer may call back in.
+  class IEvictionObserver
+  {
+  public:
+    virtual ~IEvictionObserver() = default;
+    virtual void onEvictedFromMemory(const CacheKey& key) = 0;
+  };
+  void addEvictionObserver(IEvictionObserver* observer);
+  void removeEvictionObserver(IEvictionObserver* observer);
+
+  // Protect an entry from eviction. Refcounted, so nested pins are safe; every
+  // pin needs a matching unpin. Pinning is keyed, not entry-based: pinning a key
+  // that is not resident yet still protects it once it is stored, which avoids a
+  // race between storing a timepoint and pinning it.
+  //
+  // Used to keep the timepoint currently on screen resident while prefetch fills
+  // the cache around it.
+  void pin(const LoadSpec& loadSpec);
+  void unpin(const LoadSpec& loadSpec);
+  bool isPinned(const LoadSpec& loadSpec) const;
+
   std::shared_ptr<ImageXYZC> findImage(const LoadSpec& loadSpec);
   void storeImage(const LoadSpec& loadSpec, const std::shared_ptr<ImageXYZC>& image);
   // Drop all entries from the in-memory cache. Disk cache is untouched.
@@ -120,8 +143,12 @@ private:
   std::string diskCacheId(const CacheKey& key) const;
   std::uint64_t estimateImageBytes(const ImageXYZC& image) const;
   void touchEntry(std::list<CacheKey>::iterator it);
-  // Precondition: caller must hold m_mutex.
-  void evictIfNeededLocked(std::uint64_t incomingBytes);
+  // Precondition: caller must hold m_mutex. Appends every key it drops to
+  // `evicted`; the caller is responsible for notifying observers after
+  // releasing the lock.
+  void evictIfNeededLocked(std::uint64_t incomingBytes, std::vector<CacheKey>& evicted);
+  // Precondition: caller must NOT hold m_mutex.
+  void notifyEvicted(const std::vector<CacheKey>& keys);
   void storeImageInMemory(const CacheKey& key, const std::shared_ptr<ImageXYZC>& image);
 
   std::shared_ptr<ImageXYZC> loadFromDisk(const CacheKey& key, const CacheConfig& config, const std::string& cacheDir);
@@ -153,6 +180,12 @@ private:
   };
 
   std::unordered_map<CacheKey, CacheEntry, CacheKeyHash> m_entries;
+
+  // Pin refcounts by key. Deliberately independent of m_entries so a pin can be
+  // taken before the entry exists and still applies once it is stored.
+  std::unordered_map<CacheKey, std::uint32_t, CacheKeyHash> m_pinned;
+
+  std::vector<IEvictionObserver*> m_evictionObservers;
 
   struct DiskEntry
   {
