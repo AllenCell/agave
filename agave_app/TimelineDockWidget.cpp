@@ -151,13 +151,17 @@ QTimelineWidget::onLoadComplete(uint32_t time, std::shared_ptr<ImageXYZC> image,
 
   // The LUT remap reads the outgoing volume's histograms, so it has to happen
   // here at display time rather than on the loader thread.
-  applyVolumeToScene(m_scene, image, m_qrendersettings ? m_qrendersettings->renderSettings() : nullptr);
+  if (!applyVolumeToScene(m_scene, image, m_qrendersettings ? m_qrendersettings->renderSettings() : nullptr)) {
+    // The volume was rejected (e.g. a channel-count mismatch, which should not
+    // happen for time steps of one source). Treat it as a failed load so the
+    // slider does not sit on a time the scene never reached.
+    onLoadFailed(time, seq);
+    return;
+  }
 
   m_scene->m_timeLine.setCurrentTime(static_cast<int32_t>(time));
 
-  LoadSpec loadSpec = m_loadSpec;
-  loadSpec.time = time;
-  m_loadSpec = loadSpec;
+  m_loadSpec.time = time;
 
   // update the AppearanceSettings channel gui with new Histograms
   emit timeChanged(static_cast<int>(time));
