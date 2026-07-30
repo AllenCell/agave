@@ -718,6 +718,14 @@ CacheManager::unpin(const LoadSpec& loadSpec)
 }
 
 bool
+CacheManager::containsInMemory(const LoadSpec& loadSpec) const
+{
+  CacheKey key = makeKey(loadSpec);
+  std::scoped_lock lock(m_mutex);
+  return m_entries.find(key) != m_entries.end();
+}
+
+bool
 CacheManager::isPinned(const LoadSpec& loadSpec) const
 {
   CacheKey key = makeKey(loadSpec);
