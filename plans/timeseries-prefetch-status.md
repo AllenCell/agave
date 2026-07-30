@@ -157,6 +157,36 @@ Full suite green: **818 assertions in 31 test cases**. App builds via `--target 
 - Visual confirmation of the dock is a manual step (View > Statistics); it was not automatically
   verified, since the test suite links renderlib only and has no Qt.
 
+## Phase 4 — PARTIALLY COMPLETE
+
+Suite green: **835 assertions in 33 test cases**. App builds via `--target install`.
+
+### Done: pinning + eviction observer
+- `CacheManager::pin(LoadSpec)` / `unpin()` / `isPinned()`, refcounted so nested pins are safe.
+  **Pins are keyed, not entry-based** — held in a separate `m_pinned` map rather than as a field on
+  `CacheEntry`, so pinning a key that is not resident yet still protects it once stored. That removes a
+  race between storing a timepoint and pinning it.
+- `evictIfNeededLocked` rewritten to walk LRU→MRU skipping pinned entries. **If everything resident is
+  pinned it stops and lets the tier sit over its limit**, rather than dropping data in use — overshooting
+  is recoverable, evicting the displayed timepoint is not. There is a test asserting exactly this.
+  It also now cleans up stale LRU keys that have no matching entry.
+- `CacheManager::IEvictionObserver` + `addEvictionObserver`/`removeEvictionObserver`. Notifications are
+  delivered **with no lock held**: `evictIfNeededLocked` appends dropped keys to a caller-supplied
+  vector, and the caller calls `notifyEvicted()` after releasing the mutex. The observer list is copied
+  under the lock before notifying, so an observer may call back into the cache.
+- `setConfig` now trims the tier when `maxRamBytes` is lowered (it already called the evict helper; it
+  now reports what it dropped). `clearMemoryCache` notifies for every dropped entry and deliberately
+  drops pinned entries too — it is an explicit "drop everything", not eviction under pressure — while
+  leaving pin refcounts intact so a holder still protects the entry once it is reloaded.
+- 8 new test sections covering survive-under-pressure, unpin, refcounting, pin-before-store,
+  the over-limit-when-all-pinned case, eviction notification, clear notification, and observer removal.
+
+### Not done: async disk-write queue
+`storeImage` still calls `storeToDisk` inline, so a cache-cold prefetch pays a full-volume disk write on
+the loader thread. Splitting that onto a low-priority writer thread (bounded queue, drop-oldest under
+pressure, drain on shutdown) is the remaining Phase 4 item. Not required for Phase 5 to function — it is
+a playback-smoothness optimization — but it should land before prefetch is enabled by default.
+
 ## Next up
 
 - **Phase 0** — observability: surface `CacheManager::getStats()` (still has no consumer) plus a
