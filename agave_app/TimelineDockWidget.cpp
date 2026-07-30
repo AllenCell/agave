@@ -8,9 +8,15 @@
 #include "renderlib/ImageXYZC.h"
 #include "renderlib/Logging.h"
 #include "renderlib/RenderSettings.h"
-#include "renderlib/io/ApplyVolumeToScene.h"
+#include "renderlib/io/ApplyTimeStepToScene.h"
 
+#include <QCheckBox>
+#include <QHBoxLayout>
 #include <QScrollArea>
+#include <QSpinBox>
+#include <QStyle>
+#include <QTimer>
+#include <QToolButton>
 
 QTimelineWidget::QTimelineWidget(QWidget* pParent, QRenderSettings* qrs)
   : QWidget(pParent)
@@ -43,6 +49,8 @@ QTimelineWidget::QTimelineWidget(QWidget* pParent, QRenderSettings* qrs)
 
   QObject::connect(m_TimeSlider, &QIntSlider::valueChanged, [this](int t) { this->OnTimeChanged(t); });
 
+  buildPlaybackControls(fullLayout);
+
   connect(m_bridge,
           &TimeSeriesLoaderBridge::interactiveLoadComplete,
           this,
@@ -56,6 +64,167 @@ QTimelineWidget::QTimelineWidget(QWidget* pParent, QRenderSettings* qrs)
   scrollArea->setLayout(fullLayout);
 
   m_MainLayout.addWidget(scrollArea, 1, 0);
+}
+
+void
+QTimelineWidget::buildPlaybackControls(QVBoxLayout* layout)
+{
+  auto* row = new QHBoxLayout();
+
+  // Qt's standard media pixmaps rather than new SVG assets, so the icons follow
+  // the platform style and the light/dark theme switch for free.
+  m_playPauseButton = new QToolButton();
+  m_playPauseButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+  m_playPauseButton->setToolTip(tr("Play/pause through time"));
+  m_playPauseButton->setStatusTip(tr("Play or pause playback through the time series"));
+  row->addWidget(m_playPauseButton);
+
+  m_stopButton = new QToolButton();
+  m_stopButton->setIcon(style()->standardIcon(QStyle::SP_MediaStop));
+  m_stopButton->setToolTip(tr("Stop and return to where playback started"));
+  m_stopButton->setStatusTip(tr("Stop playback and return to the time it started from"));
+  row->addWidget(m_stopButton);
+
+  m_fpsSpinner = new QSpinBox();
+  m_fpsSpinner->setRange(1, 120);
+  m_fpsSpinner->setValue(10);
+  m_fpsSpinner->setSuffix(tr(" fps"));
+  m_fpsSpinner->setToolTip(tr("Target playback frame rate"));
+  m_fpsSpinner->setStatusTip(tr("Target playback frame rate"));
+  row->addWidget(m_fpsSpinner);
+
+  m_loopCheckbox = new QCheckBox(tr("Loop"));
+  m_loopCheckbox->setChecked(true);
+  m_loopCheckbox->setToolTip(tr("Wrap to the beginning at the end of the series"));
+  m_loopCheckbox->setStatusTip(tr("Wrap to the beginning at the end of the series"));
+  row->addWidget(m_loopCheckbox);
+
+  m_dropFramesCheckbox = new QCheckBox(tr("Smooth"));
+  m_dropFramesCheckbox->setChecked(false);
+  m_dropFramesCheckbox->setToolTip(tr("Keep a steady frame rate by skipping time steps that are not loaded yet.\n"
+                                      "Unchecked, playback waits for every time step so none are missed."));
+  m_dropFramesCheckbox->setStatusTip(tr("Keep a steady frame rate by skipping time steps that are not loaded yet"));
+  row->addWidget(m_dropFramesCheckbox);
+
+  row->addStretch(1);
+  layout->addLayout(row);
+
+  // A short fixed tick; the player does the rate limiting, so this only bounds
+  // how precisely a frame boundary can be hit.
+  m_playbackTimer = new QTimer(this);
+  m_playbackTimer->setTimerType(Qt::PreciseTimer);
+  m_playbackTimer->setInterval(5);
+
+  m_clockOrigin = std::chrono::steady_clock::now();
+
+  connect(m_playPauseButton, &QToolButton::clicked, this, [this]() { togglePlayPause(); });
+  connect(m_stopButton, &QToolButton::clicked, this, [this]() { stopPlayback(); });
+  connect(m_playbackTimer, &QTimer::timeout, this, [this]() { onPlaybackTick(); });
+
+  auto pushConfig = [this]() {
+    TimeSeriesPlayer::Config config = m_player.config();
+    config.fps = static_cast<float>(m_fpsSpinner->value());
+    config.loop = m_loopCheckbox->isChecked();
+    config.mode =
+      m_dropFramesCheckbox->isChecked() ? TimeSeriesPlayer::Mode::RealTime : TimeSeriesPlayer::Mode::ShowEveryFrame;
+    m_player.setConfig(config);
+  };
+  connect(m_fpsSpinner, QOverload<int>::of(&QSpinBox::valueChanged), this, [pushConfig](int) { pushConfig(); });
+  connect(m_loopCheckbox, &QCheckBox::toggled, this, [pushConfig](bool) { pushConfig(); });
+  connect(m_dropFramesCheckbox, &QCheckBox::toggled, this, [pushConfig](bool) { pushConfig(); });
+  pushConfig();
+
+  syncPlaybackUi();
+}
+
+uint64_t
+QTimelineWidget::nowMs() const
+{
+  return static_cast<uint64_t>(
+    std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - m_clockOrigin).count());
+}
+
+void
+QTimelineWidget::togglePlayPause()
+{
+  if (!m_scene) {
+    return;
+  }
+  if (m_player.isPlaying()) {
+    m_player.pause();
+  } else {
+    m_player.play(static_cast<uint32_t>(std::max(0, m_scene->m_timeLine.currentTime())), nowMs());
+  }
+  syncPlaybackUi();
+}
+
+void
+QTimelineWidget::stopPlayback()
+{
+  std::optional<uint32_t> origin = m_player.stop();
+  syncPlaybackUi();
+  if (origin) {
+    // Returning to the origin is a normal time change, so go through the slider
+    // and let the usual load path run.
+    setTime(static_cast<int>(*origin));
+  }
+}
+
+void
+QTimelineWidget::syncPlaybackUi()
+{
+  const bool playing = m_player.isPlaying();
+  if (m_playPauseButton) {
+    m_playPauseButton->setIcon(style()->standardIcon(playing ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
+  }
+  if (m_playbackTimer) {
+    if (playing && !m_playbackTimer->isActive()) {
+      m_playbackTimer->start();
+    } else if (!playing && m_playbackTimer->isActive()) {
+      m_playbackTimer->stop();
+    }
+  }
+}
+
+void
+QTimelineWidget::onPlaybackTick()
+{
+  if (!m_scene || !m_loader) {
+    return;
+  }
+
+  const uint32_t current = static_cast<uint32_t>(std::max(0, m_scene->m_timeLine.currentTime()));
+  std::optional<uint32_t> next = m_player.advance(
+    nowMs(), current, [this](uint32_t t) { return m_loader->status(t) == TimepointStatus::RamCached; });
+
+  if (!m_player.isPlaying()) {
+    // Reached the end with looping off.
+    syncPlaybackUi();
+  }
+  if (next) {
+    setTime(static_cast<int>(*next));
+  }
+}
+
+void
+QTimelineWidget::setPlaybackConfig(const TimeSeriesPlayer::Config& config)
+{
+  m_player.setConfig(config);
+  if (m_fpsSpinner) {
+    m_fpsSpinner->setValue(static_cast<int>(config.fps));
+  }
+  if (m_loopCheckbox) {
+    m_loopCheckbox->setChecked(config.loop);
+  }
+  if (m_dropFramesCheckbox) {
+    m_dropFramesCheckbox->setChecked(config.mode == TimeSeriesPlayer::Mode::RealTime);
+  }
+}
+
+TimeSeriesPlayer::Config
+QTimelineWidget::playbackConfig() const
+{
+  return m_player.config();
 }
 
 QTimelineWidget::~QTimelineWidget()
@@ -84,8 +253,22 @@ QTimelineWidget::onNewImage(Scene* s, const LoadSpec& loadSpec, std::shared_ptr<
   m_TimeSlider->setSingleStep(1);
 
   // disable the slider if there is less than 2 time samples.
-  m_TimeSlider->setEnabled(maxT > minT);
-  this->parentWidget()->setWindowTitle(maxT > minT ? tr("Time") : tr("Time (disabled)"));
+  const bool haveTimeSeries = maxT > minT;
+  m_TimeSlider->setEnabled(haveTimeSeries);
+  this->parentWidget()->setWindowTitle(haveTimeSeries ? tr("Time") : tr("Time (disabled)"));
+
+  // A new image means the old playback position is meaningless, so halt rather
+  // than carrying on into a different series.
+  m_player.stop();
+  m_player.setRange(static_cast<uint32_t>(std::max(0, minT)), static_cast<uint32_t>(std::max(0, maxT)));
+  syncPlaybackUi();
+  if (m_playPauseButton) {
+    m_playPauseButton->setEnabled(haveTimeSeries);
+    m_stopButton->setEnabled(haveTimeSeries);
+    m_fpsSpinner->setEnabled(haveTimeSeries);
+    m_loopCheckbox->setEnabled(haveTimeSeries);
+    m_dropFramesCheckbox->setEnabled(haveTimeSeries);
+  }
 
   m_latestRequestSeq = 0;
   // Re-point the loader unconditionally, including for single-timepoint files.
@@ -151,7 +334,7 @@ QTimelineWidget::onLoadComplete(uint32_t time, std::shared_ptr<ImageXYZC> image,
 
   // The LUT remap reads the outgoing volume's histograms, so it has to happen
   // here at display time rather than on the loader thread.
-  if (!applyVolumeToScene(m_scene, image, m_qrendersettings ? m_qrendersettings->renderSettings() : nullptr)) {
+  if (!applyTimeStepToScene(m_scene, image, m_qrendersettings ? m_qrendersettings->renderSettings() : nullptr)) {
     // The volume was rejected (e.g. a channel-count mismatch, which should not
     // happen for time steps of one source). Treat it as a failed load so the
     // slider does not sit on a time the scene never reached.

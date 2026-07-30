@@ -1,4 +1,4 @@
-#include "ApplyVolumeToScene.h"
+#include "ApplyTimeStepToScene.h"
 
 #include "AppScene.h"
 #include "GradientData.h"
@@ -7,19 +7,20 @@
 #include "RenderSettings.h"
 
 bool
-applyVolumeToScene(Scene* scene, const std::shared_ptr<ImageXYZC>& image, RenderSettings* renderSettings)
+applyTimeStepToScene(Scene* scene, const std::shared_ptr<ImageXYZC>& image, RenderSettings* renderSettings)
 {
   if (!scene || !image) {
     return false;
   }
 
   if (scene->m_volume) {
-    // Every time step of a given source is expected to have the same channel
-    // count -- only the voxel data changes. A mismatch therefore means the file
-    // or our reading of it is wrong, not that we should adapt to it. Refuse the
-    // volume rather than installing one whose surplus channels would keep
-    // stale, un-remapped transfer functions, and rather than indexing past the
-    // end of the outgoing volume's channels as this code used to.
+    // Every time step of a given source has the same channel count -- only the
+    // voxel data changes. A mismatch therefore means either the file or our
+    // reading of it is wrong, or this was called for a genuinely different image
+    // (which belongs in Scene::initSceneFromImg instead). Either way, refuse it
+    // rather than installing a volume whose surplus channels would keep stale,
+    // un-remapped transfer functions, and rather than indexing past the end of
+    // the outgoing volume's channels as this code used to.
     if (image->sizeC() != scene->m_volume->sizeC()) {
       LOG_ERROR << "Channel count mismatch for different times in same file: expected " << scene->m_volume->sizeC()
                 << " but the new time has " << image->sizeC() << ". Refusing to apply it.";

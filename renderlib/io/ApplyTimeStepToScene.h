@@ -6,12 +6,18 @@ class ImageXYZC;
 class RenderSettings;
 class Scene;
 
-// Install a newly loaded volume as the scene's current volume.
+// Install a new *time step* of the volume already being displayed.
 //
 // Remaps each channel's transfer function from the outgoing volume's histogram
 // to the incoming one's, so absolute thresholding is preserved across a time
 // step, then swaps in the new volume and raises the dirty flags the renderers
 // watch.
+//
+// This is NOT the path for loading a genuinely different image. A new image may
+// legitimately have a different channel count, ordering, and dimensions, and
+// needs the scene rebuilt around it -- use Scene::initSceneFromImg for that.
+// This function deliberately assumes the volume it is given is the same data set
+// at a different time, and rejects anything that contradicts that.
 //
 // Extracted from the two near-identical copies that used to live in
 // QTimelineWidget::OnTimeChanged and SetTimeCommand::execute, so the GUI and the
@@ -39,4 +45,4 @@ class Scene;
 // Returns false and leaves the scene untouched if the volume could not be
 // applied: null scene, null image, or a channel-count mismatch.
 bool
-applyVolumeToScene(Scene* scene, const std::shared_ptr<ImageXYZC>& image, RenderSettings* renderSettings);
+applyTimeStepToScene(Scene* scene, const std::shared_ptr<ImageXYZC>& image, RenderSettings* renderSettings);
