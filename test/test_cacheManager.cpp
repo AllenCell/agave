@@ -668,3 +668,68 @@ TEST_CASE("CacheManager normalizes equivalent filepaths to the same key", "[cach
   }
 #endif
 }
+
+TEST_CASE("CacheManager reports tier usage", "[cacheManager]")
+{
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  CacheManager cache;
+
+  SECTION("Empty cache reports zero used and the configured limit")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 4));
+
+    auto usage = cache.getUsage();
+    REQUIRE(usage.ramBytesUsed == 0);
+    REQUIRE(usage.ramBytesLimit == oneImage * 4);
+    REQUIRE(usage.ramEntryCount == 0);
+    REQUIRE(cache.getRamBytesUsed() == 0);
+    REQUIRE(cache.getRamBytesAvailable() == oneImage * 4);
+  }
+
+  SECTION("Usage tracks stored images")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 4));
+
+    cache.storeImage(makeSpec("a"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+
+    auto usage = cache.getUsage();
+    REQUIRE(usage.ramEntryCount == 2);
+    REQUIRE(usage.ramBytesUsed == oneImage * 2);
+    REQUIRE(cache.getRamBytesUsed() == oneImage * 2);
+    REQUIRE(cache.getRamBytesAvailable() == oneImage * 2);
+  }
+
+  SECTION("Available bytes reach zero at the limit rather than going negative")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 2));
+
+    cache.storeImage(makeSpec("a"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+    REQUIRE(cache.getRamBytesAvailable() == 0);
+
+    // Eviction keeps us at the limit, so available stays clamped at zero rather
+    // than underflowing -- prefetch throttling depends on this.
+    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
+    REQUIRE(cache.getRamBytesUsed() <= oneImage * 2);
+    REQUIRE(cache.getRamBytesAvailable() == 0);
+  }
+
+  SECTION("Clearing memory returns usage to zero")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 4));
+    cache.storeImage(makeSpec("a"), makeImage(4, 4, 4, 1));
+    REQUIRE(cache.getRamBytesUsed() > 0);
+
+    cache.clearMemoryCache();
+    auto usage = cache.getUsage();
+    REQUIRE(usage.ramBytesUsed == 0);
+    REQUIRE(usage.ramEntryCount == 0);
+  }
+
+  SECTION("Disk limit reads as zero when the disk tier is disabled")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 4));
+    REQUIRE(cache.getUsage().diskBytesLimit == 0);
+  }
+}

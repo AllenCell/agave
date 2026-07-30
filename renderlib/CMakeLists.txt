@@ -24,6 +24,8 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/CacheConfig.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/CacheManager.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/CacheManager.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/CacheStatusReport.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/CacheStatusReport.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/CCamera.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/CCamera.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/ClipPlaneTool.cpp"
