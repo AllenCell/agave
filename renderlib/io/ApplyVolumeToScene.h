@@ -24,7 +24,19 @@ class Scene;
 // displayed rather than when it finishes loading; otherwise out-of-order
 // prefetch completions would remap against the wrong source histograms.
 //
-// Returns false if there was nothing to do (null scene, null image, or no
-// previous volume to remap from), in which case the scene is left untouched.
+// Invariants for time steps of a given source url or filepath:
+//   * same channel count, and
+//   * same channel order.
+// (The channel selection lives in the LoadSpec and is fixed for the series, so
+// both hold for a subset selection too.)
+//
+// The second invariant is what makes the remap below correct: channel i of the
+// outgoing volume is paired with channel i of the incoming one purely by index,
+// which is only meaningful if index i denotes the same channel in both. Count is
+// checked and a mismatch is refused; order cannot be verified here, so it is
+// relied upon.
+//
+// Returns false and leaves the scene untouched if the volume could not be
+// applied: null scene, null image, or a channel-count mismatch.
 bool
 applyVolumeToScene(Scene* scene, const std::shared_ptr<ImageXYZC>& image, RenderSettings* renderSettings);

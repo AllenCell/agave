@@ -582,16 +582,23 @@ SetTimeCommand::execute(ExecutionContext* c)
     return;
   }
 
-  // successfully loaded; update loadspec in context
-  c->m_loadSpec = loadSpec;
-
-  c->m_appScene->m_timeLine.setCurrentTime(m_data.m_time);
-
   // We expect the scene volume dimensions to be the same and want to preserve
   // all view settings, converting the old lookup tables to new ones so absolute
   // transfer function settings survive the time step. Shared with the GUI
   // timeline path so the two cannot drift apart.
-  applyVolumeToScene(c->m_appScene, image, c->m_renderSettings);
+  //
+  // Applied before advancing the timeline or the context's loadSpec, so a
+  // rejected volume does not leave the scene claiming to be at a time it never
+  // reached.
+  if (!applyVolumeToScene(c->m_appScene, image, c->m_renderSettings)) {
+    LOG_ERROR << "Failed to apply time " << m_data.m_time << " to the scene";
+    return;
+  }
+
+  // successfully loaded and applied; update loadspec in context
+  c->m_loadSpec = loadSpec;
+
+  c->m_appScene->m_timeLine.setCurrentTime(m_data.m_time);
 
   // fire back some json immediately...
   nlohmann::json j;
