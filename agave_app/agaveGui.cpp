@@ -695,8 +695,9 @@ agaveGui::onRenderAction()
     }
     m_view->asWidget()->setUpdatesEnabled(true);
     m_view->restartRenderLoop();
-    // refresh timeline to current time
-    m_timelinedock->setTime(m_appScene.m_timeLine.currentTime());
+    // refresh timeline to current time. Signals blocked: this only re-syncs the
+    // widget with the scene, it must not kick off another load.
+    m_timelinedock->setTime(m_appScene.m_timeLine.currentTime(), /*blockSignals=*/true);
   });
 
   // rdialog->setImage(imcopy);
