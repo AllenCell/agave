@@ -7,6 +7,7 @@
 #include "RenderSettings.h"
 #include "StringUtil.h"
 #include "VolumeDimensions.h"
+#include "io/ApplyVolumeToScene.h"
 
 #include "json/json.hpp"
 
@@ -586,27 +587,11 @@ SetTimeCommand::execute(ExecutionContext* c)
 
   c->m_appScene->m_timeLine.setCurrentTime(m_data.m_time);
 
-  // we expect the scene volume dimensions to be the same; we want to preserve all view settings here.
-  // BUT we want to convert the old lookup tables to new lookup tables
-  // if we are preserving absolute transfer function settings
-
-  // require sizeC to be the same for both previous image and new image
-  if (image->sizeC() != c->m_appScene->m_volume->sizeC()) {
-    LOG_ERROR << "Channel count mismatch for different times in same file";
-  }
-
-  // remap LUTs to preserve absolute thresholding
-  for (uint32_t i = 0; i < image->sizeC(); ++i) {
-    GradientData& lutInfo = c->m_appScene->m_material.m_gradientData[i];
-    lutInfo.convert(c->m_appScene->m_volume->channel(i)->m_histogram, image->channel(i)->m_histogram);
-    image->channel(i)->generateFromGradientData(lutInfo);
-  }
-
-  // now we're ready to lose the old channel histograms
-  c->m_appScene->m_volume = image;
-
-  c->m_renderSettings->m_DirtyFlags.SetFlag(VolumeDataDirty);
-  c->m_renderSettings->m_DirtyFlags.SetFlag(TransferFunctionDirty);
+  // We expect the scene volume dimensions to be the same and want to preserve
+  // all view settings, converting the old lookup tables to new ones so absolute
+  // transfer function settings survive the time step. Shared with the GUI
+  // timeline path so the two cannot drift apart.
+  applyVolumeToScene(c->m_appScene, image, c->m_renderSettings);
 
   // fire back some json immediately...
   nlohmann::json j;

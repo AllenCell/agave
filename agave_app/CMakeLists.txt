@@ -103,6 +103,8 @@ target_sources(agaveapp PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/streamtestclient.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/TimelineDockWidget.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/TimelineDockWidget.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/TimeSeriesLoaderBridge.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/TimeSeriesLoaderBridge.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/ViewerState.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/ViewerState.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/ViewToolbar.cpp"
