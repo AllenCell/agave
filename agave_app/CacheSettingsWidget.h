@@ -29,4 +29,14 @@ private:
   QLabel* m_cacheDirLabel = nullptr;
   QPushButton* m_applyButton = nullptr;
   QPushButton* m_clearDiskButton = nullptr;
+
+  QCheckBox* m_prefetchEnabled = nullptr;
+  QSpinBox* m_prefetchDepth = nullptr;
+  QCheckBox* m_prefetchFillCache = nullptr;
+  QCheckBox* m_showDetailedCacheStatus = nullptr;
+
+  // Last value passed to setSettings. getSettings() starts from this so fields
+  // this widget does not present -- the playback settings, which live on the
+  // timeline dock -- survive a round trip instead of being reset to defaults.
+  CacheSettingsData m_lastSet;
 };

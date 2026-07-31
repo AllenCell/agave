@@ -184,6 +184,10 @@ private:
 
   CacheSettings m_cacheSettings;
 
+  // Push prefetch/playback settings down to the timeline dock's loader and
+  // player. Called on startup and whenever the cache settings are applied.
+  void applyTimeSeriesSettings(const CacheSettingsData& data);
+
   QAction* m_recentFileActs[MaxRecentFiles];
   QAction* m_recentFileSeparator;
   QAction* m_recentFileSubMenuAct;
