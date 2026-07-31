@@ -377,8 +377,30 @@ TimeSeriesLoader::prefetchWindowLocked() const
   // Never include the current timepoint, so a wrapping window stops one short of
   // a full lap rather than coming back around to where it started.
   const std::uint64_t maxSteps = span - 1;
-  const std::uint64_t steps =
+  std::uint64_t steps =
     m_prefetchConfig.fillCache ? maxSteps : std::min<std::uint64_t>(m_prefetchConfig.depth, maxSteps);
+
+  // Clamp the window to what the cache can actually hold.
+  //
+  // This is not an optimization, it is what keeps prefetch live. The throttle
+  // stops once the frames we want are all resident, so if we want more frames
+  // than fit, that condition can never clear: prefetch either stalls forever or
+  // churns, evicting one wanted frame to load another. Wrapping made this acute
+  // -- a wrapped window spans the whole series, so frames behind the playhead
+  // never leave the wanted set and the window stops sliding as playback
+  // advances, which deadlocks exactly when the playhead reaches the prefetch
+  // wavefront.
+  //
+  // Bounding the window means frames fall out behind the playhead, the count
+  // drops, prefetch resumes, and LRU reclaims the frames that just left.
+  if (m_bytesPerFrame > 0) {
+    const std::uint64_t budgetFrames = m_cache.getConfig().maxRamBytes / m_bytesPerFrame;
+    // Reserve one slot for the current timepoint, which is pinned. Always allow
+    // at least one so playback can still inch forward on a budget too small to
+    // hold even two frames.
+    const std::uint64_t roomForWindow = budgetFrames > 1 ? budgetFrames - 1 : 1;
+    steps = std::min<std::uint64_t>(steps, roomForWindow);
+  }
 
   window.reserve(static_cast<size_t>(steps));
   const std::uint64_t offsetOfCurrent = static_cast<std::uint64_t>(m_currentTime - m_minTime);
