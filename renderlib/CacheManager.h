@@ -3,11 +3,14 @@
 #include "CacheConfig.h"
 #include "IFileReader.h"
 
+#include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <list>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -62,6 +65,7 @@ public:
   // constructor is public so tests can create isolated, throwaway caches with
   // their own directories.
   explicit CacheManager(std::string cacheDir = {});
+  ~CacheManager();
 
   // The process-wide singleton. initialize() creates it rooted at `cacheDir`
   // and must be called exactly once, at app startup, before the cache is used;
@@ -136,6 +140,17 @@ public:
   CacheStats getStats() const;
   void resetStats();
 
+  // Volumes waiting to be written to the disk tier. Writes are asynchronous, so
+  // a non-zero value here is normal; a persistently growing one means the disk
+  // cannot keep up with loading.
+  std::size_t pendingDiskWrites() const;
+  // Disk writes abandoned because the queue was full. A dropped write only costs
+  // a cache miss later, never correctness.
+  std::uint64_t droppedDiskWrites() const;
+  // Block until queued disk writes have completed. For tests and shutdown; not
+  // needed in normal operation.
+  void flushDiskWrites();
+
 private:
   // Verify that `path` is (or can be made) a writable directory. Creates the
   // directory if it does not exist, then probes it by writing and deleting a
@@ -209,4 +224,38 @@ private:
   std::string m_diskIndexRoot;
 
   CacheStats m_stats;
+
+  // --- Asynchronous disk writing ---
+  //
+  // Writing a volume to the disk tier is a full-volume tensorstore write. Doing
+  // it inline made every prefetched time step pay that cost on the loader
+  // thread before the frame was even available in memory. Instead the memory
+  // tier is populated immediately and the disk write is handed to a single
+  // low-priority writer thread.
+  //
+  // The queue is bounded and drops its oldest entry when full: falling behind
+  // costs a cache miss in some later session, which is far better than letting
+  // an unbounded backlog pin volumes in memory.
+  struct PendingDiskWrite
+  {
+    CacheKey key;
+    std::shared_ptr<ImageXYZC> image;
+    CacheConfig config;
+    std::string cacheDir;
+  };
+
+  void enqueueDiskWrite(PendingDiskWrite&& write);
+  void diskWriterMain();
+  void stopDiskWriter();
+
+  // Separate from m_mutex: the writer holds this only to take work, never while
+  // writing, and must not block cache lookups for the duration of a write.
+  mutable std::mutex m_diskQueueMutex;
+  std::condition_variable m_diskQueueWake;
+  std::condition_variable m_diskQueueDrained;
+  std::deque<PendingDiskWrite> m_diskQueue;
+  std::thread m_diskWriterThread;
+  bool m_diskWriterStop = false;
+  bool m_diskWriteInProgress = false;
+  std::uint64_t m_droppedDiskWrites = 0;
 };
