@@ -1,5 +1,6 @@
 #include "TimelineDockWidget.h"
 
+#include "CacheStatusSlider.h"
 #include "Controls.h"
 #include "QRenderSettings.h"
 #include "TimeSeriesLoaderBridge.h"
@@ -35,7 +36,7 @@ QTimelineWidget::QTimelineWidget(QWidget* pParent, QRenderSettings* qrs)
 
   auto* fullLayout = new QVBoxLayout();
 
-  m_TimeSlider = new QIntSlider();
+  m_TimeSlider = new TimeSliderWithCacheStatus();
   m_TimeSlider->setStatusTip(tr("Set current time sample"));
   m_TimeSlider->setToolTip(tr("Set current time sample"));
   // Loading is asynchronous now, so live scrubbing is safe: dragging issues
@@ -57,6 +58,10 @@ QTimelineWidget::QTimelineWidget(QWidget* pParent, QRenderSettings* qrs)
           [this](uint32_t time, std::shared_ptr<ImageXYZC> image, uint64_t seq) { onLoadComplete(time, image, seq); });
   connect(m_bridge, &TimeSeriesLoaderBridge::interactiveLoadFailed, this, [this](uint32_t time, uint64_t seq) {
     onLoadFailed(time, seq);
+  });
+
+  connect(m_bridge, &TimeSeriesLoaderBridge::statusChanged, this, [this](uint32_t time, int status) {
+    onTimepointStatusChanged(time, status);
   });
 
   m_loader->addObserver(m_bridge);
@@ -207,6 +212,41 @@ QTimelineWidget::onPlaybackTick()
 }
 
 void
+QTimelineWidget::onTimepointStatusChanged(uint32_t time, int status)
+{
+  if (m_TimeSlider) {
+    m_TimeSlider->setStatus(time, static_cast<TimepointStatus>(status));
+  }
+}
+
+void
+QTimelineWidget::refreshCacheStatus()
+{
+  if (!m_TimeSlider || !m_loader || !m_scene) {
+    return;
+  }
+  const int32_t minT = m_scene->m_timeLine.minTime();
+  const int32_t maxT = m_scene->m_timeLine.maxTime();
+  if (maxT <= minT) {
+    m_TimeSlider->clearStatuses();
+    return;
+  }
+  // Seed the strip with a full snapshot; incremental updates arrive via
+  // onTimepointStatusChanged afterwards.
+  std::vector<TimepointStatus> statuses;
+  m_loader->statusRange(static_cast<uint32_t>(std::max(0, minT)), static_cast<uint32_t>(std::max(0, maxT)), statuses);
+  m_TimeSlider->setStatuses(static_cast<uint32_t>(std::max(0, minT)), statuses);
+}
+
+void
+QTimelineWidget::setDetailedCacheStatus(bool detailed)
+{
+  if (m_TimeSlider) {
+    m_TimeSlider->setDetailedStatus(detailed);
+  }
+}
+
+void
 QTimelineWidget::setPlaybackConfig(const TimeSeriesPlayer::Config& config)
 {
   m_player.setConfig(config);
@@ -281,6 +321,9 @@ QTimelineWidget::onNewImage(Scene* s, const LoadSpec& loadSpec, std::shared_ptr<
                         static_cast<uint32_t>(std::max(0, maxT)),
                         static_cast<uint32_t>(std::max(0, currentT)));
   }
+  // setSeries reconciles against whatever is already resident, so take the
+  // snapshot after it rather than before.
+  refreshCacheStatus();
 }
 
 void
