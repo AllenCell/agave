@@ -327,21 +327,46 @@ TimeSeriesLoader::canStartPrefetchLocked() const
     return false;
   }
 
-  // Charge in-flight buffers against the cache budget as reserved headroom.
-  // Without this, `ramUsed` can sit legitimately at the limit while N in-flight
-  // loads each hold a full volume, overshooting the budget by N frames with no
-  // counter showing it.
-  if (m_bytesPerFrame > 0) {
-    const std::uint64_t available = m_cache.getRamBytesAvailable();
-    if (available < m_inFlightBytes + m_bytesPerFrame) {
-      return false;
-    }
-  } else if (!m_inFlight.empty()) {
+  if (m_bytesPerFrame == 0) {
     // Frame size still unknown (nothing has completed yet), so stay at one load
     // in flight rather than guessing.
+    return m_inFlight.empty();
+  }
+
+  // Throttle on how many frames we still *want* are already resident, NOT on
+  // whether the cache happens to be full.
+  //
+  // Gating on free space deadlocks playback: prefetch fills the budget, then
+  // refuses to queue because nothing is free, and nothing ever becomes free
+  // because eviction is the only thing that frees space. Playback then waits
+  // forever for the next frame while frames far behind the playhead sit there
+  // uselessly.
+  //
+  // Frames behind the playhead are exactly what LRU should reclaim, and they are
+  // the oldest entries so LRU reclaims them first. The case actually worth
+  // avoiding is prefetching so far ahead that we evict frames we are about to
+  // display, which happens only once the window itself no longer fits the
+  // budget. So: stop when the frames we want are already filling the budget, and
+  // otherwise let the store proceed and let LRU do its job.
+  const std::uint64_t budgetFrames = m_cache.getConfig().maxRamBytes / m_bytesPerFrame;
+  if (budgetFrames == 0) {
     return false;
   }
-  return true;
+
+  const uint32_t windowEnd = prefetchWindowEndLocked();
+  std::uint64_t wantedResident = m_inFlight.size();
+  for (uint32_t t = m_currentTime; t <= windowEnd; ++t) {
+    if (m_status[static_cast<size_t>(t - m_minTime)] == TimepointStatus::RamCached) {
+      ++wantedResident;
+    }
+  }
+  return wantedResident < budgetFrames;
+}
+
+uint32_t
+TimeSeriesLoader::prefetchWindowEndLocked() const
+{
+  return m_prefetchConfig.fillCache ? m_maxTime : std::min<uint32_t>(m_maxTime, m_currentTime + m_prefetchConfig.depth);
 }
 
 bool
@@ -351,8 +376,7 @@ TimeSeriesLoader::nextPrefetchTimeLocked(uint32_t& time) const
     return false;
   }
   // Forward only, starting just after the current timepoint.
-  const uint32_t last =
-    m_prefetchConfig.fillCache ? m_maxTime : std::min<uint32_t>(m_maxTime, m_currentTime + m_prefetchConfig.depth);
+  const uint32_t last = prefetchWindowEndLocked();
 
   for (uint32_t t = m_currentTime + 1; t <= last; ++t) {
     if (m_status[static_cast<size_t>(t - m_minTime)] != TimepointStatus::NotCached) {
