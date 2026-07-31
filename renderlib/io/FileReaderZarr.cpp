@@ -110,6 +110,12 @@ getKvStoreDriverParams(const std::string& filepath, const std::string& subpath)
 FileReaderZarr::FileReaderZarr(const std::string& filepath)
   : m_zarrVersion(0)
 {
+  // Several timepoints may be read at once. tensorstore is safe to read from
+  // concurrently once the store is open, and the lazy open plus the metadata
+  // memo are mutex-guarded, so the only cost is a few worker threads parked on
+  // I/O. Kept modest: each in-flight load owns a full volume buffer, and that
+  // memory is charged against the cache budget by the caller.
+  setMaxConcurrentLoads(3);
 }
 
 FileReaderZarr::~FileReaderZarr() = default;
@@ -562,12 +568,22 @@ FileReaderZarr::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progr
 
   // still assuming 1 sample per pixel (scalar data) here.
   size_t rawPlanesize = (size_t)dims.sizeX * (size_t)dims.sizeY * (size_t)(dims.bitsPerPixel / 8);
-  // allocate temp data for one channel
-  uint8_t* channelRawMem = new uint8_t[(size_t)dims.sizeZ * rawPlanesize];
-  memset(channelRawMem, 0, (size_t)dims.sizeZ * rawPlanesize);
+  const size_t rawChannelSize = (size_t)dims.sizeZ * rawPlanesize;
 
-  // stash it here in case of early exit, it will be deleted
-  std::unique_ptr<uint8_t[]> smartPtrTemp(channelRawMem);
+  // When the source is already our in-memory format, convertChannelData is just
+  // a memcpy, so read straight into the destination instead: no scratch buffer
+  // and no full-volume copy per channel. This is the common case for OME-Zarr.
+  const bool readDirectToDest = (dims.bitsPerPixel == ImageXYZC::IN_MEMORY_BPP);
+
+  // Otherwise one scratch buffer per channel, so the reads can be in flight
+  // together rather than taking turns over a single shared buffer.
+  std::unique_ptr<uint8_t[]> smartPtrTemp;
+  uint8_t* channelRawMem = nullptr;
+  if (!readDirectToDest) {
+    channelRawMem = new uint8_t[rawChannelSize * nch];
+    memset(channelRawMem, 0, rawChannelSize * nch);
+    smartPtrTemp.reset(channelRawMem);
+  }
   uint32_t minx, maxx, miny, maxy, minz, maxz;
   minx = (loadSpec.maxx > loadSpec.minx) ? loadSpec.minx : 0;
   miny = (loadSpec.maxy > loadSpec.miny) ? loadSpec.miny : 0;
@@ -585,10 +601,14 @@ FileReaderZarr::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progr
     LOG_ERROR << "Zarr: sizeX mismatch: " << dims.sizeX << " vs " << maxx - minx;
   }
 
-  // now ready to read channels one by one.
+  // Issue every channel read before waiting on any of them. tensorstore::Read
+  // returns a future backed by its own I/O pool, so the channels of a timepoint
+  // transfer concurrently instead of one after another -- which matters most for
+  // a remote store, where each read is dominated by latency.
+  std::vector<tensorstore::Future<void>> channelReads;
+  channelReads.reserve(nch);
+
   for (uint32_t channel = 0; channel < nch; ++channel) {
-    // Cancellation boundary: a channel read is the smallest unit we can abandon
-    // without leaving a partially converted volume behind.
     if (progress.isCancelled()) {
       return emptyimage;
     }
@@ -596,8 +616,10 @@ FileReaderZarr::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progr
     if (!loadSpec.channels.empty()) {
       channelToLoad = loadSpec.channels[channel];
     }
-    // read entire channel into its native size
-    auto* destptr = channelRawMem;
+    // Each channel reads into its own region, so nothing is shared between the
+    // in-flight reads.
+    auto* destptr =
+      readDirectToDest ? (data + channel * channelsize_bytes) : (channelRawMem + channel * rawChannelSize);
 
     tensorstore::IndexTransform<> transform = tensorstore::IdentityTransform(m_store.domain());
     // T value:
@@ -635,25 +657,41 @@ FileReaderZarr::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progr
     const tensorstore::Index shapeToLoad[kNumDims] = { 1, 1, dims.sizeZ, dims.sizeY, dims.sizeX };
     if (levelDims.dtype == "uint8") {
       auto arr = tensorstore::Array(reinterpret_cast<uint8_t*>(destptr), shapeToLoad);
-      tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(arr)).value();
+      channelReads.push_back(tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(arr)));
     } else if (levelDims.dtype == "int32") {
       auto arr = tensorstore::Array(reinterpret_cast<int32_t*>(destptr), shapeToLoad);
-      tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(arr)).value();
+      channelReads.push_back(tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(arr)));
     } else if (levelDims.dtype == "uint16") {
       auto arr = tensorstore::Array(reinterpret_cast<uint16_t*>(destptr), shapeToLoad);
-      tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(arr)).value();
+      channelReads.push_back(tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(arr)));
     } else if (levelDims.dtype == "float32") {
       auto arr = tensorstore::Array(reinterpret_cast<float*>(destptr), shapeToLoad);
-      tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(arr)).value();
+      channelReads.push_back(tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(arr)));
     } else {
       LOG_ERROR << "Unrecognized format (" << levelDims.dtype
                 << "). Please let us know if you need support for this format. Can not load data.";
       return emptyimage;
     }
+  }
 
-    // convert to our internal format (IN_MEMORY_BPP)
-    if (!FileReaderUtil::convertChannelData(data + channel * channelsize_bytes, channelRawMem, dims)) {
+  // Now collect them. Converting channel N while later reads are still in flight
+  // overlaps the CPU work with the remaining transfers.
+  for (uint32_t channel = 0; channel < nch; ++channel) {
+    if (progress.isCancelled()) {
       return emptyimage;
+    }
+
+    const auto& readResult = channelReads[channel].result();
+    if (!readResult.ok()) {
+      LOG_ERROR << "Zarr read failed for channel " << channel << ": " << readResult.status();
+      return emptyimage;
+    }
+
+    if (!readDirectToDest) {
+      if (!FileReaderUtil::convertChannelData(
+            data + channel * channelsize_bytes, channelRawMem + channel * rawChannelSize, dims)) {
+        return emptyimage;
+      }
     }
 
     progress.setProgress(channel + 1, nch);
