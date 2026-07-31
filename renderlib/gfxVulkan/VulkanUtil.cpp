@@ -96,29 +96,6 @@ transitionImageLayout(Backend& backend,
 }
 
 void
-copyBufferToImage(VkCommandBuffer commandBuffer,
-                  VkBuffer buffer,
-                  VkImage image,
-                  uint32_t width,
-                  uint32_t height,
-                  uint32_t depth,
-                  uint32_t layerCount)
-{
-  VkBufferImageCopy region = {};
-  region.bufferOffset = 0;
-  region.bufferRowLength = 0;
-  region.bufferImageHeight = 0;
-  region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  region.imageSubresource.mipLevel = 0;
-  region.imageSubresource.baseArrayLayer = 0;
-  region.imageSubresource.layerCount = layerCount;
-  region.imageOffset = { 0, 0, 0 };
-  region.imageExtent = { width, height, depth };
-
-  vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-}
-
-void
 copyBufferToImage(Backend& backend,
                   VkBuffer buffer,
                   VkImage image,
