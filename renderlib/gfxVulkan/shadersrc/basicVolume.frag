@@ -178,14 +178,8 @@ void
 main()
 {
   outputColour = vec4(1.0, 0.0, 0.0, 1.0);
-  // Mirror gl_FragCoord.y: it is 0 at the bottom of the framebuffer in OpenGL
-  // but at the top in Vulkan. Only the orthographic branch below uses vUv, and
-  // without this its ray origins are vertically flipped, so the volume appears
-  // mirrored against its own bounding box -- which reads as the volume rotating
-  // the wrong way. The projection correction already handles the flip for
-  // rasterized geometry, which is why the bounding box looked right.
-  // pathTraceVolume.frag does the same thing for its per-pixel seed.
-  vec2 vUv = vec2(gl_FragCoord.x, iResolution.y - gl_FragCoord.y) / iResolution.xy;
+  // gl_FragCoord defaults to 0,0 at lower left
+  vec2 vUv = gl_FragCoord.xy / iResolution.xy;
 
   vec3 eyeRay_o, eyeRay_d;
   if (isPerspective != 0.0) {
