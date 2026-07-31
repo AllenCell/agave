@@ -180,10 +180,9 @@ TimeSeriesLoader::requestTime(uint32_t time)
     // usually leaves most of the window intact. The newly requested timepoint is
     // never cancelled: the loader thread adopts that request instead of starting
     // a duplicate load.
-    const uint32_t windowEnd =
-      m_prefetchConfig.fillCache ? m_maxTime : std::min<uint32_t>(m_maxTime, time + m_prefetchConfig.depth);
+    const std::vector<uint32_t> window = prefetchWindowLocked();
     for (auto& entry : m_inFlight) {
-      if (entry.first >= time && entry.first <= windowEnd) {
+      if (entry.first == time || std::find(window.begin(), window.end(), entry.first) != window.end()) {
         continue;
       }
       entry.second->cancel();
@@ -353,9 +352,12 @@ TimeSeriesLoader::canStartPrefetchLocked() const
     return false;
   }
 
-  const uint32_t windowEnd = prefetchWindowEndLocked();
   std::uint64_t wantedResident = m_inFlight.size();
-  for (uint32_t t = m_currentTime; t <= windowEnd; ++t) {
+  // The current timepoint counts too: it is pinned and must stay resident.
+  if (m_status[static_cast<size_t>(m_currentTime - m_minTime)] == TimepointStatus::RamCached) {
+    ++wantedResident;
+  }
+  for (uint32_t t : prefetchWindowLocked()) {
     if (m_status[static_cast<size_t>(t - m_minTime)] == TimepointStatus::RamCached) {
       ++wantedResident;
     }
@@ -363,10 +365,34 @@ TimeSeriesLoader::canStartPrefetchLocked() const
   return wantedResident < budgetFrames;
 }
 
-uint32_t
-TimeSeriesLoader::prefetchWindowEndLocked() const
+std::vector<uint32_t>
+TimeSeriesLoader::prefetchWindowLocked() const
 {
-  return m_prefetchConfig.fillCache ? m_maxTime : std::min<uint32_t>(m_maxTime, m_currentTime + m_prefetchConfig.depth);
+  std::vector<uint32_t> window;
+  if (!m_haveSeries || m_maxTime <= m_minTime) {
+    return window;
+  }
+
+  const std::uint64_t span = static_cast<std::uint64_t>(m_maxTime - m_minTime) + 1;
+  // Never include the current timepoint, so a wrapping window stops one short of
+  // a full lap rather than coming back around to where it started.
+  const std::uint64_t maxSteps = span - 1;
+  const std::uint64_t steps =
+    m_prefetchConfig.fillCache ? maxSteps : std::min<std::uint64_t>(m_prefetchConfig.depth, maxSteps);
+
+  window.reserve(static_cast<size_t>(steps));
+  const std::uint64_t offsetOfCurrent = static_cast<std::uint64_t>(m_currentTime - m_minTime);
+  for (std::uint64_t i = 1; i <= steps; ++i) {
+    if (m_prefetchConfig.wrapAround) {
+      window.push_back(static_cast<uint32_t>(m_minTime + ((offsetOfCurrent + i) % span)));
+    } else {
+      if (offsetOfCurrent + i >= span) {
+        break;
+      }
+      window.push_back(static_cast<uint32_t>(m_minTime + offsetOfCurrent + i));
+    }
+  }
+  return window;
 }
 
 bool
@@ -375,10 +401,8 @@ TimeSeriesLoader::nextPrefetchTimeLocked(uint32_t& time) const
   if (!m_haveSeries) {
     return false;
   }
-  // Forward only, starting just after the current timepoint.
-  const uint32_t last = prefetchWindowEndLocked();
-
-  for (uint32_t t = m_currentTime + 1; t <= last; ++t) {
+  // Nearest-first within the window, which wraps when playback loops.
+  for (uint32_t t : prefetchWindowLocked()) {
     if (m_status[static_cast<size_t>(t - m_minTime)] != TimepointStatus::NotCached) {
       continue;
     }

@@ -226,6 +226,9 @@ agaveGui::applyTimeSeriesSettings(const CacheSettingsData& data)
   prefetch.enabled = data.prefetchEnabled;
   prefetch.depth = data.prefetchDepth;
   prefetch.fillCache = data.prefetchFillCache;
+  // Prefetch must wrap when playback loops, or looping stalls at the end of the
+  // series waiting for a first frame that nothing would fetch back.
+  prefetch.wrapAround = data.playbackLoop;
   timeline.setPrefetchConfig(prefetch);
 
   TimeSeriesPlayer::Config playback;
