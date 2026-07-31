@@ -1,7 +1,6 @@
 #pragma once
 
 #include "glm.h"
-#include "resources/Buffer.h"
 #include "resources/SampledImage.h"
 
 #include <vulkan/vulkan.h>
@@ -9,7 +8,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <optional>
 
 class Scene;
@@ -64,27 +62,13 @@ public:
   bool linearFiltering() const { return m_linearFiltering; }
 
 private:
-  // Upload voxels produced directly into the staging buffer by `fill`.
-  //
-  // Inverting the control flow this way lets both upload modes write their
-  // voxels exactly once: uploadRaw's channel interleave and uploadFused's fuse
-  // both target the mapped staging memory, instead of filling a std::vector that
-  // is then memcpy'd into staging. It also lets the image, its view, its sampler
-  // and the staging buffer persist across uploads, which matters because a time
-  // series re-uploads the same shape every frame.
-  bool uploadVolumeFrom(const std::function<void(void* mapped)>& fill,
-                        size_t byteCount,
-                        VkFormat format,
-                        uint32_t width,
-                        uint32_t height,
-                        uint32_t depth,
-                        bool linearFiltering);
-
-  // Ensure m_volumeTexture matches the requested shape, recreating it only when
-  // it actually differs. Returns false on failure.
-  bool ensureVolumeImage(VkFormat format, uint32_t width, uint32_t height, uint32_t depth, bool linearFiltering);
-  // Ensure the persistent staging buffer is at least byteCount and mapped.
-  bool ensureStagingBuffer(size_t byteCount);
+  bool uploadVolumeBytes(const void* data,
+                         size_t byteCount,
+                         VkFormat format,
+                         uint32_t width,
+                         uint32_t height,
+                         uint32_t depth,
+                         bool linearFiltering);
   bool uploadTransferBytes(const void* data, size_t byteCount);
   // Re-uploads bytes into the already-created m_transferImage. Assumes the
   // image is currently in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL.
@@ -111,17 +95,6 @@ private:
 
   resources::SampledImage m_volumeTexture;
   resources::SampledImage m_transferTexture;
-
-  // Shape the volume image was created with, so a re-upload of the same shape
-  // can reuse it instead of destroying and recreating it every frame.
-  VkFormat m_volumeFormat = VK_FORMAT_UNDEFINED;
-  glm::ivec3 m_volumeExtent = glm::ivec3(0);
-
-  // Staging buffer reused across uploads and left mapped, so each upload costs
-  // neither an allocation nor a map/unmap pair.
-  std::optional<resources::Buffer> m_staging;
-  size_t m_stagingCapacity = 0;
-  void* m_stagingMapped = nullptr;
 };
 
 } // namespace gfxvulkan
