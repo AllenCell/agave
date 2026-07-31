@@ -354,6 +354,9 @@ TEST_CASE("CacheManager disk tier round-trips images and respects the disk cap",
     auto img = makeImageWithPattern(4, 4, 4, 1);
     auto spec = makeSpec("disk_roundtrip");
     cache.storeImage(spec, img);
+    // Disk writes are asynchronous now, so wait for the write to land before
+    // asserting anything about the disk tier.
+    cache.flushDiskWrites();
 
     // Drop RAM cache; disk cache survives.
     cache.clearMemoryCache();
@@ -384,6 +387,7 @@ TEST_CASE("CacheManager disk tier round-trips images and respects the disk cap",
 
     auto spec = makeSpec("too_big_for_disk");
     cache.storeImage(spec, makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
 
     // No entry subdirectory should have been created.
     REQUIRE(countSubdirs(tmp.path()) == 0);
@@ -404,12 +408,17 @@ TEST_CASE("CacheManager disk tier round-trips images and respects the disk cap",
     // Cap large enough for two entries' raw byte estimate but not three.
     cache.setConfig(diskConfig(oneImage * 4, oneImage * 2));
 
+    // Flush after each store: writes are asynchronous, and this section depends
+    // on them completing in order so the lastAccess timestamps rank correctly.
     cache.storeImage(makeSpec("disk_a"), makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
     // Sleep briefly so lastAccess timestamps are distinct on fast disks.
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
     cache.storeImage(makeSpec("disk_b"), makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
     cache.storeImage(makeSpec("disk_c"), makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
 
     // Drop RAM so finds have to go through the disk tier.
     cache.clearMemoryCache();
@@ -429,6 +438,7 @@ TEST_CASE("CacheManager disk tier round-trips images and respects the disk cap",
 
     cache.storeImage(makeSpec("clear_a"), makeImage(4, 4, 4, 1));
     cache.storeImage(makeSpec("clear_b"), makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
     REQUIRE(countSubdirs(tmp.path()) >= 2);
 
     cache.clearDiskCache();
@@ -442,6 +452,7 @@ TEST_CASE("CacheManager disk tier round-trips images and respects the disk cap",
     cache.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
 
     cache.storeImage(makeSpec("guarded_a"), makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
     int subdirsBefore = countSubdirs(tmp.path());
     REQUIRE(subdirsBefore >= 1);
 
@@ -460,6 +471,7 @@ TEST_CASE("CacheManager disk tier round-trips images and respects the disk cap",
   {
     cache.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
     cache.storeImage(makeSpec("persistent"), makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
 
     // Simulate a session restart: a brand-new CacheManager rooted at the same
     // directory must rebuild its disk index on first use and serve the
@@ -879,4 +891,66 @@ TEST_CASE("CacheManager notifies eviction observers", "[cacheManager]")
 
     REQUIRE(observer.evicted.empty());
   }
+}
+
+TEST_CASE("CacheManager writes to disk asynchronously", "[cache][disk]")
+{
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  TempCacheDir tmp;
+  CacheManager cache(tmp.str());
+  cache.setConfig(diskConfig(oneImage * 8, 1ULL * 1024 * 1024));
+
+  SECTION("The image is in memory immediately, without waiting for the disk write")
+  {
+    auto spec = makeSpec("async_write");
+    cache.storeImage(spec, makeImage(4, 4, 4, 1));
+
+    // Available from RAM straight away. Previously storeToDisk ran inline and
+    // before the memory store, so every prefetched time step paid a full-volume
+    // disk write before the frame could be used.
+    REQUIRE(cache.containsInMemory(spec));
+
+    cache.flushDiskWrites();
+    REQUIRE(cache.pendingDiskWrites() == 0);
+
+    // And it did eventually reach the disk tier.
+    cache.clearMemoryCache();
+    REQUIRE(cache.findImage(spec) != nullptr);
+    REQUIRE(cache.getStats().diskHits == 1);
+  }
+
+  SECTION("Flushing an idle cache returns immediately")
+  {
+    REQUIRE(cache.pendingDiskWrites() == 0);
+    cache.flushDiskWrites();
+    REQUIRE(cache.pendingDiskWrites() == 0);
+  }
+
+  SECTION("A burst of stores drops the oldest writes rather than queueing without bound")
+  {
+    // Far more stores than the queue depth. Whatever the disk keeps up with,
+    // the queue must stay bounded and every image must still be usable.
+    for (int i = 0; i < 40; ++i) {
+      cache.storeImage(makeSpec("burst_" + std::to_string(i)), makeImage(4, 4, 4, 1));
+      REQUIRE(cache.pendingDiskWrites() <= 5);
+    }
+    cache.flushDiskWrites();
+    REQUIRE(cache.pendingDiskWrites() == 0);
+    // Dropping is allowed and expected here; it only costs a later cache miss.
+    // The point is that nothing hung and nothing grew without bound.
+    SUCCEED("burst completed with a bounded queue");
+  }
+}
+
+TEST_CASE("CacheManager with the disk tier off never starts a writer thread", "[cache]")
+{
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  CacheManager cache;
+  cache.setConfig(ramOnlyConfig(oneImage * 4));
+
+  cache.storeImage(makeSpec("ram_only"), makeImage(4, 4, 4, 1));
+  REQUIRE(cache.pendingDiskWrites() == 0);
+  REQUIRE(cache.droppedDiskWrites() == 0);
+  // Destruction must not hang waiting on a thread that was never needed.
+  SUCCEED("ram-only cache stored without a disk writer");
 }

@@ -188,6 +188,11 @@ CacheManager::CacheManager(std::string cacheDir)
 {
 }
 
+CacheManager::~CacheManager()
+{
+  stopDiskWriter();
+}
+
 bool
 CacheManager::canWriteCacheDir(const std::string& path)
 {
@@ -395,11 +400,14 @@ CacheManager::storeImage(const LoadSpec& loadSpec, const std::shared_ptr<ImageXY
 
   const auto key = makeKey(loadSpec);
 
-  if (configCopy.enabled && configCopy.enableDisk && configCopy.maxDiskBytes > 0 && !cacheDirCopy.empty()) {
-    storeToDisk(key, image, configCopy, cacheDirCopy);
-  }
-
+  // Memory first, so the volume is usable immediately. The disk write is a
+  // full-volume tensorstore write; performing it inline made every prefetched
+  // time step wait on disk before the frame was even available.
   storeImageInMemory(key, image);
+
+  if (configCopy.enabled && configCopy.enableDisk && configCopy.maxDiskBytes > 0 && !cacheDirCopy.empty()) {
+    enqueueDiskWrite(PendingDiskWrite{ key, image, configCopy, cacheDirCopy });
+  }
 }
 
 void
@@ -422,6 +430,15 @@ CacheManager::clearMemoryCache()
 void
 CacheManager::clearDiskCache()
 {
+  // Drop anything queued for writing first, and wait for a write already in
+  // progress. Otherwise a pending write would land after the wipe and leave
+  // entries behind that the user just asked to delete.
+  {
+    std::unique_lock<std::mutex> lock(m_diskQueueMutex);
+    m_diskQueue.clear();
+    m_diskQueueDrained.wait(lock, [this] { return !m_diskWriteInProgress; });
+  }
+
   std::string cacheDir;
   std::vector<std::string> knownEntryPaths;
   {
@@ -538,6 +555,111 @@ CacheManager::getStats() const
 {
   std::scoped_lock lock(m_mutex);
   return m_stats;
+}
+
+namespace {
+// Deliberately small. Each queued entry holds a shared_ptr to a full volume, so
+// a deep queue would pin a lot of memory that the RAM tier's budget does not
+// know about. Falling behind by more than this means the disk cannot keep up
+// with loading, and dropping the oldest is the right answer.
+constexpr std::size_t kMaxPendingDiskWrites = 4;
+} // namespace
+
+void
+CacheManager::enqueueDiskWrite(PendingDiskWrite&& write)
+{
+  {
+    std::unique_lock<std::mutex> lock(m_diskQueueMutex);
+    if (m_diskWriterStop) {
+      return;
+    }
+    if (m_diskQueue.size() >= kMaxPendingDiskWrites) {
+      m_diskQueue.pop_front();
+      ++m_droppedDiskWrites;
+      LOG_DEBUG << "Disk cache write queue full; dropping the oldest pending write";
+    }
+    m_diskQueue.push_back(std::move(write));
+
+    // Started lazily so a RAM-only cache -- which is what the tests and any
+    // disk-disabled configuration use -- never spawns a thread at all.
+    if (!m_diskWriterThread.joinable()) {
+      m_diskWriterThread = std::thread([this] { diskWriterMain(); });
+    }
+  }
+  m_diskQueueWake.notify_one();
+}
+
+void
+CacheManager::diskWriterMain()
+{
+  std::unique_lock<std::mutex> lock(m_diskQueueMutex);
+  while (true) {
+    m_diskQueueWake.wait(lock, [this] { return m_diskWriterStop || !m_diskQueue.empty(); });
+    if (m_diskWriterStop && m_diskQueue.empty()) {
+      return;
+    }
+    if (m_diskQueue.empty()) {
+      continue;
+    }
+
+    PendingDiskWrite write = std::move(m_diskQueue.front());
+    m_diskQueue.pop_front();
+    m_diskWriteInProgress = true;
+
+    // Write without the queue lock so producers never block on disk I/O.
+    lock.unlock();
+    try {
+      storeToDisk(write.key, write.image, write.config, write.cacheDir);
+    } catch (std::exception& e) {
+      LOG_ERROR << "Disk cache write failed: " << e.what();
+    } catch (...) {
+      LOG_ERROR << "Disk cache write failed";
+    }
+    // Release the volume before re-taking the lock, so a queued image is not
+    // held alive any longer than necessary.
+    write.image.reset();
+    lock.lock();
+
+    m_diskWriteInProgress = false;
+    m_diskQueueDrained.notify_all();
+  }
+}
+
+void
+CacheManager::stopDiskWriter()
+{
+  {
+    std::scoped_lock lock(m_diskQueueMutex);
+    m_diskWriterStop = true;
+    // Abandon anything still queued rather than making shutdown wait on a
+    // backlog of full-volume writes.
+    m_diskQueue.clear();
+  }
+  m_diskQueueWake.notify_all();
+  if (m_diskWriterThread.joinable()) {
+    m_diskWriterThread.join();
+  }
+}
+
+void
+CacheManager::flushDiskWrites()
+{
+  std::unique_lock<std::mutex> lock(m_diskQueueMutex);
+  m_diskQueueDrained.wait(lock, [this] { return m_diskQueue.empty() && !m_diskWriteInProgress; });
+}
+
+std::size_t
+CacheManager::pendingDiskWrites() const
+{
+  std::scoped_lock lock(m_diskQueueMutex);
+  return m_diskQueue.size() + (m_diskWriteInProgress ? 1 : 0);
+}
+
+std::uint64_t
+CacheManager::droppedDiskWrites() const
+{
+  std::scoped_lock lock(m_diskQueueMutex);
+  return m_droppedDiskWrites;
 }
 
 void

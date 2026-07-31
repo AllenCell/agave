@@ -14,6 +14,8 @@
 #include <mutex>
 #include <set>
 #include <thread>
+#include <filesystem>
+#include <fstream>
 
 using namespace std::chrono_literals;
 
@@ -818,4 +820,91 @@ TEST_CASE("TimeSeriesLoader stops prefetching once the window fills the budget",
   // Standing still, it has stopped rather than cycling frames in and out.
   CHECK(reader->totalLoads() == loadsAtRest);
   CHECK(reader->totalLoads() < 100);
+}
+
+namespace {
+
+// Minimal RAII temp directory, so this file can exercise the disk tier without
+// depending on helpers in test_cacheManager.cpp.
+class TempDir
+{
+public:
+  TempDir()
+  {
+    static std::atomic<int> counter{ 0 };
+    m_path = std::filesystem::temp_directory_path() / ("agave_tsl_test_" + std::to_string(counter.fetch_add(1)) + "_" +
+                                                       std::to_string(reinterpret_cast<std::uintptr_t>(this)));
+    std::filesystem::create_directories(m_path);
+  }
+  ~TempDir()
+  {
+    std::error_code ec;
+    std::filesystem::remove_all(m_path, ec);
+  }
+  std::string str() const { return m_path.string(); }
+
+private:
+  std::filesystem::path m_path;
+};
+
+CacheConfig
+diskCacheConfig(std::uint64_t maxRamBytes, std::uint64_t maxDiskBytes)
+{
+  CacheConfig cfg;
+  cfg.enabled = true;
+  cfg.enableDisk = true;
+  cfg.maxRamBytes = maxRamBytes;
+  cfg.maxDiskBytes = maxDiskBytes;
+  return cfg;
+}
+
+} // namespace
+
+TEST_CASE("TimeSeriesLoader prefetch reads back from the disk cache", "[timeSeriesLoader]")
+{
+  // Regression test: prefetch used to probe only the memory tier and go straight
+  // to the reader for anything not in RAM, so a time step it had already written
+  // to the disk cache was re-fetched from the original source every session and
+  // on every pass once it aged out of memory.
+  TempDir dir;
+  CacheManager cache(dir.str());
+  cache.setConfig(diskCacheConfig(frameBytes() * 64, 64ULL * 1024 * 1024));
+
+  auto reader = std::make_shared<CountingReader>();
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.fillCache = true;
+
+  const uint32_t lastTime = 5;
+
+  {
+    TimeSeriesLoader loader(cache);
+    loader.setPrefetchConfig(cfg);
+    loader.setSeries(makeBaseSpec(), reader, 0, lastTime, 0);
+    loader.requestTime(0);
+    REQUIRE(waitFor([&] { return cachedCount(loader, 0, lastTime) == static_cast<int>(lastTime) + 1; }));
+  }
+
+  // Everything is now on disk as well as in memory.
+  cache.flushDiskWrites();
+  const int loadsAfterFirstPass = reader->totalLoads();
+  REQUIRE(loadsAfterFirstPass >= static_cast<int>(lastTime) + 1);
+
+  // Simulate a later session: memory gone, disk intact.
+  cache.clearMemoryCache();
+  cache.resetStats();
+
+  {
+    TimeSeriesLoader loader(cache);
+    loader.setPrefetchConfig(cfg);
+    loader.setSeries(makeBaseSpec(), reader, 0, lastTime, 0);
+    loader.requestTime(0);
+    REQUIRE(waitFor([&] { return cachedCount(loader, 0, lastTime) == static_cast<int>(lastTime) + 1; }));
+  }
+
+  // The second pass must come from disk, not from the reader.
+  CHECK(reader->totalLoads() == loadsAfterFirstPass);
+  CHECK(cache.getStats().diskHits >= static_cast<std::uint64_t>(lastTime) + 1);
+  CHECK(cache.getStats().misses == 0);
 }
