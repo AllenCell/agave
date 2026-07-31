@@ -608,13 +608,23 @@ TimeSeriesLoader::threadMain()
       lock.unlock();
       notifyStatusChanges(changes);
 
-      // Skip timepoints already resident. containsInMemory does not disturb
-      // hit/miss stats or LRU order, unlike findImage.
-      const bool resident = m_cache.containsInMemory(spec);
+      // Consult the whole cache, memory AND disk, before fetching from source.
+      //
+      // This used to probe containsInMemory, which only sees the memory tier, so
+      // prefetch went straight to the reader for anything not in RAM and never
+      // read back a time step it had already written to the disk cache. Every
+      // session, and every pass once frames aged out of memory, re-fetched from
+      // the original source. findImage promotes a disk hit into memory, and
+      // counts it as a disk hit, which is exactly what we want reported.
+      std::shared_ptr<ImageXYZC> cached = m_cache.findImage(spec);
+      const bool resident = cached != nullptr;
       std::shared_ptr<LoadRequest> request;
       if (!resident && reader) {
         request = reader->submitLoad(spec);
       }
+      // Release before re-locking so the volume is not held any longer than the
+      // cache already holds it.
+      cached.reset();
       lock.lock();
 
       changes.clear();

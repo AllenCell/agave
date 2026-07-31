@@ -61,6 +61,14 @@ reportCacheStatistics(CStatus* status)
   if (config.enableDisk) {
     status->SetStatisticChanged("Cache", "Disk Hits", std::to_string(stats.diskHits));
     status->SetStatisticChanged("Cache", "Disk Writes", std::to_string(stats.diskWrites));
+    // Disk writes are asynchronous. A steady small number here is normal; a
+    // persistently growing one, or a rising dropped count, means the disk cannot
+    // keep up with loading.
+    status->SetStatisticChanged("Cache", "Disk Writes Pending", std::to_string(cache.pendingDiskWrites()));
+    const std::uint64_t dropped = cache.droppedDiskWrites();
+    if (dropped > 0) {
+      status->SetStatisticChanged("Cache", "Disk Writes Dropped", std::to_string(dropped));
+    }
   }
   status->SetStatisticChanged("Cache", "Misses", std::to_string(stats.misses));
 }
