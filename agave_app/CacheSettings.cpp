@@ -103,6 +103,27 @@ CacheSettings::load()
     if (doc.contains("maxDiskBytes")) {
       data.maxDiskBytes = doc["maxDiskBytes"].get<std::uint64_t>();
     }
+    if (doc.contains("prefetchEnabled")) {
+      data.prefetchEnabled = doc["prefetchEnabled"].get<bool>();
+    }
+    if (doc.contains("prefetchDepth")) {
+      data.prefetchDepth = doc["prefetchDepth"].get<std::uint32_t>();
+    }
+    if (doc.contains("prefetchFillCache")) {
+      data.prefetchFillCache = doc["prefetchFillCache"].get<bool>();
+    }
+    if (doc.contains("showDetailedCacheStatus")) {
+      data.showDetailedCacheStatus = doc["showDetailedCacheStatus"].get<bool>();
+    }
+    if (doc.contains("playbackFps")) {
+      data.playbackFps = doc["playbackFps"].get<float>();
+    }
+    if (doc.contains("playbackLoop")) {
+      data.playbackLoop = doc["playbackLoop"].get<bool>();
+    }
+    if (doc.contains("playbackDropFrames")) {
+      data.playbackDropFrames = doc["playbackDropFrames"].get<bool>();
+    }
   } catch (...) {
     return defaultSettings();
   }
@@ -118,6 +139,13 @@ CacheSettings::save(const CacheSettingsData& data) const
   doc["enableDisk"] = data.enableDisk;
   doc["maxRamBytes"] = data.maxRamBytes;
   doc["maxDiskBytes"] = data.maxDiskBytes;
+  doc["prefetchEnabled"] = data.prefetchEnabled;
+  doc["prefetchDepth"] = data.prefetchDepth;
+  doc["prefetchFillCache"] = data.prefetchFillCache;
+  doc["showDetailedCacheStatus"] = data.showDetailedCacheStatus;
+  doc["playbackFps"] = data.playbackFps;
+  doc["playbackLoop"] = data.playbackLoop;
+  doc["playbackDropFrames"] = data.playbackDropFrames;
 
   QString path = QString::fromStdString(configPath());
   QFile file(path);

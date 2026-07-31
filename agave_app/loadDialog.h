@@ -35,6 +35,10 @@ public:
   LoadSpec getLoadSpec() const;
   int getMultiscaleLevelIndex() const { return mSelectedLevel; }
   bool getKeepSettings() const { return m_keepSettingsCheckbox->isChecked(); }
+  // "Prefetch whole time series": warm every time step in the background rather
+  // than only a window ahead of the playhead. Only meaningful when the file has
+  // more than one time step; false when the checkbox was not shown.
+  bool getPrefetchWholeTimeSeries() const;
 
   QSize sizeHint() const override { return QSize(400, 100); }
 
@@ -69,6 +73,7 @@ private:
   RangeWidget* m_roiZ;
   Section* m_roiSection;
   QCheckBox* m_keepSettingsCheckbox;
+  QCheckBox* m_prefetchWholeSeriesCheckbox;
 
   void updateMemoryEstimate();
   void updateMultiresolutionInput();

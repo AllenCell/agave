@@ -348,6 +348,40 @@ debugging prefetch. Add `DiskCached` later if the disk tier becomes interesting.
 automated test covers the painting: the test target links renderlib only and has no Qt, so **whether the
 strip actually appears and aligns correctly is unverified** and needs a look with a real time series.
 
+## Phase 9 — COMPLETE (builds and runs; UI round-trip unverified)
+
+Suite green: 976 assertions / 66 cases. App builds, launches, shuts down cleanly.
+
+- `CacheSettingsData` gained `prefetchEnabled`, `prefetchDepth`, `prefetchFillCache`,
+  `showDetailedCacheStatus`, `playbackFps`, `playbackLoop`, `playbackDropFrames`, all persisted through
+  the existing `doc.contains` guarded load/save. `defaultSettings()` returns `{}`, so the in-class
+  initializers are the single source of defaults and an older settings file simply picks them up.
+- `CacheSettingsWidget` gained a **Prefetch** section: enable, depth, fill-available-cache, and the
+  detailed-cache-status debug checkbox (which is what finally activates phase 8's 5-state strip).
+  Depth is disabled while fill-cache is on, and the whole group while prefetch is off, so the UI never
+  implies a setting is in effect when it is not.
+- `LoadDialog` gained a "Prefetch whole time series" checkbox, only added to the layout when the file
+  actually has a series (same condition as its time slider). `getPrefetchWholeTimeSeries()` gates on that
+  same condition so it cannot return a stale value for a single-timepoint file.
+- New `agaveGui::applyTimeSeriesSettings()` pushes prefetch + playback + debug settings into the timeline
+  dock. Called at startup and on Apply.
+
+### Two things worth remembering
+- **`CacheSettingsWidget::getSettings()` is lossless.** It starts from the last value passed to
+  `setSettings()` and overwrites only the fields it presents. Without that, applying cache settings would
+  silently reset the playback fields (which live on the timeline dock, not in this widget) to defaults.
+  The Apply handler additionally folds the timeline's *live* playback config in before saving, so
+  changing fps and then pressing Apply persists the new fps rather than the last-loaded one.
+- **The LoadDialog checkbox persists.** Ticking "prefetch whole time series" writes
+  `prefetchEnabled=true, prefetchFillCache=true` back to the settings file and refreshes the cache dock.
+  A per-load-only choice would have left the dock showing a value that did not match actual behaviour.
+
+### Not verified
+No settings file existed on this machine (Apply had never been pressed), so the load path for a file
+*missing* the new keys was not exercised end-to-end — it relies on the same `doc.contains` guards as the
+existing fields. And no automated test covers the widgets: whether the prefetch group, the LoadDialog
+checkbox and the detailed strip behave correctly still needs a human.
+
 ## Next up
 
 - **Phase 0** — observability: surface `CacheManager::getStats()` (still has no consumer) plus a
