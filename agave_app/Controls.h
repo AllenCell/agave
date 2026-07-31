@@ -240,6 +240,13 @@ private slots:
 signals:
   void valueChanged(int value);
 
+protected:
+  // Access to the embedded slider for subclasses that need its geometry -- e.g.
+  // to align an overlay with the groove. Kept protected so the public API of
+  // QIntSlider stays a closed composite.
+  QSlider& sliderWidget() { return m_slider; }
+  const QSlider& sliderWidget() const { return m_slider; }
+
 private:
   QGridLayout m_layout;
   MySpinBoxWithEnter m_spinner;
