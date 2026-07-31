@@ -437,6 +437,50 @@ layers on: a wrong initial image layout surfaces there first.
 Not done: removing the final `vkQueueWaitIdle` in `endSingleTimeCommands` (needs a fence, and it is
 shared Backend code), and teaching `Fuse` an output stride to remove uploadFused's last pass.
 
+## Phase 10 — COMPLETE and verified
+
+`ExecutionContext` now owns the reader for the loaded file. `SetTimeCommand` called `loadAndCache` with
+no reader, so every python-driven time step built a fresh one and discarded exactly the metadata that
+phase 2 memoizes. `LoadDataCommand` hands over the reader it already built. 5 test sections.
+
+**Deliberately not done:** routing `SetTimeCommand` through `TimeSeriesLoader`. The commands run on the
+render thread with their own context; the loader is owned by the timeline dock. Sharing GUI-owned state
+with the command path buys nothing now that both paths share `applyTimeStepToScene` and both reuse a
+reader — the two pieces that actually mattered.
+
+**Found while testing:** `FileReaderImageSequence` scans its parent directory *in its constructor* and
+throws if it does not exist (a bare filename has an empty parent path). Unlike the other readers,
+constructing it touches the filesystem. `SetTimeCommand` is unaffected — its `readerFor` call is inside
+the existing try block — but `LoadDataCommand` calls `getReader` outside one. Pre-existing; not changed.
+
+## Separate bug fixed: volume rotated the wrong way (Vulkan raymarch, orthographic)
+
+Not related to the time-series work. `basicVolume.frag` derived its orthographic ray origin from
+`gl_FragCoord` under a comment copied from the OpenGL shader — `gl_FragCoord` is bottom-left in OpenGL
+but **top-left in Vulkan**. `vUv.y` was inverted, so the volume rendered mirrored against its own
+bounding box, which reads as rotating the wrong way. Perspective was unaffected (its ray comes from the
+interpolated object position) and the bounding box was unaffected (rasterized geometry goes through
+`vulkanProjectionCorrection()`). `pathTraceVolume.frag:1416` already carried this exact correction with
+an explanatory comment, so it was a known porting hazard that this shader missed. SPIR-V headers are
+checked in, so `make_spirv.py` must be re-run after editing a shader.
+
+## What is left, and why it is not done
+
+**Phase 12 (double-buffered upload) is gated on measurement** and the plan says so explicitly: pursue it
+only if GPU upload still bounds playback FPS *after* phase 11. Phase 11 has not been executed once, so
+there is nothing to justify doubling volume VRAM against. Do not start it before measuring.
+
+**Phase 11 leftovers**, both optional:
+- Teach `Fuse` an output stride, removing `uploadFused`'s remaining full-volume pass. Contained, but
+  `Fuse` is shared with the OpenGL backend.
+- Replace the final `vkQueueWaitIdle` in `endSingleTimeCommands` with a fence. Larger, and it is shared
+  `Backend` code used well beyond volume upload.
+
+**Highest-value next action is not code:** phases 3 and 11 are compile-verified only. Measure per-timestep
+upload time in raymarch and pathtrace (the Statistics dock "Performance" group already reports render
+time; phase 0's "Cache" group reports hit rates). That measurement decides whether phase 12 is worth
+anything at all.
+
 ## Next up
 
 - **Phase 0** — observability: surface `CacheManager::getStats()` (still has no consumer) plus a
