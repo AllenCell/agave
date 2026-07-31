@@ -732,3 +732,90 @@ TEST_CASE("TimeSeriesLoader keeps prefetches that stay inside the new window", "
   CHECK(reader->loadCountFor(1) == 1);
   CHECK(reader->cancelledLoads() == 0);
 }
+
+TEST_CASE("TimeSeriesLoader prefetches past the end of a full cache once the playhead moves", "[timeSeriesLoader]")
+{
+  // Regression test for a playback deadlock. Prefetch filled the budget and then
+  // refused to queue anything more, because it gated on free space and nothing
+  // frees space except eviction. Playback reached the end of the cached run and
+  // stalled forever: in show-every-frame mode the player will not advance onto a
+  // frame that is not ready, so it never requests it, so the interactive path
+  // never rescues it either.
+  //
+  // The test therefore moves the playhead only onto already-cached frames -- as
+  // playback does -- and then requires prefetch ALONE to push the frontier
+  // forward. Requesting the next frame directly would mask the bug, since
+  // interactive loads evict freely.
+  CacheManager cache;
+  const std::uint64_t budgetFrames = 4;
+  cache.setConfig(ramConfig(frameBytes() * budgetFrames));
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.fillCache = true;
+  loader.setPrefetchConfig(cfg);
+
+  loader.setSeries(makeBaseSpec(), reader, 0, 40, 0);
+  loader.requestTime(0);
+
+  // Let prefetch fill as far as it will while standing still.
+  REQUIRE(waitFor([&] { return loader.status(0) == TimepointStatus::RamCached; }));
+  REQUIRE(waitFor([&] { return loader.memoryStats().inFlightCount == 0 && cachedCount(loader, 0, 40) >= 2; }));
+  std::this_thread::sleep_for(150ms);
+
+  // Find the end of the contiguous cached run: that is where playback stalls.
+  uint32_t frontier = 0;
+  while (frontier + 1 <= 40 && loader.status(frontier + 1) == TimepointStatus::RamCached) {
+    ++frontier;
+  }
+  REQUIRE(frontier >= 1);
+  REQUIRE(frontier < 40);
+
+  // Walk the playhead up to the frontier, touching only cached frames.
+  for (uint32_t t = 1; t <= frontier; ++t) {
+    REQUIRE(loader.status(t) == TimepointStatus::RamCached);
+    loader.requestTime(t);
+  }
+
+  // The frame past the frontier was never requested. Prefetch must supply it by
+  // evicting frames behind the playhead, which are the oldest entries and so the
+  // first LRU reclaims.
+  const uint32_t beyond = frontier + 1;
+  REQUIRE(waitFor([&] { return loader.status(beyond) == TimepointStatus::RamCached; }, 5000ms));
+
+  // And the budget was still honoured: this is forward progress, not an
+  // unbounded cache.
+  CHECK(cache.getRamBytesUsed() <= frameBytes() * budgetFrames);
+}
+
+TEST_CASE("TimeSeriesLoader stops prefetching once the window fills the budget", "[timeSeriesLoader]")
+{
+  // The complement of the test above: at a standstill it must NOT keep loading,
+  // or it would thrash, evicting frames it is about to want.
+  CacheManager cache;
+  const std::uint64_t budgetFrames = 4;
+  cache.setConfig(ramConfig(frameBytes() * budgetFrames));
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.fillCache = true;
+  loader.setPrefetchConfig(cfg);
+
+  loader.setSeries(makeBaseSpec(), reader, 0, 99, 0);
+  loader.requestTime(0);
+
+  REQUIRE(waitFor([&] { return loader.memoryStats().inFlightCount == 0 && cachedCount(loader, 0, 99) >= 2; }));
+  std::this_thread::sleep_for(200ms);
+
+  const int loadsAtRest = reader->totalLoads();
+  std::this_thread::sleep_for(200ms);
+  // Standing still, it has stopped rather than cycling frames in and out.
+  CHECK(reader->totalLoads() == loadsAtRest);
+  CHECK(reader->totalLoads() < 100);
+}

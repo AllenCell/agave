@@ -140,6 +140,8 @@ private:
                        std::vector<std::pair<uint32_t, TimepointStatus>>& changes);
   void cancelPrefetchLocked();
   bool canStartPrefetchLocked() const;
+  // Last timepoint the current prefetch policy wants resident.
+  uint32_t prefetchWindowEndLocked() const;
   // Next timepoint worth prefetching, or false if there is nothing to do.
   bool nextPrefetchTimeLocked(uint32_t& time) const;
   LoadSpec specForLocked(uint32_t time) const;
