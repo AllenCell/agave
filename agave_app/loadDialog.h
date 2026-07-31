@@ -73,7 +73,7 @@ private:
   RangeWidget* m_roiZ;
   Section* m_roiSection;
   QCheckBox* m_keepSettingsCheckbox;
-  QCheckBox* m_prefetchWholeSeriesCheckbox;
+  QCheckBox* m_prefetchWholeSeriesCheckbox = nullptr;
 
   void updateMemoryEstimate();
   void updateMultiresolutionInput();
