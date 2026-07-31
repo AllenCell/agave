@@ -968,3 +968,81 @@ TEST_CASE("TimeSeriesLoader prefetch does not wrap when looping is off", "[timeS
   CHECK(loader.status(0) == TimepointStatus::NotCached);
   CHECK(loader.status(1) == TimepointStatus::NotCached);
 }
+
+TEST_CASE("TimeSeriesLoader keeps prefetching with looping on and a series larger than the cache", "[timeSeriesLoader]")
+{
+  // Regression test for a deadlock introduced by making the prefetch window
+  // wrap. A wrapped window spans the whole series, so frames behind the playhead
+  // never left the wanted set, the resident count never fell, the throttle never
+  // released, and playback stalled the moment it reached the prefetch wavefront.
+  // The same effect showed up while merely prefetching as a gap cycling around
+  // the slider: each load evicted another wanted frame.
+  //
+  // The window is now clamped to what the cache can hold, so it slides.
+  CacheManager cache;
+  const std::uint64_t budgetFrames = 4;
+  cache.setConfig(ramConfig(frameBytes() * budgetFrames));
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.fillCache = true;
+  cfg.wrapAround = true; // looping playback
+  loader.setPrefetchConfig(cfg);
+
+  const uint32_t lastTime = 30;
+  loader.setSeries(makeBaseSpec(), reader, 0, lastTime, 0);
+  loader.requestTime(0);
+
+  REQUIRE(waitFor([&] { return loader.status(0) == TimepointStatus::RamCached; }));
+  REQUIRE(waitFor([&] { return loader.memoryStats().inFlightCount == 0 && cachedCount(loader, 0, lastTime) >= 2; }));
+  std::this_thread::sleep_for(150ms);
+
+  // Walk the playhead forward over cached frames only, the way playback does,
+  // and require prefetch alone to keep supplying what comes next.
+  uint32_t playhead = 0;
+  for (int step = 0; step < 12; ++step) {
+    const uint32_t next = playhead + 1;
+    REQUIRE(waitFor([&] { return loader.status(next) == TimepointStatus::RamCached; }, 5000ms));
+    playhead = next;
+    loader.requestTime(playhead);
+  }
+
+  CHECK(playhead == 12);
+  CHECK(cache.getRamBytesUsed() <= frameBytes() * budgetFrames);
+}
+
+TEST_CASE("TimeSeriesLoader does not want more frames than the cache can hold", "[timeSeriesLoader]")
+{
+  // A guard that prefetch settles rather than cycling frames in and out. Note
+  // this one passes with or without the window clamp -- with a synthetic reader
+  // and no playback driving interactive loads, the reported "gap cycling around
+  // the slider" does not reproduce. It is kept as a regression guard against
+  // future churn, not as evidence for the fix above; the deadlock test is what
+  // actually reproduces the reported bug.
+  CacheManager cache;
+  const std::uint64_t budgetFrames = 3;
+  cache.setConfig(ramConfig(frameBytes() * budgetFrames));
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.fillCache = true;
+  cfg.wrapAround = true;
+  loader.setPrefetchConfig(cfg);
+
+  loader.setSeries(makeBaseSpec(), reader, 0, 50, 0);
+  loader.requestTime(0);
+
+  REQUIRE(waitFor([&] { return loader.memoryStats().inFlightCount == 0 && cachedCount(loader, 0, 50) >= 2; }));
+  std::this_thread::sleep_for(200ms);
+
+  // Standing still it must settle rather than cycling frames in and out forever.
+  const int loadsAtRest = reader->totalLoads();
+  std::this_thread::sleep_for(250ms);
+  CHECK(reader->totalLoads() == loadsAtRest);
+}
