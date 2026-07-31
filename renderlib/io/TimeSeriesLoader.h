@@ -73,6 +73,12 @@ public:
     uint32_t depth = 4;
     // Ignore `depth` and keep loading forward until the cache budget throttles.
     bool fillCache = false;
+    // Whether the prefetch window wraps past the end of the series back to the
+    // start. Must track the playback loop setting: with looping on, the frame
+    // after the last one is the first one, and if prefetch does not know that it
+    // never fetches it back after the forward pass evicted it -- so looping
+    // playback stalls on the final frame waiting for a frame nobody will load.
+    bool wrapAround = false;
   };
 
   // In-flight loads own full destination buffers that CacheManager knows nothing
@@ -140,8 +146,10 @@ private:
                        std::vector<std::pair<uint32_t, TimepointStatus>>& changes);
   void cancelPrefetchLocked();
   bool canStartPrefetchLocked() const;
-  // Last timepoint the current prefetch policy wants resident.
-  uint32_t prefetchWindowEndLocked() const;
+  // The timepoints the current policy wants resident, in priority order,
+  // starting just after the current one. Wraps past the end when wrapAround is
+  // set. Excludes the current timepoint itself.
+  std::vector<uint32_t> prefetchWindowLocked() const;
   // Next timepoint worth prefetching, or false if there is nothing to do.
   bool nextPrefetchTimeLocked(uint32_t& time) const;
   LoadSpec specForLocked(uint32_t time) const;

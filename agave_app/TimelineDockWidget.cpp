@@ -133,6 +133,15 @@ QTimelineWidget::buildPlaybackControls(QVBoxLayout* layout)
     config.mode =
       m_dropFramesCheckbox->isChecked() ? TimeSeriesPlayer::Mode::RealTime : TimeSeriesPlayer::Mode::ShowEveryFrame;
     m_player.setConfig(config);
+
+    // Prefetch has to wrap when playback does, otherwise looping stalls on the
+    // final frame: the first frame was evicted during the forward pass and a
+    // strictly forward window would never fetch it back.
+    if (m_loader) {
+      TimeSeriesLoader::PrefetchConfig prefetch = m_loader->prefetchConfig();
+      prefetch.wrapAround = config.loop;
+      m_loader->setPrefetchConfig(prefetch);
+    }
   };
   connect(m_fpsSpinner, QOverload<int>::of(&QSpinBox::valueChanged), this, [pushConfig](int) { pushConfig(); });
   connect(m_loopCheckbox, &QCheckBox::toggled, this, [pushConfig](bool) { pushConfig(); });
