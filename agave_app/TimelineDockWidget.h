@@ -13,7 +13,6 @@
 class ImageXYZC;
 class IFileReader;
 class QCheckBox;
-class QIntSlider;
 class QSpinBox;
 class QTimelineDockWidget;
 class QRenderSettings;
@@ -21,6 +20,7 @@ class QTimer;
 class QToolButton;
 class Scene;
 class TimeSeriesLoaderBridge;
+class TimeSliderWithCacheStatus;
 
 class QTimelineWidget : public QWidget
 {
@@ -41,6 +41,8 @@ public:
   // Push current prefetch settings down to the loader.
   void setPrefetchConfig(const TimeSeriesLoader::PrefetchConfig& config);
   void cancelPrefetch();
+  // Show queued/loading/failed states as well as cached. For debugging prefetch.
+  void setDetailedCacheStatus(bool detailed);
 
   // Playback settings (frame rate, loop, stall vs drop-frames).
   void setPlaybackConfig(const TimeSeriesPlayer::Config& config);
@@ -54,6 +56,8 @@ signals:
 private:
   void onLoadComplete(uint32_t time, std::shared_ptr<ImageXYZC> image, uint64_t seq);
   void onLoadFailed(uint32_t time, uint64_t seq);
+  void onTimepointStatusChanged(uint32_t time, int status);
+  void refreshCacheStatus();
 
   void buildPlaybackControls(QVBoxLayout* layout);
   void togglePlayPause();
@@ -65,7 +69,7 @@ private:
 
 protected:
   QGridLayout m_MainLayout;
-  QIntSlider* m_TimeSlider;
+  TimeSliderWithCacheStatus* m_TimeSlider;
 
   QRenderSettings* m_qrendersettings;
   Scene* m_scene;
