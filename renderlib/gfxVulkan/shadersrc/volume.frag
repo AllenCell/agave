@@ -142,7 +142,15 @@ integrateVolume(vec3 eyeOrigin, vec3 eyeDir, float tnear, float tfar)
 void
 main()
 {
-  vec2 uv = gl_FragCoord.xy / u.viewportDensity.xy;
+  // Mirror gl_FragCoord.y: it is 0 at the bottom of the framebuffer in OpenGL but
+  // at the top in Vulkan. Only the orthographic branch below uses uv, to rebuild
+  // a ray origin from the screen position, so without this the volume renders
+  // vertically mirrored against its own bounding box in orthographic projection
+  // -- which reads as the volume rotating the wrong way. Perspective is
+  // unaffected because it derives its ray from pObj, and the bounding box is
+  // unaffected because rasterized geometry goes through the projection
+  // correction, which already flips Y.
+  vec2 uv = vec2(gl_FragCoord.x, u.viewportDensity.y - gl_FragCoord.y) / u.viewportDensity.xy;
   vec3 eyeOrigin;
   vec3 eyeDir;
 
