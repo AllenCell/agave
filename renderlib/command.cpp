@@ -556,6 +556,26 @@ LoadVolumeFromFileCommand::execute(ExecutionContext* c)
   }
 }
 
+std::shared_ptr<IFileReader>
+ExecutionContext::readerFor(const LoadSpec& spec)
+{
+  if (m_reader && m_readerPath == spec.filepath && m_readerIsImageSequence == spec.isImageSequence) {
+    return m_reader;
+  }
+  m_reader = std::shared_ptr<IFileReader>(FileReader::getReader(spec.filepath, spec.isImageSequence));
+  m_readerPath = spec.filepath;
+  m_readerIsImageSequence = spec.isImageSequence;
+  return m_reader;
+}
+
+void
+ExecutionContext::setReader(const LoadSpec& spec, std::shared_ptr<IFileReader> reader)
+{
+  m_reader = std::move(reader);
+  m_readerPath = spec.filepath;
+  m_readerIsImageSequence = spec.isImageSequence;
+}
+
 void
 SetTimeCommand::execute(ExecutionContext* c)
 {
@@ -572,7 +592,9 @@ SetTimeCommand::execute(ExecutionContext* c)
   std::shared_ptr<ImageXYZC> image;
   try {
 
-    image = FileReader::loadAndCache(loadSpec);
+    // Reuse the reader for this file rather than constructing one per time step,
+    // which discarded the reader's memoized metadata every time.
+    image = FileReader::loadAndCache(loadSpec, c->readerFor(loadSpec));
   } catch (...) {
     LOG_ERROR << "Failed to load time " << m_data.m_time << " from file " << c->m_loadSpec.toString();
     image = nullptr;
@@ -662,6 +684,10 @@ LoadDataCommand::execute(ExecutionContext* c)
   }
 
   VolumeDimensions dims = reader->loadDimensions(m_data.m_path, m_data.m_scene);
+
+  // Hand the reader to the context so subsequent SetTime commands reuse it
+  // instead of reopening the file and re-parsing its metadata per time step.
+  c->setReader(c->m_loadSpec, reader);
 
   std::shared_ptr<ImageXYZC> image = FileReader::loadAndCache(c->m_loadSpec, reader);
   if (!image) {
