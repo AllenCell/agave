@@ -362,3 +362,11 @@ LoadDialog::populateChannels(int level)
     mChannels->addItem(listItem);
   }
 }
+
+bool
+LoadDialog::getPrefetchWholeTimeSeries() const
+{
+  // The checkbox is only added to the layout when the file has a time series, so
+  // gate on the same condition rather than returning a stale default.
+  return m_TimeSlider->isEnabled() && m_prefetchWholeSeriesCheckbox->isChecked();
+}
