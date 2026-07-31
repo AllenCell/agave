@@ -908,3 +908,63 @@ TEST_CASE("TimeSeriesLoader prefetch reads back from the disk cache", "[timeSeri
   CHECK(cache.getStats().diskHits >= static_cast<std::uint64_t>(lastTime) + 1);
   CHECK(cache.getStats().misses == 0);
 }
+
+TEST_CASE("TimeSeriesLoader prefetch wraps when playback loops", "[timeSeriesLoader]")
+{
+  // Regression test for looping playback stalling on the final frame. The
+  // prefetch window was strictly forward, so sitting on the last time step it
+  // was empty, and the first time step -- already evicted during the forward
+  // pass -- was never fetched back. Show-every-frame playback then waited
+  // forever for a frame nobody would load.
+  CacheManager cache;
+  cache.setConfig(ramConfig(frameBytes() * 64));
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.depth = 2;
+  cfg.wrapAround = true;
+  loader.setPrefetchConfig(cfg);
+
+  const uint32_t lastTime = 8;
+  loader.setSeries(makeBaseSpec(), reader, 0, lastTime, lastTime);
+
+  // Sit on the final frame, the way playback does just before wrapping.
+  loader.requestTime(lastTime);
+  REQUIRE(waitFor([&] { return loader.status(lastTime) == TimepointStatus::RamCached; }));
+
+  // The frames after the last one are the first ones. Prefetch must supply them.
+  REQUIRE(waitFor([&] { return loader.status(0) == TimepointStatus::RamCached; }));
+  REQUIRE(waitFor([&] { return loader.status(1) == TimepointStatus::RamCached; }));
+
+  // Depth 2 from the end means exactly frames 0 and 1, not the whole series.
+  CHECK(loader.status(2) == TimepointStatus::NotCached);
+}
+
+TEST_CASE("TimeSeriesLoader prefetch does not wrap when looping is off", "[timeSeriesLoader]")
+{
+  CacheManager cache;
+  cache.setConfig(ramConfig(frameBytes() * 64));
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.depth = 2;
+  cfg.wrapAround = false;
+  loader.setPrefetchConfig(cfg);
+
+  const uint32_t lastTime = 8;
+  loader.setSeries(makeBaseSpec(), reader, 0, lastTime, lastTime);
+  loader.requestTime(lastTime);
+  REQUIRE(waitFor([&] { return loader.status(lastTime) == TimepointStatus::RamCached; }));
+
+  // Nothing further to do at the end of a non-looping series.
+  REQUIRE(waitFor([&] { return loader.memoryStats().inFlightCount == 0; }));
+  std::this_thread::sleep_for(150ms);
+  CHECK(loader.status(0) == TimepointStatus::NotCached);
+  CHECK(loader.status(1) == TimepointStatus::NotCached);
+}
