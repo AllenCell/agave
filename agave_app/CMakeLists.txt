@@ -52,6 +52,8 @@ target_sources(agaveapp PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/CacheSettingsDockWidget.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/CacheSettingsWidget.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/CacheSettingsWidget.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/CacheStatusSlider.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/CacheStatusSlider.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/citationDialog.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/citationDialog.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/cgiparser.cpp"

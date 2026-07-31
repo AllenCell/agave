@@ -304,6 +304,50 @@ may legitimately differ in channel count and ordering and goes through `Scene::i
 rebuilds the scene. The old name invited exactly that misuse. Verified both call sites and that
 `initSceneFromImg` is the new-image path (`agaveGui.cpp:772`, `command.cpp:70/512/677`).
 
+## Phase 8 — COMPLETE (builds and runs; the painted result is unverified)
+
+Suite green: 976 assertions / 66 cases (no new tests — see below). App builds, launches, shuts down
+cleanly.
+
+New `agave_app/CacheStatusSlider.{h,cpp}`:
+- `CacheStatusStrip` — a mouse-transparent overlay parented to the slider, painting a 3 px band along
+  the bottom, horizontally aligned to the groove via
+  `style()->subControlRect(CC_Slider, ..., SC_SliderGroove)`.
+- `TimeSliderWithCacheStatus : QIntSlider` — composes the two. `QTimelineWidget` now uses this instead
+  of a plain `QIntSlider`.
+
+### Deviation from the plan: no QIntSlider refactor
+The plan called for changing `QIntSlider`'s `QSlider m_slider` to a pointer plus an injecting
+constructor so a `QSlider` subclass could be supplied. That would have meant ~15 mechanical edits inside a
+file shared by 20-odd widgets. Instead `QIntSlider` gained **one protected accessor**
+(`sliderWidget()`), and the strip is an overlay child of the slider rather than a subclass of it. Same
+result, far smaller blast radius, and no behaviour change for any other slider.
+
+### Other implementation notes
+- Repaints are **coalesced** through a 50 ms single-shot timer. Prefetch emits one status change per
+  timepoint, so repainting per signal would mean dozens of repaints in quick succession while a window
+  warms.
+- The strip tracks the slider's geometry with an **event filter on the slider** (Resize/Show) rather than
+  the parent's `resizeEvent`, which would depend on layout-activation order.
+- Segment edges are both computed as `left + i*W/count`, so adjacent segments tile exactly with no gaps
+  or overlaps whatever the rounding — segment *i* ends exactly where *i+1* begins.
+- `onNewImage` seeds the strip from `TimeSeriesLoader::statusRange()` **after** `setSeries`, since
+  `setSeries` is what reconciles against already-resident frames. Incremental updates then arrive via the
+  bridge's `statusChanged` signal.
+- Colours derive from `QPalette::Highlight`, so the strip follows the theme rather than hardcoding.
+
+### The 5 states differ from the plan
+The plan's detailed mode was "not cached / queued / loading / **on disk** / in RAM". `TimepointStatus`
+has no `DiskCached` — the loader never distinguishes a disk hit, because `loadAndCache` resolves disk
+transparently and reporting it would need a second probe. The detailed mode instead shows
+**not cached / queued / loading / in RAM / failed**, which is still 5 states and more useful for
+debugging prefetch. Add `DiskCached` later if the disk tier becomes interesting.
+
+### Not verified
+`setDetailedCacheStatus()` exists but nothing calls it yet — the debug checkbox is phase 9. And no
+automated test covers the painting: the test target links renderlib only and has no Qt, so **whether the
+strip actually appears and aligns correctly is unverified** and needs a look with a real time series.
+
 ## Next up
 
 - **Phase 0** — observability: surface `CacheManager::getStats()` (still has no consumer) plus a
