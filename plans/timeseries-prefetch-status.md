@@ -382,6 +382,61 @@ No settings file existed on this machine (Apply had never been pressed), so the 
 existing fields. And no automated test covers the widgets: whether the prefetch group, the LoadDialog
 checkbox and the detailed strip behave correctly still needs a human.
 
+## Bugs found in real use after phases 0-9 (all fixed, all with regression tests)
+
+Reported while testing; each is worth remembering because the tests did not catch them.
+
+1. **Crash on accepting the load dialog.** `m_prefetchWholeSeriesCheckbox` was declared and
+   dereferenced but never constructed -- two scripted edits silently failed to match their anchors.
+   A declared-but-unconstructed member compiles fine. *Lesson: assert on every scripted edit.*
+2. **Playback stalled at the end of the cached run.** Prefetch gated on free cache space, but nothing
+   frees space except eviction, so it never queued again. Now throttles on how many *wanted* frames are
+   resident, letting LRU reclaim frames behind the playhead.
+3. **Looping did nothing.** The player wrapped but the prefetch window did not, so the first frame --
+   evicted during the forward pass -- was never fetched back. Added `PrefetchConfig::wrapAround`.
+4. **Playback deadlocked at the prefetch wavefront** (caused by fix 3). A wrapped window spans the whole
+   series, so frames behind the playhead never left the wanted set and the window stopped sliding. The
+   window is now clamped to `budgetFrames - 1`.
+5. **Prefetch never read the disk cache.** It probed `containsInMemory` (memory only) and went straight
+   to the reader, so every session re-fetched from source. Now uses `findImage`.
+6. **Disk writes ran inline, before the memory store**, so each prefetched frame paid a full-volume
+   write before being usable. Now asynchronous on a bounded queue.
+
+Bugs 2, 3 and 4 were the same question -- *which frames do we want resident right now?* -- answered
+inconsistently in three places. It now lives in one function shared by the throttle, the picker and the
+cancel check.
+
+**Process note:** for each of these, the regression test was verified to FAIL against the original code
+before the fix was committed. This caught one test that passed against the buggy code (it advanced the
+playhead with `requestTime`, and interactive loads evict freely, masking the deadlock) and had to be
+rewritten to move the playhead only onto already-cached frames.
+
+## Phase 3 — COMPLETE (compile-verified only)
+
+Zarr channel reads are issued as futures and collected afterwards, so a timepoint's channels transfer
+concurrently. For 16-bit sources -- the usual OME-Zarr case -- reads target the destination buffer
+directly, since `convertChannelData` is exactly a memcpy there; that removes a full-volume allocation
+and a full-volume copy. `maxConcurrentLoads` raised to 3.
+
+**No automated coverage**: the test target has no zarr store, and `--load` routes through the modal
+dialog, so the read path cannot be exercised headlessly.
+
+## Phase 11 — COMPLETE (compile-verified only; NOT executed)
+
+Vulkan upload, items 1-4. `upload()` no longer calls `release()` (it was destroying and recreating the
+image, view, sampler and staging buffer every frame); staging is persistent and left mapped; and
+`uploadVolumeFrom(fill, ...)` lets both modes write voxels once, straight into staging. Raw went from 2
+full-volume passes + 1 allocation to 1 pass + 0; fused from 3 + 2 to 2 + 1. The
+transition/copy/transition sequence is one command buffer and one submit, taking an upload from three
+pipeline stalls to one.
+
+**`uploadVolumeFrom` has never executed** -- the smoke test does not load a volume and the test target
+has no Vulkan device. Needs a real volume rendered in both raymarch and path trace, with validation
+layers on: a wrong initial image layout surfaces there first.
+
+Not done: removing the final `vkQueueWaitIdle` in `endSingleTimeCommands` (needs a fence, and it is
+shared Backend code), and teaching `Fuse` an output stride to remove uploadFused's last pass.
+
 ## Next up
 
 - **Phase 0** — observability: surface `CacheManager::getStats()` (still has no consumer) plus a
