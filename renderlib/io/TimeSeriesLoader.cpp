@@ -86,6 +86,7 @@ TimeSeriesLoader::setSeries(const LoadSpec& base,
     m_interactivePending = false;
     m_prefetchIdleReported = false;
 
+    m_warmOnly.clear();
     m_status.assign(static_cast<size_t>(m_maxTime - m_minTime) + 1, TimepointStatus::NotCached);
   }
 
@@ -392,11 +393,18 @@ TimeSeriesLoader::prefetchWindowLocked() const
   // Never include the current timepoint, so a wrapping window stops one short of
   // a full lap rather than coming back around to where it started.
   const std::uint64_t maxSteps = span - 1;
-  // The MEMORY window: what we want resident in RAM. Bounded by depth even in
-  // fillCache mode -- fillCache means "warm the whole series onto disk", not
-  // "hold the whole series in memory", which is unachievable for a series larger
-  // than the budget and is what made prefetch churn forever.
-  std::uint64_t steps = std::min<std::uint64_t>(m_prefetchConfig.depth, maxSteps);
+  // The MEMORY window: what we want resident in RAM.
+  //
+  // With a disk tier, fillCache means "warm the whole series onto disk", so the
+  // memory window stays at depth and the disk warm pass handles the rest.
+  // Holding the whole series in RAM is unachievable once it exceeds the budget,
+  // and trying was what made prefetch churn forever.
+  //
+  // Without a disk tier there is nowhere else to put it, so fillCache keeps its
+  // original meaning of "fill memory with as much as fits" -- still clamped by
+  // capacity below, which is what stops the churn.
+  const bool fillMemory = m_prefetchConfig.fillCache && !m_cache.getConfig().enableDisk;
+  std::uint64_t steps = fillMemory ? maxSteps : std::min<std::uint64_t>(m_prefetchConfig.depth, maxSteps);
 
   // Clamp the window to what the cache can actually hold.
   //
@@ -436,8 +444,9 @@ TimeSeriesLoader::prefetchWindowLocked() const
 }
 
 bool
-TimeSeriesLoader::nextPrefetchTimeLocked(uint32_t& time) const
+TimeSeriesLoader::nextPrefetchTimeLocked(uint32_t& time, bool& warmOnly) const
 {
+  warmOnly = false;
   if (!m_haveSeries) {
     return false;
   }
@@ -453,6 +462,7 @@ TimeSeriesLoader::nextPrefetchTimeLocked(uint32_t& time) const
       continue;
     }
     time = t;
+    warmOnly = false;
     return true;
   }
 
@@ -461,7 +471,11 @@ TimeSeriesLoader::nextPrefetchTimeLocked(uint32_t& time) const
   // re-fetching it is exactly the endless loop this avoids. Each frame is
   // fetched at most once, so this terminates: eventually every time step is
   // either resident or on disk, and prefetch goes idle.
-  if (m_prefetchConfig.fillCache) {
+  // Only worth doing when there is a disk tier to warm. Without one a warm-only
+  // fetch would store nowhere and mark the time step DiskCached when it exists
+  // in neither tier -- so with the disk cache off, fillCache simply means the
+  // memory window above.
+  if (m_prefetchConfig.fillCache && m_cache.getConfig().enableDisk) {
     const std::uint64_t span = static_cast<std::uint64_t>(m_maxTime - m_minTime) + 1;
     const std::uint64_t offsetOfCurrent = static_cast<std::uint64_t>(m_currentTime - m_minTime);
     for (std::uint64_t i = 1; i < span; ++i) {
@@ -473,6 +487,10 @@ TimeSeriesLoader::nextPrefetchTimeLocked(uint32_t& time) const
         continue;
       }
       time = t;
+      // Disk-only: this volume must not enter the memory tier, or warming the
+      // series would evict the near time steps and paint the whole timeline as
+      // in-memory as the warm pass sweeps along it.
+      warmOnly = true;
       return true;
     }
   }
@@ -647,6 +665,7 @@ TimeSeriesLoader::threadMain()
       }
       const uint32_t time = it->first;
       std::shared_ptr<LoadRequest> request = it->second;
+      const bool warmOnly = m_warmOnly.erase(time) > 0;
       it = m_inFlight.erase(it);
       m_inFlightBytes = m_inFlightBytes > m_bytesPerFrame ? m_inFlightBytes - m_bytesPerFrame : 0;
       reaped = true;
@@ -656,18 +675,31 @@ TimeSeriesLoader::threadMain()
 
       lock.unlock();
       std::shared_ptr<ImageXYZC> image = request->take();
-      if (image) {
-        m_cache.storeImage(spec, image);
+      const bool loaded = image != nullptr;
+      std::uint64_t loadedBytes = 0;
+      if (loaded) {
+        loadedBytes = imageBytes(*image);
+        if (warmOnly) {
+          m_cache.storeImageOnDiskOnly(spec, image);
+        } else {
+          m_cache.storeImage(spec, image);
+        }
       }
+      // Released before re-locking. For a warm-only fetch this is the last
+      // reference, so the volume is freed immediately rather than lingering in
+      // memory the cache never took ownership of.
+      image.reset();
       lock.lock();
 
       std::vector<std::pair<uint32_t, TimepointStatus>> changes;
       if (generation == m_seriesGeneration) {
-        if (image) {
+        if (loaded) {
           if (m_bytesPerFrame == 0) {
-            m_bytesPerFrame = imageBytes(*image);
+            m_bytesPerFrame = loadedBytes;
           }
-          setStatusLocked(time, TimepointStatus::RamCached, changes);
+          // A warm-only fetch deliberately never entered the memory tier, so it
+          // is disk-resident, not resident.
+          setStatusLocked(time, warmOnly ? TimepointStatus::DiskCached : TimepointStatus::RamCached, changes);
         } else if (request->isCancelled()) {
           setStatusLocked(time, TimepointStatus::NotCached, changes);
         } else {
@@ -686,7 +718,8 @@ TimeSeriesLoader::threadMain()
 
     // ---- Start a prefetch if there is room and something to fetch. ----
     uint32_t prefetchTime = 0;
-    if (canStartPrefetchLocked() && nextPrefetchTimeLocked(prefetchTime)) {
+    bool prefetchWarmOnly = false;
+    if (canStartPrefetchLocked() && nextPrefetchTimeLocked(prefetchTime, prefetchWarmOnly)) {
       LoadSpec spec = specForLocked(prefetchTime);
       std::shared_ptr<IFileReader> reader = m_reader;
 
@@ -720,6 +753,9 @@ TimeSeriesLoader::threadMain()
         setStatusLocked(prefetchTime, TimepointStatus::RamCached, changes);
       } else if (request) {
         m_inFlight.emplace(prefetchTime, request);
+        if (prefetchWarmOnly) {
+          m_warmOnly.insert(prefetchTime);
+        }
         m_inFlightBytes += m_bytesPerFrame;
         m_peakInFlightBytes = std::max(m_peakInFlightBytes, m_inFlightBytes);
         setStatusLocked(prefetchTime, TimepointStatus::Loading, changes);
@@ -758,7 +794,8 @@ TimeSeriesLoader::threadMain()
         return true;
       }
       uint32_t time = 0;
-      return canStartPrefetchLocked() && nextPrefetchTimeLocked(time);
+      bool warmOnly = false;
+      return canStartPrefetchLocked() && nextPrefetchTimeLocked(time, warmOnly);
     });
   }
 

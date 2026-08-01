@@ -225,6 +225,20 @@ waitFor(Pred pred, std::chrono::milliseconds timeout = 5000ms)
   return pred();
 }
 
+// Counts timepoints in [from, to] we hold at all, in memory or on disk.
+int
+warmCount(const TimeSeriesLoader& loader, uint32_t from, uint32_t to)
+{
+  int n = 0;
+  for (uint32_t t = from; t <= to; ++t) {
+    const TimepointStatus s = loader.status(t);
+    if (s == TimepointStatus::RamCached || s == TimepointStatus::DiskCached) {
+      ++n;
+    }
+  }
+  return n;
+}
+
 // Counts how many timepoints in [from, to] have reached RamCached.
 int
 cachedCount(const TimeSeriesLoader& loader, uint32_t from, uint32_t to)
@@ -883,10 +897,12 @@ TEST_CASE("TimeSeriesLoader prefetch reads back from the disk cache", "[timeSeri
     loader.setPrefetchConfig(cfg);
     loader.setSeries(makeBaseSpec(), reader, 0, lastTime, 0);
     loader.requestTime(0);
-    REQUIRE(waitFor([&] { return cachedCount(loader, 0, lastTime) == static_cast<int>(lastTime) + 1; }));
+    // With a disk tier, only the memory window stays resident; the rest is warmed
+    // onto disk. Either way we hold every time step.
+    REQUIRE(waitFor([&] { return warmCount(loader, 0, lastTime) == static_cast<int>(lastTime) + 1; }));
   }
 
-  // Everything is now on disk as well as in memory.
+  // Everything is now on disk.
   cache.flushDiskWrites();
   const int loadsAfterFirstPass = reader->totalLoads();
   REQUIRE(loadsAfterFirstPass >= static_cast<int>(lastTime) + 1);
@@ -900,7 +916,7 @@ TEST_CASE("TimeSeriesLoader prefetch reads back from the disk cache", "[timeSeri
     loader.setPrefetchConfig(cfg);
     loader.setSeries(makeBaseSpec(), reader, 0, lastTime, 0);
     loader.requestTime(0);
-    REQUIRE(waitFor([&] { return cachedCount(loader, 0, lastTime) == static_cast<int>(lastTime) + 1; }));
+    REQUIRE(waitFor([&] { return warmCount(loader, 0, lastTime) == static_cast<int>(lastTime) + 1; }));
   }
 
   // The second pass must come from disk, not from the reader.

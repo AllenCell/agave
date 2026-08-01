@@ -400,10 +400,38 @@ CacheManager::storeImage(const LoadSpec& loadSpec, const std::shared_ptr<ImageXY
 
   const auto key = makeKey(loadSpec);
 
+  storeImageInternal(loadSpec, image, /*intoMemory=*/true);
+}
+
+void
+CacheManager::storeImageOnDiskOnly(const LoadSpec& loadSpec, const std::shared_ptr<ImageXYZC>& image)
+{
+  storeImageInternal(loadSpec, image, /*intoMemory=*/false);
+}
+
+void
+CacheManager::storeImageInternal(const LoadSpec& loadSpec, const std::shared_ptr<ImageXYZC>& image, bool intoMemory)
+{
+  if (!image) {
+    return;
+  }
+
+  CacheConfig configCopy;
+  std::string cacheDirCopy;
+  {
+    std::scoped_lock lock(m_mutex);
+    configCopy = m_config;
+    cacheDirCopy = m_cacheDir;
+  }
+
+  const auto key = makeKey(loadSpec);
+
   // Memory first, so the volume is usable immediately. The disk write is a
   // full-volume tensorstore write; performing it inline made every prefetched
   // time step wait on disk before the frame was even available.
-  storeImageInMemory(key, image);
+  if (intoMemory) {
+    storeImageInMemory(key, image);
+  }
 
   if (configCopy.enabled && configCopy.enableDisk && configCopy.maxDiskBytes > 0 && !cacheDirCopy.empty()) {
     enqueueDiskWrite(PendingDiskWrite{ key, image, configCopy, cacheDirCopy });
