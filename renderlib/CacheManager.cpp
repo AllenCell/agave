@@ -880,6 +880,32 @@ CacheManager::notifyEvicted(const std::vector<CacheKey>& keys)
 }
 
 void
+CacheManager::notifyEvictedFromDisk(const std::vector<std::string>& ids)
+{
+  if (ids.empty()) {
+    return;
+  }
+  // Same contract as notifyEvicted: copy the observer list under the lock, then
+  // notify without it, so an observer is free to call back into the cache.
+  std::vector<IEvictionObserver*> observers;
+  {
+    std::scoped_lock lock(m_mutex);
+    observers = m_evictionObservers;
+  }
+  for (IEvictionObserver* observer : observers) {
+    for (const std::string& id : ids) {
+      observer->onEvictedFromDisk(id);
+    }
+  }
+}
+
+std::string
+CacheManager::diskCacheIdFor(const LoadSpec& loadSpec) const
+{
+  return diskCacheId(makeKey(loadSpec));
+}
+
+void
 CacheManager::addEvictionObserver(IEvictionObserver* observer)
 {
   if (!observer) {
@@ -1304,6 +1330,16 @@ CacheManager::loadDiskIndex(const CacheConfig& config, const std::string& cacheD
 void
 CacheManager::evictDiskIfNeeded(const CacheConfig& config, std::uint64_t incomingBytes)
 {
+  std::vector<std::string> evictedIds;
+  evictDiskIfNeededCollecting(config, incomingBytes, evictedIds);
+  notifyEvictedFromDisk(evictedIds);
+}
+
+void
+CacheManager::evictDiskIfNeededCollecting(const CacheConfig& config,
+                                          std::uint64_t incomingBytes,
+                                          std::vector<std::string>& evictedIds)
+{
   if (!config.enableDisk || config.maxDiskBytes == 0) {
     return;
   }
@@ -1342,6 +1378,8 @@ CacheManager::evictDiskIfNeeded(const CacheConfig& config, std::uint64_t incomin
       m_currentDiskBytes = 0;
     }
     m_diskEntries.erase(it);
+    // aged.second is the map key, i.e. the diskCacheId.
+    evictedIds.push_back(aged.second);
 
     std::error_code ec;
     std::filesystem::remove_all(path, ec);

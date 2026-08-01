@@ -1121,3 +1121,79 @@ TEST_CASE("TimeSeriesLoader prefetch terminates on a series larger than memory",
   // Memory still respects the budget.
   CHECK(cache.getRamBytesUsed() <= frameBytes() * budgetFrames);
 }
+
+TEST_CASE("TimeSeriesLoader reverts DiskCached when the disk tier evicts", "[timeSeriesLoader]")
+{
+  // Without the disk eviction observer, a frame whose disk entry is deleted
+  // stays marked DiskCached forever: prefetch believes it is finished, the
+  // slider paints a solid strip that is a lie, and playback silently falls back
+  // to source loads.
+  //
+  // Eviction is forced with UNRELATED data rather than by undersizing the disk
+  // for this series. Self-eviction would work, but with the warm pass still
+  // sweeping the whole span it would also churn -- fetch, evict, revert,
+  // re-fetch -- and this test would be asserting against a moving target.
+  TempDir dir;
+  CacheManager cache(dir.str());
+  const std::uint64_t diskFrames = 16;
+  // RAM must exceed the memory window by more than one frame, or
+  // canStartPrefetchLocked latches once the window is resident and the disk warm
+  // pass never gets to run -- the RAM throttle gates disk warming too.
+  cache.setConfig(diskCacheConfig(frameBytes() * 8, frameBytes() * diskFrames));
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+  RecordingObserver observer;
+  loader.addObserver(&observer);
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.fillCache = true;
+  loader.setPrefetchConfig(cfg);
+
+  const uint32_t lastTime = 5;
+  loader.setSeries(makeBaseSpec(), reader, 0, lastTime, 0);
+  loader.requestTime(0);
+
+  // Every step is held somewhere: the near ones in RAM, the rest warmed to disk.
+  REQUIRE(waitFor([&] { return warmCount(loader, 0, lastTime) == static_cast<int>(lastTime) + 1; }));
+  cache.flushDiskWrites();
+
+  // Stop prefetch so it cannot re-fetch what we are about to evict. The observer
+  // is independent of prefetch, so this isolates the eviction path.
+  cfg.enabled = false;
+  loader.setPrefetchConfig(cfg);
+  loader.cancelPrefetch();
+
+  int diskCachedBefore = 0;
+  for (uint32_t t = 0; t <= lastTime; ++t) {
+    if (loader.status(t) == TimepointStatus::DiskCached) {
+      ++diskCachedBefore;
+    }
+  }
+  REQUIRE(diskCachedBefore > 0);
+
+  // Fill the disk tier with an unrelated series. The current series' entries are
+  // older, so the disk LRU drops them first.
+  for (std::uint64_t i = 0; i < diskFrames * 2; ++i) {
+    LoadSpec filler = makeBaseSpec();
+    filler.filepath = "unrelated.tif";
+    filler.time = static_cast<uint32_t>(i);
+    cache.storeImage(filler, makeImage());
+  }
+  cache.flushDiskWrites();
+
+  // At least one step we believed was on disk is now honestly reported as
+  // uncached, rather than still claiming to be cached with its file deleted.
+  REQUIRE(waitFor([&] {
+    for (uint32_t t = 0; t <= lastTime; ++t) {
+      if (loader.status(t) == TimepointStatus::NotCached) {
+        return true;
+      }
+    }
+    return false;
+  }));
+
+  // And the tier respected its cap throughout.
+  CHECK(cache.getUsage().diskBytesUsed <= frameBytes() * diskFrames);
+}

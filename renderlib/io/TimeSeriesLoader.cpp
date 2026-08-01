@@ -87,6 +87,7 @@ TimeSeriesLoader::setSeries(const LoadSpec& base,
     m_prefetchIdleReported = false;
 
     m_warmOnly.clear();
+    m_diskIdToTime.clear();
     m_status.assign(static_cast<size_t>(m_maxTime - m_minTime) + 1, TimepointStatus::NotCached);
   }
 
@@ -96,6 +97,7 @@ TimeSeriesLoader::setSeries(const LoadSpec& base,
 
   // Reconcile with whatever is already resident, e.g. after reopening a file
   // whose timepoints are still cached from a previous session in this process.
+  // The same pass builds the disk-id map, so the eviction path never has to.
   std::vector<std::pair<uint32_t, TimepointStatus>> changes;
   {
     for (uint32_t t = minTime; t <= m_maxTime; ++t) {
@@ -104,9 +106,14 @@ TimeSeriesLoader::setSeries(const LoadSpec& base,
         std::scoped_lock lock(m_mutex);
         spec = specForLocked(t);
       }
-      if (m_cache.containsInMemory(spec)) {
+      const bool inMemory = m_cache.containsInMemory(spec);
+      const std::string diskId = m_cache.diskCacheIdFor(spec);
+      {
         std::scoped_lock lock(m_mutex);
-        setStatusLocked(t, TimepointStatus::RamCached, changes);
+        m_diskIdToTime[diskId] = t;
+        if (inMemory) {
+          setStatusLocked(t, TimepointStatus::RamCached, changes);
+        }
       }
     }
   }
@@ -300,6 +307,34 @@ TimeSeriesLoader::onEvictedFromMemory(const CacheKey& key)
     setStatusLocked(evictedTime, onDisk ? TimepointStatus::DiskCached : TimepointStatus::NotCached, changes);
   }
 
+  notifyStatusChanges(changes);
+  m_wake.notify_all();
+}
+
+void
+TimeSeriesLoader::onEvictedFromDisk(const std::string& diskCacheId)
+{
+  std::vector<std::pair<uint32_t, TimepointStatus>> changes;
+  {
+    std::scoped_lock lock(m_mutex);
+    if (!m_haveSeries) {
+      return;
+    }
+    auto it = m_diskIdToTime.find(diskCacheId);
+    if (it == m_diskIdToTime.end()) {
+      // Some other dataset's entry. Most evictions during warming are ours, but
+      // the disk tier is shared.
+      return;
+    }
+    // Only a step we believed was disk-resident changes. One currently in RAM
+    // stays RamCached: it is still displayable, and losing its disk copy does not
+    // change that.
+    if (m_status[static_cast<size_t>(it->second - m_minTime)] != TimepointStatus::DiskCached) {
+      return;
+    }
+    setStatusLocked(it->second, TimepointStatus::NotCached, changes);
+    m_prefetchIdleReported = false;
+  }
   notifyStatusChanges(changes);
   m_wake.notify_all();
 }
