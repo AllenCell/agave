@@ -73,6 +73,17 @@ public:
   // the range with looping disabled.
   std::optional<uint32_t> advance(uint64_t nowMs, uint32_t currentTime, const ReadyPredicate& isReady);
 
+  // The timepoint advance() would move to next, without changing any state.
+  // Returns nullopt when not playing, or when playback would stop at the end of
+  // the range.
+  //
+  // Exists so the caller can make sure that frame is actually being loaded.
+  // advance() is deliberately passive -- it asks whether a frame is ready and
+  // never causes it to become ready -- which is fine while prefetch is filling
+  // the cache ahead of the playhead, but with prefetch off nothing else fetches
+  // it and ShowEveryFrame would hold the current frame for ever.
+  std::optional<uint32_t> peekNextTime(uint32_t currentTime) const;
+
   // Number of frames skipped because they were not ready in RealTime mode.
   // Useful for telling the user that playback is outrunning loading.
   uint64_t droppedFrames() const { return m_droppedFrames; }
