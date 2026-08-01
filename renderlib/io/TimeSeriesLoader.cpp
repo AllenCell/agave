@@ -363,24 +363,24 @@ TimeSeriesLoader::setStatusLocked(uint32_t time,
   changes.emplace_back(time, status);
 }
 
-bool
-TimeSeriesLoader::canStartPrefetchLocked() const
+TimeSeriesLoader::PrefetchPermission
+TimeSeriesLoader::prefetchPermissionLocked() const
 {
   if (!m_haveSeries || !m_prefetchConfig.enabled || m_stop || m_interactivePending) {
-    return false;
+    return PrefetchPermission::None;
   }
   if (!m_reader) {
-    return false;
+    return PrefetchPermission::None;
   }
   const uint32_t maxInFlight = std::max(1u, m_reader->maxConcurrentLoads());
   if (m_inFlight.size() >= maxInFlight) {
-    return false;
+    return PrefetchPermission::None;
   }
 
   if (m_bytesPerFrame == 0) {
     // Frame size still unknown (nothing has completed yet), so stay at one load
     // in flight rather than guessing.
-    return m_inFlight.empty();
+    return m_inFlight.empty() ? PrefetchPermission::Any : PrefetchPermission::None;
   }
 
   // Throttle on how many frames we still *want* are already resident, NOT on
@@ -398,9 +398,16 @@ TimeSeriesLoader::canStartPrefetchLocked() const
   // display, which happens only once the window itself no longer fits the
   // budget. So: stop when the frames we want are already filling the budget, and
   // otherwise let the store proceed and let LRU do its job.
+  //
+  // Crucially this throttle applies ONLY to memory-window fetches. A warm-only
+  // fetch goes straight to the disk tier via storeImageOnDiskOnly and never
+  // enters RAM, so gating it on the RAM budget stops disk warming for a reason
+  // that does not apply to it. That is not hypothetical: once the memory window
+  // fills the budget this condition latches permanently, and every remaining time
+  // step would be left in neither tier.
   const std::uint64_t budgetFrames = m_cache.getConfig().maxRamBytes / m_bytesPerFrame;
   if (budgetFrames == 0) {
-    return false;
+    return PrefetchPermission::None;
   }
 
   std::uint64_t wantedResident = m_inFlight.size();
@@ -413,7 +420,7 @@ TimeSeriesLoader::canStartPrefetchLocked() const
       ++wantedResident;
     }
   }
-  return wantedResident < budgetFrames;
+  return wantedResident < budgetFrames ? PrefetchPermission::Any : PrefetchPermission::WarmOnly;
 }
 
 std::vector<uint32_t>
@@ -428,18 +435,11 @@ TimeSeriesLoader::prefetchWindowLocked() const
   // Never include the current timepoint, so a wrapping window stops one short of
   // a full lap rather than coming back around to where it started.
   const std::uint64_t maxSteps = span - 1;
-  // The MEMORY window: what we want resident in RAM.
-  //
-  // With a disk tier, fillCache means "warm the whole series onto disk", so the
-  // memory window stays at depth and the disk warm pass handles the rest.
-  // Holding the whole series in RAM is unachievable once it exceeds the budget,
-  // and trying was what made prefetch churn forever.
-  //
-  // Without a disk tier there is nowhere else to put it, so fillCache keeps its
-  // original meaning of "fill memory with as much as fits" -- still clamped by
-  // capacity below, which is what stops the churn.
-  const bool fillMemory = m_prefetchConfig.fillCache && !m_cache.getConfig().enableDisk;
-  std::uint64_t steps = fillMemory ? maxSteps : std::min<std::uint64_t>(m_prefetchConfig.depth, maxSteps);
+  // The MEMORY window: what we want resident in RAM. Widened to the RAM budget in
+  // a following change; for now it keeps the width the retired `depth` setting
+  // used to give it, so this change is a pure config removal with no behaviour
+  // change.
+  std::uint64_t steps = std::min<std::uint64_t>(4, maxSteps);
 
   // Clamp the window to what the cache can actually hold.
   //
@@ -479,38 +479,44 @@ TimeSeriesLoader::prefetchWindowLocked() const
 }
 
 bool
-TimeSeriesLoader::nextPrefetchTimeLocked(uint32_t& time, bool& warmOnly) const
+TimeSeriesLoader::nextPrefetchTimeLocked(PrefetchPermission permission, uint32_t& time, bool& warmOnly) const
 {
   warmOnly = false;
-  if (!m_haveSeries) {
+  if (!m_haveSeries || permission == PrefetchPermission::None) {
     return false;
   }
   // Priority 1: the memory window, nearest first. A DiskCached frame here is
   // worth pulling back into RAM -- it is about to be displayed and a disk read
   // is much cheaper than going to the source.
-  for (uint32_t t : prefetchWindowLocked()) {
-    const TimepointStatus s = m_status[static_cast<size_t>(t - m_minTime)];
-    if (s != TimepointStatus::NotCached && s != TimepointStatus::DiskCached) {
-      continue;
+  //
+  // Skipped entirely under WarmOnly: the RAM budget is already full of frames we
+  // want, so pulling another into memory would evict one of them.
+  if (permission == PrefetchPermission::Any) {
+    for (uint32_t t : prefetchWindowLocked()) {
+      const TimepointStatus s = m_status[static_cast<size_t>(t - m_minTime)];
+      if (s != TimepointStatus::NotCached && s != TimepointStatus::DiskCached) {
+        continue;
+      }
+      if (m_inFlight.find(t) != m_inFlight.end()) {
+        continue;
+      }
+      time = t;
+      warmOnly = false;
+      return true;
     }
-    if (m_inFlight.find(t) != m_inFlight.end()) {
-      continue;
-    }
-    time = t;
-    warmOnly = false;
-    return true;
   }
 
-  // Priority 2: with fillCache, warm the rest of the series into the DISK cache.
+  // Priority 2: warm the rest of the series into the DISK cache.
   // Only NotCached time steps qualify -- a DiskCached one is already done, and
   // re-fetching it is exactly the endless loop this avoids. Each frame is
   // fetched at most once, so this terminates: eventually every time step is
   // either resident or on disk, and prefetch goes idle.
+  //
   // Only worth doing when there is a disk tier to warm. Without one a warm-only
-  // fetch would store nowhere and mark the time step DiskCached when it exists
-  // in neither tier -- so with the disk cache off, fillCache simply means the
-  // memory window above.
-  if (m_prefetchConfig.fillCache && m_cache.getConfig().enableDisk) {
+  // fetch would store nowhere and mark the time step DiskCached when it exists in
+  // neither tier -- so with the disk cache off, prefetch is the memory window
+  // above and nothing else. `enabled` is already checked by the prefetch gate.
+  if (m_cache.getConfig().enableDisk) {
     const std::uint64_t span = static_cast<std::uint64_t>(m_maxTime - m_minTime) + 1;
     const std::uint64_t offsetOfCurrent = static_cast<std::uint64_t>(m_currentTime - m_minTime);
     for (std::uint64_t i = 1; i < span; ++i) {
@@ -754,7 +760,7 @@ TimeSeriesLoader::threadMain()
     // ---- Start a prefetch if there is room and something to fetch. ----
     uint32_t prefetchTime = 0;
     bool prefetchWarmOnly = false;
-    if (canStartPrefetchLocked() && nextPrefetchTimeLocked(prefetchTime, prefetchWarmOnly)) {
+    if (nextPrefetchTimeLocked(prefetchPermissionLocked(), prefetchTime, prefetchWarmOnly)) {
       LoadSpec spec = specForLocked(prefetchTime);
       std::shared_ptr<IFileReader> reader = m_reader;
 
@@ -830,7 +836,7 @@ TimeSeriesLoader::threadMain()
       }
       uint32_t time = 0;
       bool warmOnly = false;
-      return canStartPrefetchLocked() && nextPrefetchTimeLocked(time, warmOnly);
+      return nextPrefetchTimeLocked(prefetchPermissionLocked(), time, warmOnly);
     });
   }
 

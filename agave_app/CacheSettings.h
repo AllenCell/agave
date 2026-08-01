@@ -14,12 +14,11 @@ struct CacheSettingsData
   // (TimeSeriesLoader::PrefetchConfig and TimeSeriesPlayer::Config) hold the
   // authoritative defaults; these mirror them so the persisted file is
   // self-describing.
+  // Fill memory and disk with time steps in the background. With this off,
+  // slider-driven loads are still cached in both tiers. How much gets warmed is
+  // bounded by the RAM and disk cache limits, so there is no separate depth or
+  // fill-cache setting.
   bool prefetchEnabled = true;
-  // How many time steps ahead of the current one to keep warm.
-  std::uint32_t prefetchDepth = 4;
-  // Ignore prefetchDepth and keep loading forward until the cache budget
-  // throttles. Set by the "prefetch whole time series" option at load time.
-  bool prefetchFillCache = false;
   // Show queued/loading/failed on the time slider strip, not just cached.
   bool showDetailedCacheStatus = false;
 
