@@ -848,6 +848,27 @@ CacheManager::containsInMemory(const LoadSpec& loadSpec) const
 }
 
 bool
+CacheManager::containsOnDisk(const LoadSpec& loadSpec) const
+{
+  CacheKey key = makeKey(loadSpec);
+  CacheConfig configCopy;
+  std::string cacheDirCopy;
+  {
+    std::scoped_lock lock(m_mutex);
+    configCopy = m_config;
+    cacheDirCopy = m_cacheDir;
+  }
+  if (!configCopy.enabled || !configCopy.enableDisk || cacheDirCopy.empty()) {
+    return false;
+  }
+  // Consult the filesystem rather than m_diskEntries: the index is built lazily
+  // and may not have been populated yet in this session.
+  std::error_code ec;
+  std::filesystem::path entryPath = std::filesystem::path(cacheDirCopy) / diskCacheId(key);
+  return std::filesystem::exists(entryPath / "meta.json", ec);
+}
+
+bool
 CacheManager::isPinned(const LoadSpec& loadSpec) const
 {
   CacheKey key = makeKey(loadSpec);
