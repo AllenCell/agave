@@ -153,8 +153,9 @@ public:
 
   // A point-in-time view of how full each tier is. Reported in the GUI
   // statistics panel and used by prefetch to decide whether another timepoint
-  // will fit. diskBytesUsed is only meaningful once the disk index has been
-  // built (which happens lazily on first disk access).
+  // will fit. diskBytesUsed is meaningful once setConfig has run, which builds the
+  // disk index for the configured root -- that is what lets a fresh session evict
+  // a previous series by LRU rather than growing past the cap.
   struct CacheUsage
   {
     std::uint64_t ramBytesUsed = 0;

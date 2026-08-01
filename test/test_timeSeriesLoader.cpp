@@ -927,7 +927,12 @@ TEST_CASE("TimeSeriesLoader prefetch reads back from the disk cache", "[timeSeri
     loader.setPrefetchConfig(cfg);
     loader.setSeries(makeBaseSpec(), reader, 0, lastTime, 0);
     loader.requestTime(0);
-    REQUIRE(waitFor([&] { return warmCount(loader, 0, lastTime) == static_cast<int>(lastTime) + 1; }));
+    // Wait for RamCached, not merely warm. setSeries now seeds every step that is
+    // on disk as DiskCached, so a warmCount check would be satisfied the instant
+    // the series is set -- before prefetch has read anything back -- and this test
+    // would pass without exercising the disk read at all. The whole series fits in
+    // the memory window here, so every step should end up resident.
+    REQUIRE(waitFor([&] { return cachedCount(loader, 0, lastTime) == static_cast<int>(lastTime) + 1; }));
   }
 
   // The second pass must come from disk, not from the reader.
@@ -1374,4 +1379,176 @@ TEST_CASE("TimeSeriesLoader clamps the disk warm set to the disk budget", "[time
   const int loadsAtRest = reader->totalLoads();
   std::this_thread::sleep_for(250ms);
   CHECK(reader->totalLoads() == loadsAtRest);
+}
+
+TEST_CASE("TimeSeriesLoader seeds status from the disk cache on a fresh series", "[timeSeriesLoader]")
+{
+  // A later session must recognise an already-warm disk cache immediately, before
+  // loading anything. Without this every step starts NotCached: the strip paints
+  // blank even though the data is local, and the warm pass re-targets steps that
+  // are already on disk.
+  TempDir dir;
+  CacheManager cache(dir.str());
+  cache.setConfig(diskCacheConfig(frameBytes() * 64, 64ULL * 1024 * 1024));
+
+  LoadSpec base = makeBaseSpec();
+  for (uint32_t t = 0; t <= 5; ++t) {
+    LoadSpec spec = base;
+    spec.time = t;
+    cache.storeImage(spec, makeImage());
+  }
+  cache.flushDiskWrites();
+  cache.clearMemoryCache();
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = false; // isolate seeding from prefetch
+  loader.setPrefetchConfig(cfg);
+
+  loader.setSeries(base, reader, 0, 5, 0);
+
+  for (uint32_t t = 0; t <= 5; ++t) {
+    CHECK(loader.status(t) == TimepointStatus::DiskCached);
+  }
+  CHECK(reader->totalLoads() == 0);
+}
+
+TEST_CASE("TimeSeriesLoader warm-only prefetch does not pull volumes into RAM", "[timeSeriesLoader]")
+{
+  // Regression gate. The fetch site called findImage unconditionally, ignoring
+  // warmOnly, and findImage promotes a disk hit into memory -- so warming a series
+  // that was already on disk dragged the whole timeline through RAM, evicting the
+  // near steps that storeImageOnDiskOnly exists to protect.
+  TempDir dir;
+  CacheManager cache(dir.str());
+  const std::uint64_t ramFrames = 4;
+  cache.setConfig(diskCacheConfig(frameBytes() * ramFrames, 64ULL * 1024 * 1024));
+
+  LoadSpec base = makeBaseSpec();
+  for (uint32_t t = 0; t <= 19; ++t) {
+    LoadSpec spec = base;
+    spec.time = t;
+    cache.storeImage(spec, makeImage());
+  }
+  cache.flushDiskWrites();
+  cache.clearMemoryCache();
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+  RecordingObserver observer;
+  loader.addObserver(&observer);
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.historyMargin = 0;
+  loader.setPrefetchConfig(cfg);
+
+  loader.setSeries(base, reader, 0, 19, 0);
+  loader.requestTime(0);
+  REQUIRE(waitFor([&] { return observer.idleCount() > 0; }));
+
+  // RAM never exceeds the memory window's worth, and steps outside it were never
+  // promoted into it.
+  CHECK(cache.getUsage().ramBytesUsed <= frameBytes() * ramFrames);
+  CHECK(loader.status(19) == TimepointStatus::DiskCached);
+  // Nothing went back to the source: it was all already local.
+  CHECK(reader->totalLoads() == 0);
+
+  // The load-bearing assertion. The end state above is NOT sufficient: dragging
+  // every step through RAM leaves the same statuses behind, because a promoted
+  // step is evicted moments later (RAM holds four) and eviction re-marks it
+  // DiskCached. What distinguishes the two is how the volumes were reached --
+  // findImage promotes and counts a disk hit, while a warm-only probe does
+  // neither. So only the memory-window steps may have hit the disk tier, not all
+  // twenty.
+  CHECK(cache.getStats().diskHits <= ramFrames + 1);
+}
+
+TEST_CASE("TimeSeriesLoader three-run cross-session scenario", "[timeSeriesLoader]")
+{
+  // Run 1 warms series A. Run 2 reloads A and must hit disk, not the source.
+  // Run 3 loads an unrelated series B, which must displace A by disk LRU.
+  // A fresh CacheManager per run stands in for a fresh process over the same
+  // cache directory.
+  TempDir dir;
+  const std::uint64_t ramFrames = 4;
+  const std::uint64_t diskFrames = 12;
+
+  LoadSpec seriesA = makeBaseSpec();
+  seriesA.filepath = "seriesA.tif";
+  LoadSpec seriesB = makeBaseSpec();
+  seriesB.filepath = "seriesB.tif";
+
+  auto makeCfg = [] {
+    TimeSeriesLoader::PrefetchConfig cfg;
+    cfg.enabled = true;
+    cfg.historyMargin = 0;
+    return cfg;
+  };
+
+  {
+    CacheManager cache(dir.str());
+    cache.setConfig(diskCacheConfig(frameBytes() * ramFrames, frameBytes() * diskFrames));
+    auto reader = std::make_shared<CountingReader>();
+    TimeSeriesLoader loader(cache);
+    RecordingObserver observer;
+    loader.addObserver(&observer);
+    loader.setPrefetchConfig(makeCfg());
+
+    loader.setSeries(seriesA, reader, 0, 7, 0);
+    loader.requestTime(0);
+    REQUIRE(waitFor([&] { return observer.idleCount() > 0; }));
+    cache.flushDiskWrites();
+
+    REQUIRE(reader->totalLoads() > 0);
+    CHECK(cache.getUsage().diskBytesUsed <= frameBytes() * diskFrames);
+  }
+
+  {
+    CacheManager cache(dir.str());
+    cache.setConfig(diskCacheConfig(frameBytes() * ramFrames, frameBytes() * diskFrames));
+    auto reader = std::make_shared<CountingReader>();
+    TimeSeriesLoader loader(cache);
+    loader.setPrefetchConfig(makeCfg());
+
+    loader.setSeries(seriesA, reader, 0, 7, 0);
+    // Seeded from disk before anything is loaded.
+    CHECK(warmCount(loader, 0, 7) > 0);
+    CHECK(reader->totalLoads() == 0);
+
+    loader.requestTime(0);
+    REQUIRE(waitFor([&] { return loader.status(0) == TimepointStatus::RamCached; }));
+    // Served from the disk tier, not re-read from the original source.
+    CHECK(reader->totalLoads() == 0);
+    CHECK(cache.getStats().diskHits > 0);
+  }
+
+  {
+    CacheManager cache(dir.str());
+    cache.setConfig(diskCacheConfig(frameBytes() * ramFrames, frameBytes() * diskFrames));
+    auto reader = std::make_shared<CountingReader>();
+    TimeSeriesLoader loader(cache);
+    RecordingObserver observer;
+    loader.addObserver(&observer);
+    loader.setPrefetchConfig(makeCfg());
+
+    loader.setSeries(seriesB, reader, 0, 7, 0);
+    loader.requestTime(0);
+    REQUIRE(waitFor([&] { return observer.idleCount() > 0; }));
+    cache.flushDiskWrites();
+
+    // B is held, the cap was respected, and A gave way to make room for it.
+    CHECK(warmCount(loader, 0, 7) > 0);
+    CHECK(cache.getUsage().diskBytesUsed <= frameBytes() * diskFrames);
+    int aStillOnDisk = 0;
+    for (uint32_t t = 0; t <= 7; ++t) {
+      LoadSpec spec = seriesA;
+      spec.time = t;
+      if (cache.containsOnDisk(spec)) {
+        ++aStillOnDisk;
+      }
+    }
+    CHECK(aStillOnDisk < 8);
+  }
 }
