@@ -116,6 +116,11 @@ public:
 
   std::shared_ptr<ImageXYZC> findImage(const LoadSpec& loadSpec);
   void storeImage(const LoadSpec& loadSpec, const std::shared_ptr<ImageXYZC>& image);
+  // Write to the disk tier only, leaving the memory tier untouched. Used to warm
+  // the disk cache for time steps outside the memory window: routing those
+  // through storeImage would evict the near time steps we actually want
+  // resident, and would make them briefly show as in-memory.
+  void storeImageOnDiskOnly(const LoadSpec& loadSpec, const std::shared_ptr<ImageXYZC>& image);
   // Drop all entries from the in-memory cache. Disk cache is untouched.
   void clearMemoryCache();
   // Drop all entries from the disk cache (refuses if the cache directory is
@@ -176,6 +181,7 @@ private:
   // Precondition: caller must NOT hold m_mutex.
   void notifyEvicted(const std::vector<CacheKey>& keys);
   void storeImageInMemory(const CacheKey& key, const std::shared_ptr<ImageXYZC>& image);
+  void storeImageInternal(const LoadSpec& loadSpec, const std::shared_ptr<ImageXYZC>& image, bool intoMemory);
 
   std::shared_ptr<ImageXYZC> loadFromDisk(const CacheKey& key, const CacheConfig& config, const std::string& cacheDir);
   void storeToDisk(const CacheKey& key,

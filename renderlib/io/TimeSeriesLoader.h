@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -157,7 +158,10 @@ private:
   // set. Excludes the current timepoint itself.
   std::vector<uint32_t> prefetchWindowLocked() const;
   // Next timepoint worth prefetching, or false if there is nothing to do.
-  bool nextPrefetchTimeLocked(uint32_t& time) const;
+  // `warmOnly` reports that the chosen time step is outside the memory window
+  // and is being fetched purely to populate the disk cache, so its volume must
+  // not be inserted into the memory tier.
+  bool nextPrefetchTimeLocked(uint32_t& time, bool& warmOnly) const;
   LoadSpec specForLocked(uint32_t time) const;
 
   void notifyStatusChanges(const std::vector<std::pair<uint32_t, TimepointStatus>>& changes);
@@ -199,6 +203,8 @@ private:
 
   // Prefetch loads currently in flight, keyed by timepoint.
   std::map<uint32_t, std::shared_ptr<LoadRequest>> m_inFlight;
+  // In-flight time steps being fetched only to warm the disk cache.
+  std::set<uint32_t> m_warmOnly;
   std::uint64_t m_bytesPerFrame = 0;
   std::uint64_t m_inFlightBytes = 0;
   std::uint64_t m_peakInFlightBytes = 0;
