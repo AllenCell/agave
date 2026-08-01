@@ -240,6 +240,11 @@ private:
   std::map<uint32_t, std::shared_ptr<LoadRequest>> m_inFlight;
   // In-flight time steps being fetched only to warm the disk cache.
   std::set<uint32_t> m_warmOnly;
+  // Time steps whose disk warm write was refused for lack of disk space. Skipped
+  // by the warm pass so prefetch goes idle instead of re-fetching them for ever.
+  // With the warm set clamped to the disk budget this should stay empty; it is a
+  // defensive terminator, not a normal path.
+  std::set<uint32_t> m_warmRefused;
   // Disk-cache id -> time step, for every step of the current series. Built once
   // in setSeries so onEvictedFromDisk is an O(1) lookup that never stats a file:
   // eviction arrives in bursts while warming, and building ids on that path would
