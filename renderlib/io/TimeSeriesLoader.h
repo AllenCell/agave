@@ -250,6 +250,7 @@ private:
   // eviction arrives in bursts while warming, and building ids on that path would
   // mean a makeKey (and therefore a file stat) per evicted entry.
   std::unordered_map<std::string, uint32_t> m_diskIdToTime;
+
   std::uint64_t m_bytesPerFrame = 0;
   std::uint64_t m_inFlightBytes = 0;
   std::uint64_t m_peakInFlightBytes = 0;
