@@ -87,6 +87,7 @@ TimeSeriesLoader::setSeries(const LoadSpec& base,
     m_prefetchIdleReported = false;
 
     m_warmOnly.clear();
+    m_warmRefused.clear();
     m_diskIdToTime.clear();
     m_status.assign(static_cast<size_t>(m_maxTime - m_minTime) + 1, TimepointStatus::NotCached);
   }
@@ -95,9 +96,18 @@ TimeSeriesLoader::setSeries(const LoadSpec& base,
     m_cache.unpin(previousPinned);
   }
 
-  // Reconcile with whatever is already resident, e.g. after reopening a file
-  // whose timepoints are still cached from a previous session in this process.
-  // The same pass builds the disk-id map, so the eviction path never has to.
+  // Reconcile with whatever is already cached. Two cases: reopening a file whose
+  // timepoints are still resident in this process, and -- via the disk probe -- a
+  // later session opening a series this machine has already warmed.
+  //
+  // The disk probe is what makes a warm start visible and cheap. Without it every
+  // step begins NotCached, so the strip paints blank even though the data is
+  // local, and the warm pass re-targets steps that are already on disk.
+  //
+  // One makeKey per time step here, which stats the source file. That is once per
+  // series load, the same order as the memory reconciliation this replaces -- not
+  // the per-repaint polling the TimepointStatus comment warns about. The same pass
+  // builds the disk-id map so the eviction path never needs a key.
   std::vector<std::pair<uint32_t, TimepointStatus>> changes;
   {
     for (uint32_t t = minTime; t <= m_maxTime; ++t) {
@@ -107,12 +117,15 @@ TimeSeriesLoader::setSeries(const LoadSpec& base,
         spec = specForLocked(t);
       }
       const bool inMemory = m_cache.containsInMemory(spec);
+      const bool onDisk = inMemory ? false : m_cache.containsOnDisk(spec);
       const std::string diskId = m_cache.diskCacheIdFor(spec);
       {
         std::scoped_lock lock(m_mutex);
         m_diskIdToTime[diskId] = t;
         if (inMemory) {
           setStatusLocked(t, TimepointStatus::RamCached, changes);
+        } else if (onDisk) {
+          setStatusLocked(t, TimepointStatus::DiskCached, changes);
         }
       }
     }
@@ -569,6 +582,9 @@ TimeSeriesLoader::nextPrefetchTimeLocked(PrefetchPermission permission, uint32_t
     if (m_inFlight.find(t) != m_inFlight.end()) {
       continue;
     }
+    if (m_warmRefused.count(t)) {
+      continue;
+    }
     time = t;
     // Disk-only: this volume must not enter the memory tier, or warming the
     // series would evict the near time steps and paint the whole timeline as
@@ -759,10 +775,14 @@ TimeSeriesLoader::threadMain()
       std::shared_ptr<ImageXYZC> image = request->take();
       const bool loaded = image != nullptr;
       std::uint64_t loadedBytes = 0;
+      bool warmRefused = false;
       if (loaded) {
         loadedBytes = imageBytes(*image);
         if (warmOnly) {
-          m_cache.storeImageOnDiskOnly(spec, image);
+          // A refusal means this will not fit in the disk tier. Record it so the
+          // warm pass skips the step and prefetch goes idle, rather than fetching
+          // it again on every pass forever.
+          warmRefused = !m_cache.storeImageOnDiskOnly(spec, image);
         } else {
           m_cache.storeImage(spec, image);
         }
@@ -779,9 +799,14 @@ TimeSeriesLoader::threadMain()
           if (m_bytesPerFrame == 0) {
             m_bytesPerFrame = loadedBytes;
           }
-          // A warm-only fetch deliberately never entered the memory tier, so it
-          // is disk-resident, not resident.
-          setStatusLocked(time, warmOnly ? TimepointStatus::DiskCached : TimepointStatus::RamCached, changes);
+          if (warmRefused) {
+            m_warmRefused.insert(time);
+            setStatusLocked(time, TimepointStatus::NotCached, changes);
+          } else {
+            // A warm-only fetch deliberately never entered the memory tier, so it
+            // is disk-resident, not resident.
+            setStatusLocked(time, warmOnly ? TimepointStatus::DiskCached : TimepointStatus::RamCached, changes);
+          }
         } else if (request->isCancelled()) {
           setStatusLocked(time, TimepointStatus::NotCached, changes);
         } else {
@@ -817,22 +842,40 @@ TimeSeriesLoader::threadMain()
       // prefetch went straight to the reader for anything not in RAM and never
       // read back a time step it had already written to the disk cache. Every
       // session, and every pass once frames aged out of memory, re-fetched from
-      // the original source. findImage promotes a disk hit into memory, and
-      // counts it as a disk hit, which is exactly what we want reported.
-      std::shared_ptr<ImageXYZC> cached = m_cache.findImage(spec);
-      const bool resident = cached != nullptr;
+      // the original source.
+      //
+      // Which probe depends on where the step is wanted:
+      //
+      // - Inside the memory window, findImage is right. It checks RAM then disk,
+      //   promotes a disk hit into memory, and counts it as a disk hit -- exactly
+      //   what we want, since the step is about to be displayed.
+      //
+      // - For a warm-only step it would be wrong. findImage promotes, so warming a
+      //   series already on disk would drag the whole timeline through RAM,
+      //   evicting the near steps storeImageOnDiskOnly exists to protect. Probe
+      //   disk residency instead: no promotion, no LRU touch, no hit counted.
+      bool resident = false;
+      bool alreadyWarm = false;
+      if (prefetchWarmOnly) {
+        alreadyWarm = m_cache.containsOnDisk(spec);
+      } else {
+        std::shared_ptr<ImageXYZC> cached = m_cache.findImage(spec);
+        resident = cached != nullptr;
+        // Release before re-locking so the volume is not held any longer than the
+        // cache already holds it.
+        cached.reset();
+      }
       std::shared_ptr<LoadRequest> request;
-      if (!resident && reader) {
+      if (!resident && !alreadyWarm && reader) {
         request = reader->submitLoad(spec);
       }
-      // Release before re-locking so the volume is not held any longer than the
-      // cache already holds it.
-      cached.reset();
       lock.lock();
 
       changes.clear();
       if (resident) {
         setStatusLocked(prefetchTime, TimepointStatus::RamCached, changes);
+      } else if (alreadyWarm) {
+        setStatusLocked(prefetchTime, TimepointStatus::DiskCached, changes);
       } else if (request) {
         m_inFlight.emplace(prefetchTime, request);
         if (prefetchWarmOnly) {
