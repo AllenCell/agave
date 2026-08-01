@@ -108,6 +108,12 @@ public:
   // against the cache without distorting either.
   bool containsInMemory(const LoadSpec& loadSpec) const;
 
+  // Is this entry present in the disk tier? Like containsInMemory this is a
+  // pure probe: no load, no hit/miss accounting, no LRU touch. Prefetch uses it
+  // to tell "never fetched" from "already safely on disk", which is what lets it
+  // stop rather than endlessly pulling evicted frames back into memory.
+  bool containsOnDisk(const LoadSpec& loadSpec) const;
+
   std::shared_ptr<ImageXYZC> findImage(const LoadSpec& loadSpec);
   void storeImage(const LoadSpec& loadSpec, const std::shared_ptr<ImageXYZC>& image);
   // Drop all entries from the in-memory cache. Disk cache is untouched.
