@@ -141,6 +141,10 @@ CacheStatusStrip::paintEvent(QPaintEvent* /*event*/)
   const QColor cached = palette().color(QPalette::Highlight);
   const QColor queued = QColor(cached.red(), cached.green(), cached.blue(), 70);
   const QColor loading = QColor(cached.red(), cached.green(), cached.blue(), 150);
+  // Disk-resident: dimmer than in-memory, since it is available but not instant.
+  // This is the normal resting state for a series larger than the memory budget,
+  // so it must be visible rather than blank.
+  const QColor onDisk = QColor(cached.red(), cached.green(), cached.blue(), 110);
   const QColor failed(200, 60, 60);
 
   for (int i = 0; i < count; ++i) {
@@ -148,6 +152,11 @@ CacheStatusStrip::paintEvent(QPaintEvent* /*event*/)
     switch (m_statuses[static_cast<size_t>(i)]) {
       case TimepointStatus::RamCached:
         color = cached;
+        break;
+      case TimepointStatus::DiskCached:
+        // Shown in both modes: in the simple two-state view it still counts as
+        // "you have this data", just not in memory.
+        color = onDisk;
         break;
       case TimepointStatus::Queued:
         if (!m_detailed) {
