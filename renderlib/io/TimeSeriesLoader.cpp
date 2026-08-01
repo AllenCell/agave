@@ -265,6 +265,9 @@ void
 TimeSeriesLoader::onEvictedFromMemory(const CacheKey& key)
 {
   std::vector<std::pair<uint32_t, TimepointStatus>> changes;
+  uint32_t evictedTime = 0;
+  bool wasResident = false;
+  LoadSpec evictedSpec;
   {
     std::scoped_lock lock(m_mutex);
     if (!m_haveSeries || key.time < m_minTime || key.time > m_maxTime) {
@@ -281,9 +284,21 @@ TimeSeriesLoader::onEvictedFromMemory(const CacheKey& key)
     if (m_status[static_cast<size_t>(key.time - m_minTime)] != TimepointStatus::RamCached) {
       return;
     }
-    setStatusLocked(key.time, TimepointStatus::NotCached, changes);
+    evictedTime = key.time;
+    wasResident = true;
     m_prefetchIdleReported = false;
+    evictedSpec = specForLocked(evictedTime);
   }
+
+  if (wasResident) {
+    // Distinguish "dropped from memory but safely on disk" from "gone". Without
+    // this the frame looks never-fetched, prefetch immediately pulls it back,
+    // that evicts another, and the cycle never ends.
+    const bool onDisk = m_cache.containsOnDisk(evictedSpec);
+    std::scoped_lock lock(m_mutex);
+    setStatusLocked(evictedTime, onDisk ? TimepointStatus::DiskCached : TimepointStatus::NotCached, changes);
+  }
+
   notifyStatusChanges(changes);
   m_wake.notify_all();
 }
@@ -377,8 +392,11 @@ TimeSeriesLoader::prefetchWindowLocked() const
   // Never include the current timepoint, so a wrapping window stops one short of
   // a full lap rather than coming back around to where it started.
   const std::uint64_t maxSteps = span - 1;
-  std::uint64_t steps =
-    m_prefetchConfig.fillCache ? maxSteps : std::min<std::uint64_t>(m_prefetchConfig.depth, maxSteps);
+  // The MEMORY window: what we want resident in RAM. Bounded by depth even in
+  // fillCache mode -- fillCache means "warm the whole series onto disk", not
+  // "hold the whole series in memory", which is unachievable for a series larger
+  // than the budget and is what made prefetch churn forever.
+  std::uint64_t steps = std::min<std::uint64_t>(m_prefetchConfig.depth, maxSteps);
 
   // Clamp the window to what the cache can actually hold.
   //
@@ -423,9 +441,12 @@ TimeSeriesLoader::nextPrefetchTimeLocked(uint32_t& time) const
   if (!m_haveSeries) {
     return false;
   }
-  // Nearest-first within the window, which wraps when playback loops.
+  // Priority 1: the memory window, nearest first. A DiskCached frame here is
+  // worth pulling back into RAM -- it is about to be displayed and a disk read
+  // is much cheaper than going to the source.
   for (uint32_t t : prefetchWindowLocked()) {
-    if (m_status[static_cast<size_t>(t - m_minTime)] != TimepointStatus::NotCached) {
+    const TimepointStatus s = m_status[static_cast<size_t>(t - m_minTime)];
+    if (s != TimepointStatus::NotCached && s != TimepointStatus::DiskCached) {
       continue;
     }
     if (m_inFlight.find(t) != m_inFlight.end()) {
@@ -433,6 +454,27 @@ TimeSeriesLoader::nextPrefetchTimeLocked(uint32_t& time) const
     }
     time = t;
     return true;
+  }
+
+  // Priority 2: with fillCache, warm the rest of the series into the DISK cache.
+  // Only NotCached time steps qualify -- a DiskCached one is already done, and
+  // re-fetching it is exactly the endless loop this avoids. Each frame is
+  // fetched at most once, so this terminates: eventually every time step is
+  // either resident or on disk, and prefetch goes idle.
+  if (m_prefetchConfig.fillCache) {
+    const std::uint64_t span = static_cast<std::uint64_t>(m_maxTime - m_minTime) + 1;
+    const std::uint64_t offsetOfCurrent = static_cast<std::uint64_t>(m_currentTime - m_minTime);
+    for (std::uint64_t i = 1; i < span; ++i) {
+      const uint32_t t = static_cast<uint32_t>(m_minTime + ((offsetOfCurrent + i) % span));
+      if (m_status[static_cast<size_t>(t - m_minTime)] != TimepointStatus::NotCached) {
+        continue;
+      }
+      if (m_inFlight.find(t) != m_inFlight.end()) {
+        continue;
+      }
+      time = t;
+      return true;
+    }
   }
   return false;
 }
