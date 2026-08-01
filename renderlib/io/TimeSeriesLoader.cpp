@@ -435,37 +435,83 @@ TimeSeriesLoader::prefetchWindowLocked() const
   // Never include the current timepoint, so a wrapping window stops one short of
   // a full lap rather than coming back around to where it started.
   const std::uint64_t maxSteps = span - 1;
-  // The MEMORY window: what we want resident in RAM. Widened to the RAM budget in
-  // a following change; for now it keeps the width the retired `depth` setting
-  // used to give it, so this change is a pure config removal with no behaviour
-  // change.
-  std::uint64_t steps = std::min<std::uint64_t>(4, maxSteps);
-
-  // Clamp the window to what the cache can actually hold.
+  // The MEMORY window: as many forward steps as the RAM budget holds, after the
+  // pinned current step and the history reservation.
   //
-  // This is not an optimization, it is what keeps prefetch live. The throttle
-  // stops once the frames we want are all resident, so if we want more frames
-  // than fit, that condition can never clear: prefetch either stalls forever or
-  // churns, evicting one wanted frame to load another. Wrapping made this acute
-  // -- a wrapped window spans the whole series, so frames behind the playhead
-  // never leave the wanted set and the window stops sliding as playback
+  // The capacity clamp is not an optimization, it is what keeps prefetch live. The
+  // throttle stops once the frames we want are all resident, so if we want more
+  // frames than fit, that condition can never clear: prefetch either stalls
+  // forever or churns, evicting one wanted frame to load another. Wrapping made
+  // this acute -- a wrapped window spans the whole series, so frames behind the
+  // playhead never leave the wanted set and the window stops sliding as playback
   // advances, which deadlocks exactly when the playhead reaches the prefetch
   // wavefront.
   //
   // Bounding the window means frames fall out behind the playhead, the count
   // drops, prefetch resumes, and LRU reclaims the frames that just left.
+  std::uint64_t steps = maxSteps;
   if (m_bytesPerFrame > 0) {
     const std::uint64_t budgetFrames = m_cache.getConfig().maxRamBytes / m_bytesPerFrame;
-    // Reserve one slot for the current timepoint, which is pinned. Always allow
-    // at least one so playback can still inch forward on a budget too small to
-    // hold even two frames.
-    const std::uint64_t roomForWindow = budgetFrames > 1 ? budgetFrames - 1 : 1;
-    steps = std::min<std::uint64_t>(steps, roomForWindow);
+    // Saturating, NOT `budgetFrames - 1 - historyMargin`. Unsigned underflow there
+    // yields a huge value that clamps to the whole series -- precisely the churn
+    // this clamp prevents. Always allow at least one step so playback can inch
+    // forward on a budget too small to hold even two frames.
+    //
+    // The reservation is the pinned current step plus historyMargin slots behind
+    // the playhead. Those are never fetched: leaving them out of the window is the
+    // whole mechanism, because it leaves room that LRU fills with the frames just
+    // displayed.
+    const std::uint64_t reserved = 1ULL + m_prefetchConfig.historyMargin;
+    const std::uint64_t forwardCapacity = budgetFrames > reserved ? budgetFrames - reserved : 1;
+    steps = std::min<std::uint64_t>(steps, forwardCapacity);
   }
 
   window.reserve(static_cast<size_t>(steps));
   const std::uint64_t offsetOfCurrent = static_cast<std::uint64_t>(m_currentTime - m_minTime);
   for (std::uint64_t i = 1; i <= steps; ++i) {
+    if (m_prefetchConfig.wrapAround) {
+      window.push_back(static_cast<uint32_t>(m_minTime + ((offsetOfCurrent + i) % span)));
+    } else {
+      if (offsetOfCurrent + i >= span) {
+        break;
+      }
+      window.push_back(static_cast<uint32_t>(m_minTime + offsetOfCurrent + i));
+    }
+  }
+  return window;
+}
+
+std::vector<uint32_t>
+TimeSeriesLoader::diskWarmWindowLocked() const
+{
+  std::vector<uint32_t> window;
+  const CacheConfig config = m_cache.getConfig();
+  if (!m_haveSeries || !config.enableDisk || m_maxTime <= m_minTime || m_bytesPerFrame == 0) {
+    return window;
+  }
+
+  const std::uint64_t span = static_cast<std::uint64_t>(m_maxTime - m_minTime) + 1;
+  const std::uint64_t forwardSteps = prefetchWindowLocked().size();
+  if (forwardSteps + 1 >= span) {
+    // The memory window already covers the series; there is nothing left to warm.
+    return window;
+  }
+
+  const std::uint64_t diskBudgetFrames = config.maxDiskBytes / m_bytesPerFrame;
+  // Saturating, for the same reason as the memory window. The current step and
+  // every memory-window step is written to disk too -- storeImage queues a disk
+  // write for everything it caches -- so the warm set is what remains of the disk
+  // budget after them.
+  //
+  // Clamping here is what stops the warm pass evicting its own earlier writes and
+  // then reporting steps as cached whose files are gone.
+  const std::uint64_t diskReserved = 1ULL + forwardSteps;
+  const std::uint64_t diskCapacity = diskBudgetFrames > diskReserved ? diskBudgetFrames - diskReserved : 0;
+  const std::uint64_t steps = std::min<std::uint64_t>(diskCapacity, span - 1 - forwardSteps);
+
+  window.reserve(static_cast<size_t>(steps));
+  const std::uint64_t offsetOfCurrent = static_cast<std::uint64_t>(m_currentTime - m_minTime);
+  for (std::uint64_t i = forwardSteps + 1; i <= forwardSteps + steps; ++i) {
     if (m_prefetchConfig.wrapAround) {
       window.push_back(static_cast<uint32_t>(m_minTime + ((offsetOfCurrent + i) % span)));
     } else {
@@ -506,34 +552,29 @@ TimeSeriesLoader::nextPrefetchTimeLocked(PrefetchPermission permission, uint32_t
     }
   }
 
-  // Priority 2: warm the rest of the series into the DISK cache.
-  // Only NotCached time steps qualify -- a DiskCached one is already done, and
-  // re-fetching it is exactly the endless loop this avoids. Each frame is
-  // fetched at most once, so this terminates: eventually every time step is
-  // either resident or on disk, and prefetch goes idle.
+  // Priority 2: warm the disk set beyond the memory window.
   //
-  // Only worth doing when there is a disk tier to warm. Without one a warm-only
-  // fetch would store nowhere and mark the time step DiskCached when it exists in
-  // neither tier -- so with the disk cache off, prefetch is the memory window
-  // above and nothing else. `enabled` is already checked by the prefetch gate.
-  if (m_cache.getConfig().enableDisk) {
-    const std::uint64_t span = static_cast<std::uint64_t>(m_maxTime - m_minTime) + 1;
-    const std::uint64_t offsetOfCurrent = static_cast<std::uint64_t>(m_currentTime - m_minTime);
-    for (std::uint64_t i = 1; i < span; ++i) {
-      const uint32_t t = static_cast<uint32_t>(m_minTime + ((offsetOfCurrent + i) % span));
-      if (m_status[static_cast<size_t>(t - m_minTime)] != TimepointStatus::NotCached) {
-        continue;
-      }
-      if (m_inFlight.find(t) != m_inFlight.end()) {
-        continue;
-      }
-      time = t;
-      // Disk-only: this volume must not enter the memory tier, or warming the
-      // series would evict the near time steps and paint the whole timeline as
-      // in-memory as the warm pass sweeps along it.
-      warmOnly = true;
-      return true;
+  // Bounded by diskWarmWindowLocked rather than sweeping the whole series. An
+  // unbounded sweep on a series larger than the disk budget evicts its own earlier
+  // writes as it goes, and the eviction marks those steps uncached again -- so it
+  // never terminates. Clamped to what the disk holds, each step is fetched at most
+  // once and prefetch goes idle.
+  //
+  // Only NotCached steps qualify: a DiskCached one is already done, and
+  // re-fetching it is exactly the endless loop this avoids.
+  for (uint32_t t : diskWarmWindowLocked()) {
+    if (m_status[static_cast<size_t>(t - m_minTime)] != TimepointStatus::NotCached) {
+      continue;
     }
+    if (m_inFlight.find(t) != m_inFlight.end()) {
+      continue;
+    }
+    time = t;
+    // Disk-only: this volume must not enter the memory tier, or warming the
+    // series would evict the near time steps and paint the whole timeline as
+    // in-memory as the warm pass sweeps along it.
+    warmOnly = true;
+    return true;
   }
   return false;
 }
