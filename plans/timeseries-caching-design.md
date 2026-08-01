@@ -94,6 +94,34 @@ never bind and is purely a backstop. At `historyMargin = 0` the wanted set can r
 resident, which is when `nextPrefetchTimeLocked` returns false anyway. Either way the condition still
 clears as the playhead advances and frames fall out behind it, so prefetch stays live at any margin.
 
+### The RAM throttle currently gates disk warming — must be fixed with the widening
+
+Found while implementing §3 (2026-08-01). `canStartPrefetchLocked` gates **all** prefetch, including
+the warm pass, on `wantedResident < budgetFrames`, where `wantedResident` counts only the pinned
+current step and the resident memory window. So once the memory window is full, prefetch stops
+entirely and the disk warm pass never runs again.
+
+Today `depth` (4) is usually well below `budgetFrames`, so there is slack and warming proceeds. But
+once the memory window is capacity-sized this breaks:
+
+| `historyMargin` | max `wantedResident` | `< budgetFrames`? | warm pass |
+| --- | --- | --- | --- |
+| 4 | `budgetFrames - 4` | yes | runs |
+| 0 | `budgetFrames` | **no** | **never runs** |
+
+So at `historyMargin = 0` — a configuration the user explicitly requires — widening the window would
+silently disable disk warming altogether.
+
+Fix, to land with the widening: a warm-only fetch consumes no RAM (it goes to
+`storeImageOnDiskOnly`), so it must not be throttled on the RAM budget. Split the gate — keep the
+RAM throttle for memory-window fetches, and allow a warm-only fetch whenever the reader has a free
+concurrency slot. Concretely, `canStartPrefetchLocked` stops being a single bool: it needs to report
+*which kind* of fetch is currently permitted, and `nextPrefetchTimeLocked` must only offer a
+memory-window step when the RAM throttle is clear.
+
+The in-flight cap (`m_inFlight.size() >= maxConcurrentLoads`) still applies to both, so this does not
+uncap concurrency.
+
 ### Disk warm set — `diskWarmWindowLocked()` (new)
 
 `t+forwardSteps+1 .. t+forwardSteps+diskWarmSteps`. Replaces priority 2's unbounded sweep over the

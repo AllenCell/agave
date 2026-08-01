@@ -752,7 +752,9 @@ class RecordingEvictionObserver : public CacheManager::IEvictionObserver
 {
 public:
   void onEvictedFromMemory(const CacheKey& key) override { evicted.push_back(key.filepath); }
+  void onEvictedFromDisk(const std::string& diskCacheId) override { evictedFromDisk.push_back(diskCacheId); }
   std::vector<std::string> evicted;
+  std::vector<std::string> evictedFromDisk;
 };
 
 } // namespace
