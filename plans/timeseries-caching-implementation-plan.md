@@ -10,6 +10,58 @@
 
 **Spec:** `plans/timeseries-caching-design.md`. Read it before starting — every task references section numbers from it (§1-§5).
 
+## Status: implemented 2026-08-01
+
+All tasks landed on `feature/timeseries-loading`. Final state: **1449 assertions in 91 test cases**,
+stable across five consecutive runs; `agave_test` and `install` both build.
+
+| Commit | Task |
+| --- | --- |
+| `13ac1535` | 1 — disk write reservation, never drop, pending-aware probe |
+| `6fc839e9` | 2 — disk eviction observer |
+| `aaaef02e` | 3 — retire `depth`/`fillCache`, plus Task 4's Step 0 and all of Task 6 |
+| `e3532886` | 4 — capacity-sized memory window, clamped disk warm set |
+| `0dd21b99` | 5 — cross-session warm start |
+
+### Deviations from this plan, and why
+
+- **Task 6 was folded into Task 3.** The plan removed the settings *data* fields in Task 3 and the
+  *widgets* in Task 6, which would have shipped a Cache Settings dock displaying a depth spinner and a
+  "Fill available cache" checkbox that silently did nothing. Worse than either endpoint.
+- **Task 4's Step 0 (the prefetch-gate split) had to land in Task 3.** It was written as a Task 4 step
+  after being discovered during Task 2, but removing `depth` triggered it immediately: the termination
+  test carried `cfg.depth = 2` against a 4-frame budget, so `wantedResident` peaked at 3 and the RAM
+  throttle never engaged. Without `depth` the window grows to 3, `wantedResident` reaches 4, the
+  throttle latches, and 18 of 21 steps were left in neither tier.
+- **Task 1's tests went in `test/test_cacheManager.cpp`**, not the loader file — they are
+  `CacheManager` tests and that file already has the helpers and the `[cache]` tag.
+- **`PendingDiskWrite` carries its byte count** rather than `enqueueDiskWrite` taking a separate
+  parameter, so the writer never recomputes it.
+- **`onEvictedFromDisk` takes a `diskCacheId` string, not a `CacheKey`** — see §3; the spec was
+  corrected during planning because the disk index retains no key.
+- **`Disk Writes Pending Bytes`** added to the cache status report, since queued writes now reserve
+  disk space and the committed total is used + pending.
+
+### Test changes worth a reviewer's attention
+
+Seven existing tests changed. Five were mechanical (a budget that no longer bounds the window), but
+two altered assertions rather than setup, and one new test needed strengthening:
+
+- `"A burst of stores drops the oldest writes…"` asserted that dropping was *expected*. Rewritten to
+  assert back-pressure and that all 40 writes landed.
+- `"prefetch reads back from the disk cache"` waited on `warmCount`, which §5a seeding satisfies the
+  instant the series is set — before prefetch reads anything back. Now waits on `RamCached`.
+- The new warm-only test needed an assertion on **disk hits**, not end state. Dragging every step
+  through RAM leaves identical statuses behind, because a promoted step is evicted moments later and
+  eviction re-marks it `DiskCached` — so the obvious assertions passed both before and after the fix.
+
+### Not done
+
+- **§5d** (a RAM-resident entry never refreshes its disk `lastAccess`, so the most-watched frames look
+  coldest next session) — deliberately out of scope; fixing it puts disk I/O back on the RAM-hit path.
+- **Manual verification of the acceptance scenario** (Task 6, Step 7) — automated coverage cannot
+  exercise the Qt layer, `FileReaderZarr`, or the Vulkan upload path. Still to be walked in the app.
+
 ## Global Constraints
 
 - **Do NOT `git commit`.** Working agreement established 2026-08-01. Every task ends with build + full test suite, then the diff is handed over for review. Steps that would normally commit instead verify.
