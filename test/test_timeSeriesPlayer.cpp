@@ -279,3 +279,66 @@ TEST_CASE("TimeSeriesPlayer counts dropped frames and can reset them", "[timeSer
   player.resetDroppedFrames();
   CHECK(player.droppedFrames() == 0);
 }
+
+TEST_CASE("TimeSeriesPlayer peeks the next timepoint without advancing", "[timeSeriesPlayer]")
+{
+  // advance() is passive: it asks whether a frame is ready and never makes it
+  // ready. The caller needs to know which frame is being waited on so it can
+  // fetch it -- otherwise, with prefetch off, ShowEveryFrame holds for ever and
+  // the play button appears dead.
+  TimeSeriesPlayer player;
+  player.setRange(0, 4);
+
+  SECTION("Returns nothing while stopped or paused")
+  {
+    CHECK_FALSE(player.peekNextTime(0).has_value());
+    player.play(0, 0);
+    player.pause();
+    CHECK_FALSE(player.peekNextTime(0).has_value());
+  }
+
+  SECTION("Reports the frame advance would move to, and does not move it")
+  {
+    player.play(0, 0);
+    REQUIRE(player.peekNextTime(0) == 1u);
+    // Peeking is side-effect free: still due, still the same answer.
+    CHECK(player.peekNextTime(0) == 1u);
+    // And it agrees with what advance() actually does once the frame is ready.
+    TimeSeriesPlayer::Config cfg;
+    cfg.mode = TimeSeriesPlayer::Mode::ShowEveryFrame;
+    cfg.fps = 10.0f;
+    player.setConfig(cfg);
+    CHECK(player.advance(1000, 0, [](uint32_t) { return true; }) == 1u);
+  }
+
+  SECTION("Wraps at the end when looping, and stops when not")
+  {
+    TimeSeriesPlayer::Config cfg;
+    cfg.loop = true;
+    player.setConfig(cfg);
+    player.play(4, 0);
+    CHECK(player.peekNextTime(4) == 0u);
+
+    cfg.loop = false;
+    player.setConfig(cfg);
+    CHECK_FALSE(player.peekNextTime(4).has_value());
+  }
+
+  SECTION("Keeps reporting the same frame while it is not ready")
+  {
+    // The case that matters: holding on an unready frame, tick after tick, must
+    // keep naming that frame so the caller can fetch it.
+    TimeSeriesPlayer::Config cfg;
+    cfg.mode = TimeSeriesPlayer::Mode::ShowEveryFrame;
+    cfg.fps = 10.0f;
+    player.setConfig(cfg);
+    player.play(0, 0);
+
+    auto neverReady = [](uint32_t) { return false; };
+    for (uint64_t now = 1000; now < 1500; now += 100) {
+      CHECK_FALSE(player.advance(now, 0, neverReady).has_value());
+      CHECK(player.peekNextTime(0) == 1u);
+    }
+    CHECK(player.isPlaying());
+  }
+}

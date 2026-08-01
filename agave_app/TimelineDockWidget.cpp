@@ -217,6 +217,32 @@ QTimelineWidget::onPlaybackTick()
   }
   if (next) {
     setTime(static_cast<int>(*next));
+    return;
+  }
+
+  // Holding, because the next frame is not in memory yet. Make sure something is
+  // actually fetching it: advance() only asks whether a frame is ready, it never
+  // causes it to become ready. With prefetch enabled the window supplies it, but
+  // with prefetch off nothing would, and ShowEveryFrame waits for ever -- which
+  // looked like the play button doing nothing at all.
+  //
+  // Requested straight on the loader rather than through setTime(), on purpose.
+  // setTime() moves the slider, which would display a frame the player has not
+  // advanced to. Going direct leaves m_latestRequestSeq alone, so onLoadComplete
+  // discards this completion and only warms the cache; the player then sees the
+  // frame as ready on a later tick and advances to it through the normal path.
+  //
+  // Only for a frame nothing is working on. Queued and Loading are already in
+  // hand, and re-requesting every 5ms tick would cancel and restart the load it
+  // is waiting for. Failed is left alone deliberately: retrying a frame that
+  // cannot load would spin here for ever.
+  if (m_player.isPlaying()) {
+    if (const std::optional<uint32_t> candidate = m_player.peekNextTime(current)) {
+      const TimepointStatus s = m_loader->status(*candidate);
+      if (s == TimepointStatus::NotCached || s == TimepointStatus::DiskCached) {
+        m_loader->requestTime(*candidate);
+      }
+    }
   }
 }
 
