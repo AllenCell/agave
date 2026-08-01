@@ -348,6 +348,7 @@ TimeSeriesLoader::onEvictedFromDisk(const std::string& diskCacheId)
     setStatusLocked(it->second, TimepointStatus::NotCached, changes);
     m_prefetchIdleReported = false;
   }
+
   notifyStatusChanges(changes);
   m_wake.notify_all();
 }
@@ -462,8 +463,21 @@ TimeSeriesLoader::prefetchWindowLocked() const
   //
   // Bounding the window means frames fall out behind the playhead, the count
   // drops, prefetch resumes, and LRU reclaims the frames that just left.
-  std::uint64_t steps = maxSteps;
-  if (m_bytesPerFrame > 0) {
+  std::uint64_t steps = 0;
+  if (m_bytesPerFrame == 0) {
+    // Frame size not known yet, so the RAM budget cannot be expressed in frames
+    // and there is no capacity clamp to apply. Want exactly ONE step.
+    //
+    // Defaulting to maxSteps here means wanting the whole series, which on
+    // anything larger than the budget is an unbounded cyclic sweep: each
+    // promotion evicts the frame it is about to need next, that eviction marks
+    // the step DiskCached, the window still wants it, and it is promoted again --
+    // forever, with no source fetches and no disk evictions to show for it. That
+    // is not hypothetical; it is what a warm disk cache did, because bytesPerFrame
+    // is learned from a completed load and a fully warm cache never completes one.
+    steps = std::min<std::uint64_t>(1, maxSteps);
+  } else {
+    steps = maxSteps;
     const std::uint64_t budgetFrames = m_cache.getConfig().maxRamBytes / m_bytesPerFrame;
     // Saturating, NOT `budgetFrames - 1 - historyMargin`. Unsigned underflow there
     // yields a huge value that clamps to the whole series -- precisely the churn
@@ -856,11 +870,19 @@ TimeSeriesLoader::threadMain()
       //   disk residency instead: no promotion, no LRU touch, no hit counted.
       bool resident = false;
       bool alreadyWarm = false;
+      std::uint64_t promotedBytes = 0;
       if (prefetchWarmOnly) {
         alreadyWarm = m_cache.containsOnDisk(spec);
       } else {
         std::shared_ptr<ImageXYZC> cached = m_cache.findImage(spec);
         resident = cached != nullptr;
+        if (cached) {
+          // Learn the frame size here too, not only from a completed load. On a
+          // warm disk cache every step arrives this way and no load ever
+          // completes, so without this bytesPerFrame stays 0 for the whole
+          // session and the window can never grow past its unknown-size minimum.
+          promotedBytes = imageBytes(*cached);
+        }
         // Release before re-locking so the volume is not held any longer than the
         // cache already holds it.
         cached.reset();
@@ -870,6 +892,11 @@ TimeSeriesLoader::threadMain()
         request = reader->submitLoad(spec);
       }
       lock.lock();
+
+
+      if (promotedBytes > 0 && m_bytesPerFrame == 0) {
+        m_bytesPerFrame = promotedBytes;
+      }
 
       changes.clear();
       if (resident) {
