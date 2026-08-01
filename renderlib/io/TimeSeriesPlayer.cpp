@@ -74,6 +74,15 @@ TimeSeriesPlayer::nextTime(uint32_t time) const
 }
 
 std::optional<uint32_t>
+TimeSeriesPlayer::peekNextTime(uint32_t currentTime) const
+{
+  if (m_state != State::Playing) {
+    return std::nullopt;
+  }
+  return nextTime(currentTime);
+}
+
+std::optional<uint32_t>
 TimeSeriesPlayer::advance(uint64_t nowMs, uint32_t currentTime, const ReadyPredicate& isReady)
 {
   if (m_state != State::Playing) {
