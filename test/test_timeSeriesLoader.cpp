@@ -1615,3 +1615,48 @@ TEST_CASE("TimeSeriesLoader does not want the whole series before the frame size
   // its minimum for the whole session and prefetch is useless on a warm cache.
   CHECK(hitsB > 1);
 }
+
+TEST_CASE("TimeSeriesLoader with prefetch off still caches on-demand loads", "[timeSeriesLoader]")
+{
+  // The observable difference the prefetch switch is supposed to make. With it
+  // off nothing is loaded except what is asked for -- no window, no warm pass --
+  // but a requested step is still cached in memory and queued to disk, so
+  // returning to it is free.
+  TempDir dir;
+  CacheManager cache(dir.str());
+  cache.setConfig(diskCacheConfig(frameBytes() * 16, 64ULL * 1024 * 1024));
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+  RecordingObserver observer;
+  loader.addObserver(&observer);
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = false;
+  loader.setPrefetchConfig(cfg);
+
+  loader.setSeries(makeBaseSpec(), reader, 0, 19, 0);
+  loader.requestTime(5);
+  REQUIRE(waitFor([&] { return loader.status(5) == TimepointStatus::RamCached; }));
+
+  // Nothing was warmed around it, in either tier.
+  std::this_thread::sleep_for(300ms);
+  CHECK(reader->totalLoads() == 1);
+  for (uint32_t t = 0; t <= 19; ++t) {
+    if (t != 5) {
+      CHECK(loader.status(t) == TimepointStatus::NotCached);
+    }
+  }
+
+  // But the step that WAS requested is cached in both tiers.
+  LoadSpec spec = makeBaseSpec();
+  spec.time = 5;
+  CHECK(cache.containsInMemory(spec));
+  cache.flushDiskWrites();
+  CHECK(cache.containsOnDisk(spec));
+
+  // So asking again costs no source read.
+  loader.requestTime(5);
+  REQUIRE(waitFor([&] { return observer.completed().size() >= 2; }));
+  CHECK(reader->totalLoads() == 1);
+}

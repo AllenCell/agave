@@ -898,6 +898,10 @@ agaveGui::open(const std::string& file, const Serialize::ViewerState* vs, bool i
 
   if (!vs) {
     LoadDialog* loadDialog = new LoadDialog(file, multiscaledims, sceneToLoad, this);
+    // Show the current prefetch setting rather than a fixed default, so the box
+    // round-trips it. Without this, applying the box in both directions below
+    // would turn prefetch off on every load for anyone who had enabled it.
+    loadDialog->setPrefetchTimeSeries(m_cacheSettingsDockWidget->widget()->getSettings().prefetchEnabled);
     if (loadDialog->exec() == QDialog::Accepted) {
       loadSpec = loadDialog->getLoadSpec();
       // the loadSpec will need to remember that we loaded an image sequence
@@ -906,11 +910,19 @@ agaveGui::open(const std::string& file, const Serialize::ViewerState* vs, bool i
       keepCurrentUISettings = loadDialog->getKeepSettings();
 
       // Prefetching the time series is a per-load choice, so persist it as the
-      // new default too: the user asking for it here almost certainly wants it
-      // to stick, and the cache dock would otherwise show a stale value.
-      if (loadDialog->getPrefetchWholeTimeSeries()) {
+      // new default too: the cache dock would otherwise show a stale value.
+      //
+      // Applied in BOTH directions. It used to act only when checked, which made
+      // the box a no-op when cleared -- prefetchEnabled defaults to true, so it was
+      // already on and clearing the box changed nothing observable. Safe to apply
+      // both ways only because the box was seeded from the setting above.
+      //
+      // Gated on the choice having been offered at all: a single-timepoint file
+      // does not show the box, and must not be read as "prefetch off" and persisted
+      // over the setting the next series will use.
+      if (loadDialog->hasTimeSeriesChoice()) {
         CacheSettingsData data = m_cacheSettingsDockWidget->widget()->getSettings();
-        data.prefetchEnabled = true;
+        data.prefetchEnabled = loadDialog->getPrefetchTimeSeries();
         m_cacheSettingsDockWidget->widget()->setSettings(data);
         m_cacheSettings.save(data);
         applyTimeSeriesSettings(data);

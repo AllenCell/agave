@@ -148,10 +148,14 @@ LoadDialog::LoadDialog(std::string path, const std::vector<MultiscaleDims>& dims
   m_keepSettingsCheckbox->setChecked(true);
 
   m_prefetchWholeSeriesCheckbox = new QCheckBox(this);
+  // Seeded by setPrefetchTimeSeries() before exec(); this is only the fallback for
+  // a caller that does not seed it.
   m_prefetchWholeSeriesCheckbox->setChecked(false);
   m_prefetchWholeSeriesCheckbox->setToolTip(
-    tr("Load every time step into the cache in the background, rather than only a few ahead of the current one.\n"
-       "Loading stops when the memory cache is full."));
+    tr("Load time steps into memory and the disk cache in the background, ahead of the current one.\n"
+       "How far ahead is bounded by the RAM and disk cache limits in the Cache Settings dock.\n"
+       "Unchecked, time steps are loaded only as you reach them -- and still cached once loaded.\n"
+       "This is the same setting as \"Prefetch time steps\" in the Cache Settings dock."));
 
   QFormLayout* layout = new QFormLayout(this);
   layout->setLabelAlignment(Qt::AlignLeft);
@@ -372,11 +376,25 @@ LoadDialog::populateChannels(int level)
 }
 
 bool
-LoadDialog::getPrefetchWholeTimeSeries() const
+LoadDialog::hasTimeSeriesChoice() const
 {
   // The checkbox is only added to the layout when the file has a time series, so
-  // gate on the same condition rather than returning a stale default.
-  if (!m_prefetchWholeSeriesCheckbox || !m_TimeSlider || !m_TimeSlider->isEnabled()) {
+  // gate on the same condition the layout used.
+  return m_prefetchWholeSeriesCheckbox && m_TimeSlider && m_TimeSlider->isEnabled();
+}
+
+void
+LoadDialog::setPrefetchTimeSeries(bool enabled)
+{
+  if (m_prefetchWholeSeriesCheckbox) {
+    m_prefetchWholeSeriesCheckbox->setChecked(enabled);
+  }
+}
+
+bool
+LoadDialog::getPrefetchTimeSeries() const
+{
+  if (!hasTimeSeriesChoice()) {
     return false;
   }
   return m_prefetchWholeSeriesCheckbox->isChecked();
