@@ -1552,3 +1552,66 @@ TEST_CASE("TimeSeriesLoader three-run cross-session scenario", "[timeSeriesLoade
     CHECK(aStillOnDisk < 8);
   }
 }
+
+TEST_CASE("TimeSeriesLoader does not want the whole series before the frame size is known",
+          "[timeSeriesLoader]")
+{
+  // Regression test for a prefetch loop that thrashed RAM forever.
+  //
+  // The memory window is sized from the RAM budget in frames, which needs
+  // bytesPerFrame. That is learned from a completed load -- but on a fully warm
+  // disk cache no load ever completes, because every step is served by a
+  // findImage disk hit. So bytesPerFrame stayed 0, the capacity clamp was skipped
+  // entirely, and the window became the ENTIRE series.
+  //
+  // With a series larger than the RAM budget that is an unbounded cyclic sweep:
+  // each promotion evicts the frame it is about to need next, the eviction marks
+  // that step DiskCached, the window still wants it, and it is promoted again.
+  // Forever. No source fetches and no disk evictions, so it looks like nothing is
+  // happening except a gap walking along the slider.
+  //
+  // Deliberately no requestTime() here: the interactive path sets bytesPerFrame
+  // from a cache hit, which masks this entirely.
+  TempDir dir;
+  CacheManager cache(dir.str());
+  // 10 frames of RAM with the default margin of 4 gives a 5-step window: big
+  // enough that "window collapsed to 1" and "window is the whole series" are both
+  // distinguishable from correct behaviour.
+  const std::uint64_t ramFrames = 10;
+  const uint32_t lastTime = 19; // 20 steps, well over the RAM budget
+  cache.setConfig(diskCacheConfig(frameBytes() * ramFrames, 64ULL * 1024 * 1024));
+
+  LoadSpec base = makeBaseSpec();
+  for (uint32_t t = 0; t <= lastTime; ++t) {
+    LoadSpec spec = base;
+    spec.time = t;
+    cache.storeImage(spec, makeImage());
+  }
+  cache.flushDiskWrites();
+  cache.clearMemoryCache();
+  cache.resetStats();
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.wrapAround = true; // playback loop is on by default in the app
+  loader.setPrefetchConfig(cfg);
+  loader.setSeries(base, reader, 0, lastTime, 0);
+
+  // Let it run, then confirm it has stopped rather than cycling.
+  std::this_thread::sleep_for(700ms);
+  const std::uint64_t hitsA = cache.getStats().diskHits;
+  std::this_thread::sleep_for(500ms);
+  const std::uint64_t hitsB = cache.getStats().diskHits;
+
+  // Settled, rather than sweeping the series for ever.
+  CHECK(hitsB == hitsA);
+  // Bounded by the budget. An unclamped window shows up as a disk hit count far
+  // past the number of steps that can be resident, and still climbing.
+  CHECK(hitsB <= ramFrames);
+  // But it did NOT collapse to the unknown-frame-size minimum of one step either:
+  // the frame size has to be learned from these promotions, or the window stays at
+  // its minimum for the whole session and prefetch is useless on a warm cache.
+  CHECK(hitsB > 1);
+}
