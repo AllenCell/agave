@@ -24,6 +24,12 @@ enum class TimepointStatus
   Queued,
   Loading,
   RamCached,
+  // Not in memory, but present in the disk cache, so reloading it is cheap and
+  // local. Prefetch treats this as "done" for time steps outside the memory
+  // window -- without that distinction an evicted frame looks identical to one
+  // never fetched, and prefetch pulls it straight back in, evicting another, for
+  // ever.
+  DiskCached,
   Failed,
 };
 

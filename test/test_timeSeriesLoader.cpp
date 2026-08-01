@@ -1046,3 +1046,62 @@ TEST_CASE("TimeSeriesLoader does not want more frames than the cache can hold", 
   std::this_thread::sleep_for(250ms);
   CHECK(reader->totalLoads() == loadsAtRest);
 }
+
+TEST_CASE("TimeSeriesLoader prefetch terminates on a series larger than memory", "[timeSeriesLoader]")
+{
+  // Regression test for prefetch running forever. With fillCache it tried to hold
+  // the whole series in RAM; since it does not fit, every load evicted a frame
+  // prefetch still wanted, the eviction marked it uncached, and it was fetched
+  // straight back -- an endless cycle visible as a gap chasing itself along the
+  // slider.
+  //
+  // The intended behaviour, and what this asserts: the near window ends up in
+  // memory, everything else ends up on disk, and prefetch then STOPS.
+  TempDir dir;
+  CacheManager cache(dir.str());
+  const std::uint64_t budgetFrames = 4;
+  cache.setConfig(diskCacheConfig(frameBytes() * budgetFrames, 64ULL * 1024 * 1024));
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.depth = 2;
+  cfg.fillCache = true;
+  cfg.wrapAround = true;
+  loader.setPrefetchConfig(cfg);
+
+  const uint32_t lastTime = 20;
+  const int frameCount = static_cast<int>(lastTime) + 1;
+  loader.setSeries(makeBaseSpec(), reader, 0, lastTime, 0);
+  loader.requestTime(0);
+
+  // Wait for prefetch to go quiet: no loads started for a sustained stretch.
+  bool settled = false;
+  int lastCount = -1;
+  for (int attempt = 0; attempt < 60 && !settled; ++attempt) {
+    const int before = reader->totalLoads();
+    std::this_thread::sleep_for(100ms);
+    if (reader->totalLoads() == before && loader.memoryStats().inFlightCount == 0) {
+      settled = true;
+    }
+    lastCount = reader->totalLoads();
+  }
+  REQUIRE(settled);
+
+  // Each time step fetched about once. Endless churn would blow way past this;
+  // the slack covers a frame legitimately reloaded after eviction.
+  CHECK(lastCount <= frameCount * 2);
+
+  // And nothing is left unaccounted for: every time step is either resident or
+  // safely on disk.
+  cache.flushDiskWrites();
+  for (uint32_t t = 0; t <= lastTime; ++t) {
+    const TimepointStatus s = loader.status(t);
+    CHECK((s == TimepointStatus::RamCached || s == TimepointStatus::DiskCached));
+  }
+
+  // Memory still respects the budget.
+  CHECK(cache.getRamBytesUsed() <= frameBytes() * budgetFrames);
+}
