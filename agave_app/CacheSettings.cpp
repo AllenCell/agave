@@ -106,12 +106,9 @@ CacheSettings::load()
     if (doc.contains("prefetchEnabled")) {
       data.prefetchEnabled = doc["prefetchEnabled"].get<bool>();
     }
-    if (doc.contains("prefetchDepth")) {
-      data.prefetchDepth = doc["prefetchDepth"].get<std::uint32_t>();
-    }
-    if (doc.contains("prefetchFillCache")) {
-      data.prefetchFillCache = doc["prefetchFillCache"].get<bool>();
-    }
+    // prefetchDepth and prefetchFillCache were retired. Reads were already
+    // contains()-guarded, so an older settings file still loads; the stale keys
+    // simply drop on the next save. No migration needed.
     if (doc.contains("showDetailedCacheStatus")) {
       data.showDetailedCacheStatus = doc["showDetailedCacheStatus"].get<bool>();
     }
@@ -140,8 +137,6 @@ CacheSettings::save(const CacheSettingsData& data) const
   doc["maxRamBytes"] = data.maxRamBytes;
   doc["maxDiskBytes"] = data.maxDiskBytes;
   doc["prefetchEnabled"] = data.prefetchEnabled;
-  doc["prefetchDepth"] = data.prefetchDepth;
-  doc["prefetchFillCache"] = data.prefetchFillCache;
   doc["showDetailedCacheStatus"] = data.showDetailedCacheStatus;
   doc["playbackFps"] = data.playbackFps;
   doc["playbackLoop"] = data.playbackLoop;

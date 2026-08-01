@@ -224,8 +224,8 @@ agaveGui::applyTimeSeriesSettings(const CacheSettingsData& data)
 
   TimeSeriesLoader::PrefetchConfig prefetch;
   prefetch.enabled = data.prefetchEnabled;
-  prefetch.depth = data.prefetchDepth;
-  prefetch.fillCache = data.prefetchFillCache;
+  // historyMargin is deliberately left at its renderlib default; it is not a
+  // user-facing setting.
   // Prefetch must wrap when playback loops, or looping stalls at the end of the
   // series waiting for a first frame that nothing would fetch back.
   prefetch.wrapAround = data.playbackLoop;
@@ -905,13 +905,12 @@ agaveGui::open(const std::string& file, const Serialize::ViewerState* vs, bool i
       dims = multiscaledims[loadDialog->getMultiscaleLevelIndex()].getVolumeDimensions();
       keepCurrentUISettings = loadDialog->getKeepSettings();
 
-      // "Prefetch whole time series" is a per-load choice, so persist it as the
+      // Prefetching the time series is a per-load choice, so persist it as the
       // new default too: the user asking for it here almost certainly wants it
       // to stick, and the cache dock would otherwise show a stale value.
       if (loadDialog->getPrefetchWholeTimeSeries()) {
         CacheSettingsData data = m_cacheSettingsDockWidget->widget()->getSettings();
         data.prefetchEnabled = true;
-        data.prefetchFillCache = true;
         m_cacheSettingsDockWidget->widget()->setSettings(data);
         m_cacheSettings.save(data);
         applyTimeSeriesSettings(data);
