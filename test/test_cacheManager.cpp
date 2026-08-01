@@ -926,19 +926,24 @@ TEST_CASE("CacheManager writes to disk asynchronously", "[cache][disk]")
     REQUIRE(cache.pendingDiskWrites() == 0);
   }
 
-  SECTION("A burst of stores drops the oldest writes rather than queueing without bound")
+  SECTION("A burst of stores blocks the producer rather than dropping writes")
   {
-    // Far more stores than the queue depth. Whatever the disk keeps up with,
-    // the queue must stay bounded and every image must still be usable.
+    // Far more stores than the queue depth. The queue stays bounded by
+    // back-pressure -- the producer waits for a slot -- so no write is ever
+    // abandoned. Dropping used to be allowed here, but a dropped write loses the
+    // frame from disk permanently: RAM eviction never writes on the way out, so
+    // there is no second chance.
     for (int i = 0; i < 40; ++i) {
-      cache.storeImage(makeSpec("burst_" + std::to_string(i)), makeImage(4, 4, 4, 1));
-      REQUIRE(cache.pendingDiskWrites() <= 5);
+      REQUIRE(cache.storeImage(makeSpec("burst_" + std::to_string(i)), makeImage(4, 4, 4, 1)));
+      REQUIRE(cache.pendingDiskWrites() <= 9); // kMaxPendingDiskWrites + one in progress
     }
     cache.flushDiskWrites();
     REQUIRE(cache.pendingDiskWrites() == 0);
-    // Dropping is allowed and expected here; it only costs a later cache miss.
-    // The point is that nothing hung and nothing grew without bound.
-    SUCCEED("burst completed with a bounded queue");
+    REQUIRE(cache.droppedDiskWrites() == 0);
+    // Every one of them actually landed.
+    for (int i = 0; i < 40; ++i) {
+      REQUIRE(cache.containsOnDisk(makeSpec("burst_" + std::to_string(i))));
+    }
   }
 }
 
@@ -953,4 +958,95 @@ TEST_CASE("CacheManager with the disk tier off never starts a writer thread", "[
   REQUIRE(cache.droppedDiskWrites() == 0);
   // Destruction must not hang waiting on a thread that was never needed.
   SUCCEED("ram-only cache stored without a disk writer");
+}
+
+TEST_CASE("CacheManager never drops disk writes under sustained pressure", "[cache][disk]")
+{
+  // Regression gate for widening the memory window. The queue used to drop its
+  // oldest entry when full, so a frame could end up recorded as neither in
+  // memory nor on disk -- and prefetch would re-fetch it forever.
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  TempCacheDir tmp;
+  CacheManager cache(tmp.str());
+  // RAM deliberately tiny so eviction races the writes; disk roomy so nothing
+  // is refused for lack of space.
+  cache.setConfig(diskConfig(oneImage * 2, 1ULL * 1024 * 1024));
+
+  const int kStores = 64;
+  for (int i = 0; i < kStores; ++i) {
+    REQUIRE(cache.storeImage(makeSpec("pressure_" + std::to_string(i)), makeImage(4, 4, 4, 1)));
+  }
+  cache.flushDiskWrites();
+
+  CHECK(cache.droppedDiskWrites() == 0);
+  CHECK(cache.pendingDiskBytes() == 0);
+  for (int i = 0; i < kStores; ++i) {
+    CHECK(cache.containsOnDisk(makeSpec("pressure_" + std::to_string(i))));
+  }
+}
+
+TEST_CASE("CacheManager counts queued writes against the disk budget", "[cache][disk]")
+{
+  // On-disk bytes PLUS bytes for writes still in flight must never exceed the
+  // cap. Without the reservation, evictDiskIfNeeded only ever sees the entry it
+  // is about to write and the tier overshoots by the rest of the backlog.
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  const std::uint64_t diskCap = oneImage * 8;
+  TempCacheDir tmp;
+  CacheManager cache(tmp.str());
+  cache.setConfig(diskConfig(oneImage * 2, diskCap));
+
+  for (int i = 0; i < 40; ++i) {
+    cache.storeImage(makeSpec("budget_" + std::to_string(i)), makeImage(4, 4, 4, 1));
+    CHECK(cache.getUsage().diskBytesUsed + cache.pendingDiskBytes() <= diskCap);
+  }
+  cache.flushDiskWrites();
+  CHECK(cache.getUsage().diskBytesUsed <= diskCap);
+}
+
+TEST_CASE("CacheManager reports a queued write as present on disk", "[cache][disk]")
+{
+  // This is what removes the eviction-timing race: a frame dropped from RAM
+  // before its write lands must still probe as disk-present, or it gets recorded
+  // as being in neither tier and prefetch pulls it straight back.
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  TempCacheDir tmp;
+  CacheManager cache(tmp.str());
+  cache.setConfig(diskConfig(oneImage * 64, 1ULL * 1024 * 1024));
+
+  // These images are tiny, so the writer may drain faster than we can observe.
+  // Store until a write is genuinely still pending, then probe that one -- that
+  // is the case the pending-aware probe exists for.
+  bool observedPending = false;
+  for (int i = 0; i < 200 && !observedPending; ++i) {
+    auto spec = makeSpec("queued_" + std::to_string(i));
+    REQUIRE(cache.storeImage(spec, makeImage(4, 4, 4, 1)));
+    if (cache.pendingDiskWrites() > 0) {
+      observedPending = true;
+      // Deliberately BEFORE flushDiskWrites: not yet on the filesystem.
+      CHECK(cache.containsOnDisk(spec));
+    }
+  }
+  REQUIRE(observedPending);
+
+  // And it is still reported present once the queue drains.
+  cache.flushDiskWrites();
+  CHECK(cache.containsOnDisk(makeSpec("queued_0")));
+}
+
+TEST_CASE("CacheManager refuses a disk write that cannot fit", "[cache][disk]")
+{
+  // A disk cap smaller than a single image: nothing can ever fit, so the write
+  // must be refused up front rather than reported as cached.
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  TempCacheDir tmp;
+  CacheManager cache(tmp.str());
+  cache.setConfig(diskConfig(oneImage * 64, oneImage / 2));
+
+  auto spec = makeSpec("too_big_for_disk");
+  CHECK_FALSE(cache.storeImage(spec, makeImage(4, 4, 4, 1)));
+  cache.flushDiskWrites();
+  CHECK_FALSE(cache.containsOnDisk(spec));
+  // The memory tier is independent of a disk refusal.
+  CHECK(cache.containsInMemory(spec));
 }
