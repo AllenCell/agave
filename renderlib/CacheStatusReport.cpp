@@ -61,10 +61,20 @@ reportCacheStatistics(CStatus* status)
   if (config.enableDisk) {
     status->SetStatisticChanged("Cache", "Disk Hits", std::to_string(stats.diskHits));
     status->SetStatisticChanged("Cache", "Disk Writes", std::to_string(stats.diskWrites));
-    // Disk writes are asynchronous. A steady small number here is normal; a
-    // persistently growing one, or a rising dropped count, means the disk cannot
-    // keep up with loading.
+    // Disk writes are asynchronous. A steady small number here is normal. The
+    // queue is bounded and applies back-pressure rather than dropping, so a value
+    // pinned at the cap means the disk cannot keep up and loading is being
+    // throttled to disk speed.
     status->SetStatisticChanged("Cache", "Disk Writes Pending", std::to_string(cache.pendingDiskWrites()));
+    // Those queued writes have already reserved disk space, so the committed total
+    // is this plus the Disk figure above -- that sum is what stays under the limit.
+    const std::uint64_t pendingBytes = cache.pendingDiskBytes();
+    if (pendingBytes > 0) {
+      status->SetStatisticChanged("Cache", "Disk Writes Pending Bytes", std::to_string(pendingBytes));
+    }
+    // Structurally always zero now that the queue back-pressures instead of
+    // dropping. Reported only if it ever isn't, as a standing assertion. Note the
+    // backlog abandoned at shutdown is deliberate and not counted here.
     const std::uint64_t dropped = cache.droppedDiskWrites();
     if (dropped > 0) {
       status->SetStatisticChanged("Cache", "Disk Writes Dropped", std::to_string(dropped));
