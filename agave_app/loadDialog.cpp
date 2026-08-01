@@ -165,8 +165,8 @@ LoadDialog::LoadDialog(std::string path, const std::vector<MultiscaleDims>& dims
   }
   if (m_TimeSlider->isEnabled()) {
     layout->addRow("Time", m_TimeSlider);
-    // Only offer whole-series prefetch when the file actually has a series.
-    layout->addRow("Prefetch whole time series", m_prefetchWholeSeriesCheckbox);
+    // Only offer prefetch when the file actually has a series.
+    layout->addRow("Prefetch time series", m_prefetchWholeSeriesCheckbox);
     layout->addItem(new QSpacerItem(0, spacing, QSizePolicy::Expanding, QSizePolicy::Expanding));
   }
   layout->addRow(mChannelsSection);
