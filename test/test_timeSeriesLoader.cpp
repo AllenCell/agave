@@ -298,14 +298,19 @@ TEST_CASE("TimeSeriesLoader sequence numbers increase so stale completions can b
 
 TEST_CASE("TimeSeriesLoader prefetches forward only", "[timeSeriesLoader]")
 {
+  // A 5-frame budget with no history reservation gives a 4-step window: one slot
+  // for the pinned current step, four ahead. Sized deliberately, because the
+  // window is capacity-driven -- a budget larger than the series would cover the
+  // whole thing and say nothing about where the window ends.
   CacheManager cache;
-  cache.setConfig(ramConfig(frameBytes() * 64));
+  cache.setConfig(ramConfig(frameBytes() * 5));
 
   auto reader = std::make_shared<CountingReader>();
   TimeSeriesLoader loader(cache);
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
+  cfg.historyMargin = 0;
   loader.setPrefetchConfig(cfg);
 
   // Start the series already positioned at 10. Prefetch begins as soon as the
@@ -340,8 +345,10 @@ TEST_CASE("TimeSeriesLoader with the disk tier off prefetches only the memory wi
   // and disk budgets, and with no disk tier there is nowhere to put the rest. A
   // warm-only fetch with the disk cache off would store nowhere and still report
   // the step as DiskCached, so the warm pass is skipped entirely.
+  //
+  // Budget sized well below the series so the window genuinely stops short of it.
   CacheManager cache;
-  cache.setConfig(ramConfig(frameBytes() * 64));
+  cache.setConfig(ramConfig(frameBytes() * 5));
 
   auto reader = std::make_shared<CountingReader>();
   TimeSeriesLoader loader(cache);
@@ -350,6 +357,7 @@ TEST_CASE("TimeSeriesLoader with the disk tier off prefetches only the memory wi
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
+  cfg.historyMargin = 0;
   loader.setPrefetchConfig(cfg);
 
   loader.setSeries(makeBaseSpec(), reader, 0, 19, 0);
@@ -368,14 +376,18 @@ TEST_CASE("TimeSeriesLoader with the disk tier off prefetches only the memory wi
 
 TEST_CASE("TimeSeriesLoader does not load the same timepoint twice", "[timeSeriesLoader]")
 {
+  // 5-frame budget, no history reservation: a 4-step window, so prefetch warms
+  // exactly 0..4 and stops. With a budget larger than the series it would run on
+  // to the end and the load accounting below could not be exact.
   CacheManager cache;
-  cache.setConfig(ramConfig(frameBytes() * 64));
+  cache.setConfig(ramConfig(frameBytes() * 5));
 
   auto reader = std::make_shared<CountingReader>();
   TimeSeriesLoader loader(cache);
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
+  cfg.historyMargin = 0;
   loader.setPrefetchConfig(cfg);
 
   loader.setSeries(makeBaseSpec(), reader, 0, 9, 0);
@@ -931,8 +943,11 @@ TEST_CASE("TimeSeriesLoader prefetch wraps when playback loops", "[timeSeriesLoa
   // was empty, and the first time step -- already evicted during the forward
   // pass -- was never fetched back. Show-every-frame playback then waited
   // forever for a frame nobody would load.
+  //
+  // 5-frame budget, no history reservation: a 4-step window. Sized so the wrapped
+  // window is bounded and this can assert where it ends.
   CacheManager cache;
-  cache.setConfig(ramConfig(frameBytes() * 64));
+  cache.setConfig(ramConfig(frameBytes() * 5));
 
   auto reader = std::make_shared<CountingReader>();
   TimeSeriesLoader loader(cache);
@@ -940,6 +955,7 @@ TEST_CASE("TimeSeriesLoader prefetch wraps when playback loops", "[timeSeriesLoa
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
   cfg.wrapAround = true;
+  cfg.historyMargin = 0;
   loader.setPrefetchConfig(cfg);
 
   const uint32_t lastTime = 8;
@@ -1190,4 +1206,172 @@ TEST_CASE("TimeSeriesLoader reverts DiskCached when the disk tier evicts", "[tim
 
   // And the tier respected its cap throughout.
   CHECK(cache.getUsage().diskBytesUsed <= frameBytes() * diskFrames);
+}
+
+TEST_CASE("TimeSeriesLoader memory window fills the RAM budget", "[timeSeriesLoader]")
+{
+  // A budget of 10 frames with historyMargin 4 reserves one for the pinned
+  // current step and four behind it, leaving five forward steps -- not the fixed
+  // small lookahead the retired `depth` setting used to impose.
+  CacheManager cache;
+  cache.setConfig(ramConfig(frameBytes() * 10));
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.historyMargin = 4;
+  loader.setPrefetchConfig(cfg);
+
+  loader.setSeries(makeBaseSpec(), reader, 0, 39, 10);
+  loader.requestTime(10);
+
+  REQUIRE(waitFor([&] { return cachedCount(loader, 11, 15) == 5; }));
+  // No further than the budget allows, and nothing behind the playhead.
+  CHECK(loader.status(16) == TimepointStatus::NotCached);
+  CHECK(loader.status(9) == TimepointStatus::NotCached);
+}
+
+TEST_CASE("TimeSeriesLoader honours a historyMargin of zero", "[timeSeriesLoader]")
+{
+  // Margin 0 is the all-forward shape: budget - 1 forward steps, reserving only
+  // the pinned current step. This must work, not just the default of 4.
+  CacheManager cache;
+  cache.setConfig(ramConfig(frameBytes() * 10));
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.historyMargin = 0;
+  loader.setPrefetchConfig(cfg);
+
+  loader.setSeries(makeBaseSpec(), reader, 0, 39, 10);
+  loader.requestTime(10);
+
+  REQUIRE(waitFor([&] { return cachedCount(loader, 11, 19) == 9; }));
+  CHECK(loader.status(20) == TimepointStatus::NotCached);
+}
+
+TEST_CASE("TimeSeriesLoader survives a historyMargin larger than the budget", "[timeSeriesLoader]")
+{
+  // The saturating-subtraction gate. Written as budgetFrames - 1 - historyMargin
+  // this underflows to a huge uint64, clamps to the whole series, and makes
+  // prefetch churn forever -- the exact failure every clamp here exists to
+  // prevent. It must saturate to a single forward step instead.
+  CacheManager cache;
+  cache.setConfig(ramConfig(frameBytes() * 3));
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+  RecordingObserver observer;
+  loader.addObserver(&observer);
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.historyMargin = 99;
+  loader.setPrefetchConfig(cfg);
+
+  loader.setSeries(makeBaseSpec(), reader, 0, 39, 0);
+  loader.requestTime(0);
+
+  REQUIRE(waitFor([&] { return observer.idleCount() > 0; }));
+  CHECK(cachedCount(loader, 1, 1) == 1);
+  CHECK(loader.status(5) == TimepointStatus::NotCached);
+}
+
+TEST_CASE("TimeSeriesLoader keeps history resident after playing forward", "[timeSeriesLoader]")
+{
+  // The margin is a reservation, not a window: nothing is ever fetched backward,
+  // but the slots it leaves free are filled by LRU with the frames just
+  // displayed, so a small backward scrub stays instant.
+  CacheManager cache;
+  cache.setConfig(ramConfig(frameBytes() * 10));
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.historyMargin = 4;
+  loader.setPrefetchConfig(cfg);
+
+  loader.setSeries(makeBaseSpec(), reader, 0, 39, 0);
+  for (uint32_t t = 0; t <= 8; ++t) {
+    loader.requestTime(t);
+    REQUIRE(waitFor([&] { return loader.status(t) == TimepointStatus::RamCached; }));
+  }
+
+  // Steps just behind the playhead are still resident, and were each loaded once
+  // -- they were retained, not evicted and fetched back.
+  CHECK(cachedCount(loader, 5, 7) == 3);
+  for (uint32_t t = 5; t <= 7; ++t) {
+    CHECK(reader->loadCountFor(t) == 1);
+  }
+}
+
+TEST_CASE("TimeSeriesLoader never fetches backward after a large jump", "[timeSeriesLoader]")
+{
+  // After a jump the history slots are simply empty. They refill as playback
+  // advances; prefetch must not go and fetch them.
+  CacheManager cache;
+  cache.setConfig(ramConfig(frameBytes() * 10));
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+  RecordingObserver observer;
+  loader.addObserver(&observer);
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.historyMargin = 4;
+  loader.setPrefetchConfig(cfg);
+
+  loader.setSeries(makeBaseSpec(), reader, 0, 99, 0);
+  loader.requestTime(80);
+  REQUIRE(waitFor([&] { return observer.idleCount() > 0; }));
+
+  for (uint32_t t = 76; t <= 79; ++t) {
+    CHECK(reader->loadCountFor(t) == 0);
+  }
+}
+
+TEST_CASE("TimeSeriesLoader clamps the disk warm set to the disk budget", "[timeSeriesLoader]")
+{
+  // Series of 40. RAM holds 4 frames, so with margin 0 the memory window is 3.
+  // Disk holds 12, and the current step plus the memory window are written there
+  // too, so the warm set beyond them is 12 - 4 = 8 steps. The far tail must stay
+  // honestly uncached rather than being swept in and churning.
+  TempDir dir;
+  CacheManager cache(dir.str());
+  const std::uint64_t diskFrames = 12;
+  cache.setConfig(diskCacheConfig(frameBytes() * 4, frameBytes() * diskFrames));
+
+  auto reader = std::make_shared<CountingReader>();
+  TimeSeriesLoader loader(cache);
+  RecordingObserver observer;
+  loader.addObserver(&observer);
+
+  TimeSeriesLoader::PrefetchConfig cfg;
+  cfg.enabled = true;
+  cfg.historyMargin = 0;
+  loader.setPrefetchConfig(cfg);
+
+  loader.setSeries(makeBaseSpec(), reader, 0, 39, 0);
+  loader.requestTime(0);
+
+  REQUIRE(waitFor([&] { return observer.idleCount() > 0; }));
+
+  // Prefetch settled without covering the series, and the disk stayed capped.
+  CHECK(warmCount(loader, 0, 39) < 40);
+  CHECK(loader.status(39) == TimepointStatus::NotCached);
+  cache.flushDiskWrites();
+  CHECK(cache.getUsage().diskBytesUsed <= frameBytes() * diskFrames);
+
+  // Prefetch really stopped rather than cycling.
+  const int loadsAtRest = reader->totalLoads();
+  std::this_thread::sleep_for(250ms);
+  CHECK(reader->totalLoads() == loadsAtRest);
 }
