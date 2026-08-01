@@ -147,7 +147,8 @@ LoadDialog::LoadDialog(std::string path, const std::vector<MultiscaleDims>& dims
   m_keepSettingsCheckbox = new QCheckBox(this);
   m_keepSettingsCheckbox->setChecked(true);
 
-  m_prefetchWholeSeriesCheckbox = new QCheckBox(this);
+  // since the row may not be added, don't parent the checkbox to anything yet.
+  m_prefetchWholeSeriesCheckbox = new QCheckBox();
   // Seeded by setPrefetchTimeSeries() before exec(); this is only the fallback for
   // a caller that does not seed it.
   m_prefetchWholeSeriesCheckbox->setChecked(false);
