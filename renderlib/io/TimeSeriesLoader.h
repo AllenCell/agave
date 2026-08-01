@@ -9,7 +9,9 @@
 #include <set>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 class ImageXYZC;
@@ -144,6 +146,7 @@ public:
 
   // CacheManager::IEvictionObserver. Called on whichever thread evicted.
   void onEvictedFromMemory(const CacheKey& key) override;
+  void onEvictedFromDisk(const std::string& diskCacheId) override;
 
 private:
   void threadMain();
@@ -205,6 +208,11 @@ private:
   std::map<uint32_t, std::shared_ptr<LoadRequest>> m_inFlight;
   // In-flight time steps being fetched only to warm the disk cache.
   std::set<uint32_t> m_warmOnly;
+  // Disk-cache id -> time step, for every step of the current series. Built once
+  // in setSeries so onEvictedFromDisk is an O(1) lookup that never stats a file:
+  // eviction arrives in bursts while warming, and building ids on that path would
+  // mean a makeKey (and therefore a file stat) per evicted entry.
+  std::unordered_map<std::string, uint32_t> m_diskIdToTime;
   std::uint64_t m_bytesPerFrame = 0;
   std::uint64_t m_inFlightBytes = 0;
   std::uint64_t m_peakInFlightBytes = 0;

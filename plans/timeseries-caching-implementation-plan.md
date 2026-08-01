@@ -965,6 +965,30 @@ Run: `cmake --build . --target agave_test --config Debug && ./agave_test "[timeS
 
 Expected: the six new cases FAIL — the window is still the fixed width Task 3 left, so `cachedCount(loader, 11, 15) == 5` times out.
 
+- [ ] **Step 0: Split the prefetch gate so warm-only fetches are not RAM-throttled**
+
+Discovered while implementing Task 2, and it must land in this task or the widening silently disables disk warming. `canStartPrefetchLocked` gates **all** prefetch on `wantedResident < budgetFrames`, counting only the pinned step and the resident memory window. Once the window is capacity-sized, `wantedResident` maxes out at `budgetFrames - historyMargin` — which is `budgetFrames` when `historyMargin == 0`, so the condition never clears and the warm pass never runs.
+
+A warm-only fetch goes to `storeImageOnDiskOnly` and consumes no RAM, so it must not be throttled on the RAM budget. Replace the single bool with a small enum reporting what is permitted:
+
+```cpp
+  // What kind of prefetch may start right now. A warm-only fetch consumes no RAM
+  // (it goes straight to the disk tier), so it must not be blocked by the RAM
+  // throttle -- with a capacity-sized memory window and historyMargin 0, that
+  // throttle never clears and would stop disk warming entirely.
+  enum class PrefetchPermission
+  {
+    None,      // reader busy, prefetch disabled, or an interactive request pending
+    WarmOnly,  // RAM throttle engaged; only disk-warming fetches may start
+    Any,
+  };
+  PrefetchPermission prefetchPermissionLocked() const;
+```
+
+`prefetchPermissionLocked` keeps the existing early-outs (`!enabled`, `m_stop`, `m_interactivePending`, `!m_reader`, in-flight cap, `budgetFrames == 0`) returning `None`, and returns `WarmOnly` instead of `false` where it currently fails the `wantedResident < budgetFrames` test. `nextPrefetchTimeLocked` takes the permission and skips its priority-1 (memory window) loop unless it is `Any`. Both call sites (~line 722 and ~line 798) pass it through.
+
+The in-flight cap still applies to both kinds, so concurrency stays bounded.
+
 - [ ] **Step 3: Rewrite `prefetchWindowLocked`'s capacity computation**
 
 In `renderlib/io/TimeSeriesLoader.cpp`, replace the `steps` line from Task 3 and the existing clamp block (lines ~409-429) with a single capacity computation:

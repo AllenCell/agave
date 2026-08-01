@@ -88,6 +88,13 @@ public:
   public:
     virtual ~IEvictionObserver() = default;
     virtual void onEvictedFromMemory(const CacheKey& key) = 0;
+    // An entry left the DISK tier. Reports the disk-cache id rather than a
+    // CacheKey, unlike its memory counterpart: the disk index is keyed by
+    // diskCacheId and DiskEntry retains no key, while meta.json persists only the
+    // opaque keyToString form -- so an entry evicted after a fresh start has no
+    // CacheKey to hand back. Pair this with diskCacheIdFor() to map your own
+    // specs onto it.
+    virtual void onEvictedFromDisk(const std::string& diskCacheId) = 0;
   };
   void addEvictionObserver(IEvictionObserver* observer);
   void removeEvictionObserver(IEvictionObserver* observer);
@@ -120,6 +127,12 @@ public:
   // tiers and be re-fetched forever. Reporting it present is honest because
   // enqueueDiskWrite reserves its disk space up front and never drops it.
   bool containsOnDisk(const LoadSpec& loadSpec) const;
+
+  // The disk-cache identity for a spec, as reported by onEvictedFromDisk. Public
+  // so an observer can build its own id -> domain-object map up front instead of
+  // needing a reverse lookup on the eviction path. Note this calls makeKey, which
+  // stats the source file.
+  std::string diskCacheIdFor(const LoadSpec& loadSpec) const;
 
   std::shared_ptr<ImageXYZC> findImage(const LoadSpec& loadSpec);
   // Returns false when the DISK write was refused because it could not fit in
@@ -197,6 +210,8 @@ private:
   void evictIfNeededLocked(std::uint64_t incomingBytes, std::vector<CacheKey>& evicted);
   // Precondition: caller must NOT hold m_mutex.
   void notifyEvicted(const std::vector<CacheKey>& keys);
+  // Precondition: caller must NOT hold m_mutex.
+  void notifyEvictedFromDisk(const std::vector<std::string>& ids);
   void storeImageInMemory(const CacheKey& key, const std::shared_ptr<ImageXYZC>& image);
   bool storeImageInternal(const LoadSpec& loadSpec, const std::shared_ptr<ImageXYZC>& image, bool intoMemory);
   // Evicts as needed so `bytes` can be written on top of `pendingBytes` already
@@ -210,7 +225,15 @@ private:
                    const CacheConfig& config,
                    const std::string& cacheDir);
   void loadDiskIndex(const CacheConfig& config, const std::string& cacheDir);
+  // Evicts, then notifies observers of what it dropped. The notification happens
+  // after the lock is released, so this must not be called with m_mutex held.
   void evictDiskIfNeeded(const CacheConfig& config, std::uint64_t incomingBytes);
+  // The locked body of the above. Appends every disk-cache id it drops to
+  // `evictedIds`; the caller notifies. Takes m_mutex for the whole eviction so a
+  // concurrent storeToDisk cannot repopulate an entry mid-delete.
+  void evictDiskIfNeededCollecting(const CacheConfig& config,
+                                   std::uint64_t incomingBytes,
+                                   std::vector<std::string>& evictedIds);
   std::uint64_t directorySizeBytes(const std::string& path) const;
   // Writes a marker file to a directory we manage as our own disk cache root.
   // clearDiskCache refuses to delete anything unless this marker is present,
