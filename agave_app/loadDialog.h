@@ -35,13 +35,23 @@ public:
   LoadSpec getLoadSpec() const;
   int getMultiscaleLevelIndex() const { return mSelectedLevel; }
   bool getKeepSettings() const { return m_keepSettingsCheckbox->isChecked(); }
+
   // "Prefetch time series": fill memory and disk with time steps in the
   // background. How far ahead is bounded by the RAM and disk cache limits, not by
-  // this choice -- it only turns prefetching on. Only meaningful when the file has
-  // more than one time step; false when the checkbox was not shown.
+  // this choice -- it only turns prefetching on or off.
   //
-  // The name still says Whole for source compatibility; the UI label does not.
-  bool getPrefetchWholeTimeSeries() const;
+  // Seed this from the persisted setting before exec(), so the box shows the
+  // current state instead of always starting unchecked. The caller then applies
+  // getPrefetchTimeSeries() in BOTH directions, which is only safe because the box
+  // round-trips the setting rather than defaulting over the top of it.
+  void setPrefetchTimeSeries(bool enabled);
+  bool getPrefetchTimeSeries() const;
+
+  // Whether the prefetch choice was actually offered, i.e. the file has more than
+  // one time step. Callers must check this before applying getPrefetchTimeSeries():
+  // a single-timepoint load would otherwise persist "prefetch off" and silently
+  // disable it for the next series.
+  bool hasTimeSeriesChoice() const;
 
   QSize sizeHint() const override { return QSize(400, 100); }
 
