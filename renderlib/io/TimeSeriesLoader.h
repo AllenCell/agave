@@ -182,6 +182,15 @@ private:
   // starting just after the current one. Wraps past the end when wrapAround is
   // set. Excludes the current timepoint itself.
   std::vector<uint32_t> prefetchWindowLocked() const;
+  // The time steps we want on DISK but not in memory, in priority order, starting
+  // just past the memory window. Clamped to what maxDiskBytes holds, accounting
+  // for the current step and the memory window being written to disk as well.
+  // Empty when there is no disk tier, or no room beyond the memory window.
+  //
+  // Like prefetchWindowLocked this is a single source of truth: the warm pass must
+  // read it rather than sweeping the series, or it re-fetches evicted steps for
+  // ever.
+  std::vector<uint32_t> diskWarmWindowLocked() const;
   // Next timepoint worth prefetching, or false if there is nothing to do.
   // `warmOnly` reports that the chosen time step is outside the memory window
   // and is being fetched purely to populate the disk cache, so its volume must
