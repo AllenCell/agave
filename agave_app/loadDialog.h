@@ -35,9 +35,12 @@ public:
   LoadSpec getLoadSpec() const;
   int getMultiscaleLevelIndex() const { return mSelectedLevel; }
   bool getKeepSettings() const { return m_keepSettingsCheckbox->isChecked(); }
-  // "Prefetch whole time series": warm every time step in the background rather
-  // than only a window ahead of the playhead. Only meaningful when the file has
+  // "Prefetch time series": fill memory and disk with time steps in the
+  // background. How far ahead is bounded by the RAM and disk cache limits, not by
+  // this choice -- it only turns prefetching on. Only meaningful when the file has
   // more than one time step; false when the checkbox was not shown.
+  //
+  // The name still says Whole for source compatibility; the UI label does not.
   bool getPrefetchWholeTimeSeries() const;
 
   QSize sizeHint() const override { return QSize(400, 100); }

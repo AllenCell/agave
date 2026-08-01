@@ -296,7 +296,7 @@ TEST_CASE("TimeSeriesLoader sequence numbers increase so stale completions can b
   CHECK(second > first);
 }
 
-TEST_CASE("TimeSeriesLoader prefetches forward only, up to the configured depth", "[timeSeriesLoader]")
+TEST_CASE("TimeSeriesLoader prefetches forward only", "[timeSeriesLoader]")
 {
   CacheManager cache;
   cache.setConfig(ramConfig(frameBytes() * 64));
@@ -306,21 +306,21 @@ TEST_CASE("TimeSeriesLoader prefetches forward only, up to the configured depth"
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.depth = 3;
-  cfg.fillCache = false;
   loader.setPrefetchConfig(cfg);
 
   // Start the series already positioned at 10. Prefetch begins as soon as the
-  // series is set, so opening at 0 would legitimately warm 1..3 before the
-  // request for 10 is processed -- which would say nothing about directionality.
+  // series is set, so opening at 0 would legitimately warm the first few steps
+  // before the request for 10 is processed -- which would say nothing about
+  // directionality.
   loader.setSeries(makeBaseSpec(), reader, 0, 19, 10);
   loader.requestTime(10);
 
-  // Expect 10 (interactive) plus 11, 12, 13 (depth 3).
-  REQUIRE(waitFor([&] { return cachedCount(loader, 10, 13) == 4; }));
+  // 10 (interactive) plus the forward window.
+  const uint32_t lastInWindow = 14;
+  REQUIRE(waitFor([&] { return cachedCount(loader, 10, lastInWindow) == 5; }));
 
   // Nothing beyond the window.
-  CHECK(loader.status(14) == TimepointStatus::NotCached);
+  CHECK(loader.status(lastInWindow + 1) == TimepointStatus::NotCached);
   // Nothing behind the playhead: prefetch is forward-only.
   for (uint32_t t = 0; t < 10; ++t) {
     CHECK(loader.status(t) == TimepointStatus::NotCached);
@@ -329,28 +329,41 @@ TEST_CASE("TimeSeriesLoader prefetches forward only, up to the configured depth"
   auto loaded = reader->loadedTimes();
   for (uint32_t t : loaded) {
     CHECK(t >= 10);
-    CHECK(t <= 13);
+    CHECK(t <= lastInWindow);
   }
 }
 
-TEST_CASE("TimeSeriesLoader fillCache mode prefetches to the end of the series", "[timeSeriesLoader]")
+TEST_CASE("TimeSeriesLoader with the disk tier off prefetches only the memory window", "[timeSeriesLoader]")
 {
+  // This case used to assert that "fill cache" mode warmed the whole series into
+  // RAM. That configuration is gone: how much gets warmed is bounded by the RAM
+  // and disk budgets, and with no disk tier there is nowhere to put the rest. A
+  // warm-only fetch with the disk cache off would store nowhere and still report
+  // the step as DiskCached, so the warm pass is skipped entirely.
   CacheManager cache;
   cache.setConfig(ramConfig(frameBytes() * 64));
 
   auto reader = std::make_shared<CountingReader>();
   TimeSeriesLoader loader(cache);
+  RecordingObserver observer;
+  loader.addObserver(&observer);
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.depth = 2; // ignored when fillCache is set
-  cfg.fillCache = true;
   loader.setPrefetchConfig(cfg);
 
-  loader.setSeries(makeBaseSpec(), reader, 0, 7, 0);
+  loader.setSeries(makeBaseSpec(), reader, 0, 19, 0);
   loader.requestTime(0);
 
-  REQUIRE(waitFor([&] { return cachedCount(loader, 0, 7) == 8; }));
+  // The window fills and prefetch then settles, rather than sweeping onwards.
+  REQUIRE(waitFor([&] { return observer.idleCount() > 0; }));
+  const int warm = warmCount(loader, 0, 19);
+  CHECK(warm > 1);
+  CHECK(warm < 20);
+  // Nothing was warmed to a disk tier that does not exist.
+  for (uint32_t t = 0; t <= 19; ++t) {
+    CHECK(loader.status(t) != TimepointStatus::DiskCached);
+  }
 }
 
 TEST_CASE("TimeSeriesLoader does not load the same timepoint twice", "[timeSeriesLoader]")
@@ -363,7 +376,6 @@ TEST_CASE("TimeSeriesLoader does not load the same timepoint twice", "[timeSerie
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.depth = 4;
   loader.setPrefetchConfig(cfg);
 
   loader.setSeries(makeBaseSpec(), reader, 0, 9, 0);
@@ -402,7 +414,6 @@ TEST_CASE("TimeSeriesLoader adopts an in-flight prefetch instead of duplicating 
   // finish first -- leaving nothing in flight to adopt.
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = false;
-  cfg.depth = 2;
   loader.setPrefetchConfig(cfg);
 
   loader.setSeries(makeBaseSpec(), reader, 0, 9, 0);
@@ -445,7 +456,6 @@ TEST_CASE("TimeSeriesLoader cancels prefetch on request", "[timeSeriesLoader]")
   TimeSeriesLoader loader(cache);
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.fillCache = true;
   loader.setPrefetchConfig(cfg);
 
   loader.setSeries(makeBaseSpec(), reader, 0, 30, 0);
@@ -476,7 +486,6 @@ TEST_CASE("TimeSeriesLoader keeps already-cached timepoints when a scrub cancels
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.depth = 3;
   loader.setPrefetchConfig(cfg);
 
   loader.setSeries(makeBaseSpec(), reader, 0, 40, 0);
@@ -501,7 +510,6 @@ TEST_CASE("TimeSeriesLoader throttles prefetch instead of overfilling the cache"
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.fillCache = true;
   loader.setPrefetchConfig(cfg);
 
   loader.setSeries(makeBaseSpec(), reader, 0, 99, 0);
@@ -526,7 +534,6 @@ TEST_CASE("TimeSeriesLoader pins the current timepoint so prefetch cannot evict 
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.fillCache = true;
   loader.setPrefetchConfig(cfg);
 
   loader.setSeries(makeBaseSpec(), reader, 0, 50, 0);
@@ -611,7 +618,6 @@ TEST_CASE("TimeSeriesLoader reports prefetch idle when there is nothing left to 
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.depth = 2;
   loader.setPrefetchConfig(cfg);
 
   loader.setSeries(makeBaseSpec(), reader, 0, 4, 0);
@@ -631,7 +637,6 @@ TEST_CASE("TimeSeriesLoader tracks in-flight memory", "[timeSeriesLoader]")
   TimeSeriesLoader loader(cache);
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.fillCache = true;
   loader.setPrefetchConfig(cfg);
 
   loader.setSeries(makeBaseSpec(), reader, 0, 20, 0);
@@ -660,7 +665,6 @@ TEST_CASE("TimeSeriesLoader can be destroyed while loads are in flight", "[timeS
     TimeSeriesLoader loader(cache);
     TimeSeriesLoader::PrefetchConfig cfg;
     cfg.enabled = true;
-    cfg.fillCache = true;
     loader.setPrefetchConfig(cfg);
 
     loader.setSeries(makeBaseSpec(), reader, 0, 50, 0);
@@ -687,7 +691,6 @@ TEST_CASE("TimeSeriesLoader reloads a timepoint whose prefetch was cancelled", "
   // Prefetch off first, so the initial interactive load is not racing a prefetch.
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = false;
-  cfg.depth = 1;
   loader.setPrefetchConfig(cfg);
 
   loader.setSeries(makeBaseSpec(), reader, 0, 40, 0);
@@ -730,7 +733,6 @@ TEST_CASE("TimeSeriesLoader keeps prefetches that stay inside the new window", "
   TimeSeriesLoader loader(cache);
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = false;
-  cfg.depth = 4;
   loader.setPrefetchConfig(cfg);
 
   loader.setSeries(makeBaseSpec(), reader, 0, 40, 0);
@@ -771,7 +773,6 @@ TEST_CASE("TimeSeriesLoader prefetches past the end of a full cache once the pla
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.fillCache = true;
   loader.setPrefetchConfig(cfg);
 
   loader.setSeries(makeBaseSpec(), reader, 0, 40, 0);
@@ -820,7 +821,6 @@ TEST_CASE("TimeSeriesLoader stops prefetching once the window fills the budget",
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.fillCache = true;
   loader.setPrefetchConfig(cfg);
 
   loader.setSeries(makeBaseSpec(), reader, 0, 99, 0);
@@ -888,7 +888,6 @@ TEST_CASE("TimeSeriesLoader prefetch reads back from the disk cache", "[timeSeri
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.fillCache = true;
 
   const uint32_t lastTime = 5;
 
@@ -940,7 +939,6 @@ TEST_CASE("TimeSeriesLoader prefetch wraps when playback loops", "[timeSeriesLoa
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.depth = 2;
   cfg.wrapAround = true;
   loader.setPrefetchConfig(cfg);
 
@@ -955,8 +953,10 @@ TEST_CASE("TimeSeriesLoader prefetch wraps when playback loops", "[timeSeriesLoa
   REQUIRE(waitFor([&] { return loader.status(0) == TimepointStatus::RamCached; }));
   REQUIRE(waitFor([&] { return loader.status(1) == TimepointStatus::RamCached; }));
 
-  // Depth 2 from the end means exactly frames 0 and 1, not the whole series.
-  CHECK(loader.status(2) == TimepointStatus::NotCached);
+  // The window wraps but is still bounded: it reaches the first few frames, not
+  // the whole series. Sitting on step 8 of 0..8, a 4-step window is 0,1,2,3.
+  REQUIRE(waitFor([&] { return loader.status(3) == TimepointStatus::RamCached; }));
+  CHECK(loader.status(4) == TimepointStatus::NotCached);
 }
 
 TEST_CASE("TimeSeriesLoader prefetch does not wrap when looping is off", "[timeSeriesLoader]")
@@ -969,7 +969,6 @@ TEST_CASE("TimeSeriesLoader prefetch does not wrap when looping is off", "[timeS
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.depth = 2;
   cfg.wrapAround = false;
   loader.setPrefetchConfig(cfg);
 
@@ -1004,7 +1003,6 @@ TEST_CASE("TimeSeriesLoader keeps prefetching with looping on and a series large
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.fillCache = true;
   cfg.wrapAround = true; // looping playback
   loader.setPrefetchConfig(cfg);
 
@@ -1047,7 +1045,6 @@ TEST_CASE("TimeSeriesLoader does not want more frames than the cache can hold", 
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.fillCache = true;
   cfg.wrapAround = true;
   loader.setPrefetchConfig(cfg);
 
@@ -1065,8 +1062,8 @@ TEST_CASE("TimeSeriesLoader does not want more frames than the cache can hold", 
 
 TEST_CASE("TimeSeriesLoader prefetch terminates on a series larger than memory", "[timeSeriesLoader]")
 {
-  // Regression test for prefetch running forever. With fillCache it tried to hold
-  // the whole series in RAM; since it does not fit, every load evicted a frame
+  // Regression test for prefetch running forever. It used to try to hold the
+  // whole series in RAM; since it does not fit, every load evicted a frame
   // prefetch still wanted, the eviction marked it uncached, and it was fetched
   // straight back -- an endless cycle visible as a gap chasing itself along the
   // slider.
@@ -1083,8 +1080,6 @@ TEST_CASE("TimeSeriesLoader prefetch terminates on a series larger than memory",
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.depth = 2;
-  cfg.fillCache = true;
   cfg.wrapAround = true;
   loader.setPrefetchConfig(cfg);
 
@@ -1148,7 +1143,6 @@ TEST_CASE("TimeSeriesLoader reverts DiskCached when the disk tier evicts", "[tim
 
   TimeSeriesLoader::PrefetchConfig cfg;
   cfg.enabled = true;
-  cfg.fillCache = true;
   loader.setPrefetchConfig(cfg);
 
   const uint32_t lastTime = 5;

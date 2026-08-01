@@ -31,8 +31,6 @@ private:
   QPushButton* m_clearDiskButton = nullptr;
 
   QCheckBox* m_prefetchEnabled = nullptr;
-  QSpinBox* m_prefetchDepth = nullptr;
-  QCheckBox* m_prefetchFillCache = nullptr;
   QCheckBox* m_showDetailedCacheStatus = nullptr;
 
   // Last value passed to setSettings. getSettings() starts from this so fields

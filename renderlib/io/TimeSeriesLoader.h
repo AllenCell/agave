@@ -77,17 +77,25 @@ class TimeSeriesLoader : public CacheManager::IEvictionObserver
 public:
   struct PrefetchConfig
   {
+    // Asynchronously fill memory AND disk with frames from the series. With this
+    // off there is no background prefetching at all, but on-demand loads driven by
+    // the time slider are still cached in both tiers: `enabled` is read only by
+    // the prefetch gate, never by the interactive path.
     bool enabled = true;
-    // How many timepoints ahead of the current one to keep warm.
-    uint32_t depth = 4;
-    // Ignore `depth` and keep loading forward until the cache budget throttles.
-    bool fillCache = false;
     // Whether the prefetch window wraps past the end of the series back to the
     // start. Must track the playback loop setting: with looping on, the frame
     // after the last one is the first one, and if prefetch does not know that it
     // never fetches it back after the forward pass evicted it -- so looping
     // playback stalls on the final frame waiting for a frame nobody will load.
     bool wrapAround = false;
+    // Slots reserved BEHIND the playhead so a small backward scrub stays instant.
+    // These are never prefetched -- prefetch is strictly forward-only. The
+    // reservation only shrinks the forward window, leaving room that LRU fills
+    // with the frames just displayed.
+    //
+    // Not surfaced in the UI. A config field rather than a constant so tests can
+    // verify that a value of 0 works, which is the all-forward shape.
+    uint32_t historyMargin = 4;
   };
 
   // In-flight loads own full destination buffers that CacheManager knows nothing
@@ -155,7 +163,21 @@ private:
                        TimepointStatus status,
                        std::vector<std::pair<uint32_t, TimepointStatus>>& changes);
   void cancelPrefetchLocked();
-  bool canStartPrefetchLocked() const;
+
+  // What kind of prefetch may start right now.
+  //
+  // A warm-only fetch consumes no RAM -- it goes straight to the disk tier via
+  // storeImageOnDiskOnly -- so it must not be blocked by the RAM throttle. Once
+  // the memory window fills the RAM budget that throttle latches permanently, and
+  // a single bool here would stop disk warming with the rest of the series left in
+  // neither tier.
+  enum class PrefetchPermission
+  {
+    None,     // reader busy, prefetch off, stopping, or an interactive request pending
+    WarmOnly, // RAM throttle engaged: only disk-warming fetches may start
+    Any,
+  };
+  PrefetchPermission prefetchPermissionLocked() const;
   // The timepoints the current policy wants resident, in priority order,
   // starting just after the current one. Wraps past the end when wrapAround is
   // set. Excludes the current timepoint itself.
@@ -163,8 +185,9 @@ private:
   // Next timepoint worth prefetching, or false if there is nothing to do.
   // `warmOnly` reports that the chosen time step is outside the memory window
   // and is being fetched purely to populate the disk cache, so its volume must
-  // not be inserted into the memory tier.
-  bool nextPrefetchTimeLocked(uint32_t& time, bool& warmOnly) const;
+  // not be inserted into the memory tier. `permission` decides whether the memory
+  // window is eligible at all; WarmOnly considers the disk warm set only.
+  bool nextPrefetchTimeLocked(PrefetchPermission permission, uint32_t& time, bool& warmOnly) const;
   LoadSpec specForLocked(uint32_t time) const;
 
   void notifyStatusChanges(const std::vector<std::pair<uint32_t, TimepointStatus>>& changes);
