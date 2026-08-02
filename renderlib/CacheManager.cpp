@@ -54,6 +54,36 @@ toHex(std::size_t value)
   return stream.str();
 }
 
+void
+appendUniqueDiskId(std::vector<std::string>& ids, const std::string& id)
+{
+  if (!id.empty() && std::find(ids.begin(), ids.end(), id) == ids.end()) {
+    ids.push_back(id);
+  }
+}
+
+void
+appendDiskEntryIdsFromDirectory(std::vector<std::string>& ids, const std::string& cacheDir)
+{
+  if (cacheDir.empty()) {
+    return;
+  }
+
+  std::error_code dirEc;
+  for (auto it = std::filesystem::directory_iterator(cacheDir, dirEc);
+       it != std::filesystem::directory_iterator() && !dirEc;
+       it.increment(dirEc)) {
+    if (!it->is_directory()) {
+      continue;
+    }
+    std::filesystem::path metaPath = it->path() / "meta.json";
+    std::error_code existEc;
+    if (std::filesystem::exists(metaPath, existEc)) {
+      appendUniqueDiskId(ids, it->path().filename().string());
+    }
+  }
+}
+
 // Paths beginning with these schemes are treated as remote; we don't try to
 // stat them and the cache key omits mtime/size for them.
 bool
@@ -146,7 +176,7 @@ CacheKey::operator==(const CacheKey& other) const
   return filepath == other.filepath && subpath == other.subpath && scene == other.scene && time == other.time &&
          channels == other.channels && minx == other.minx && maxx == other.maxx && miny == other.miny &&
          maxy == other.maxy && minz == other.minz && maxz == other.maxz && isImageSequence == other.isImageSequence &&
-         fileMtimeNs == other.fileMtimeNs && fileSize == other.fileSize;
+         fileModifiedTimeNs == other.fileModifiedTimeNs && fileSize == other.fileSize;
 }
 
 std::size_t
@@ -164,7 +194,7 @@ CacheKeyHash::operator()(const CacheKey& key) const
   hashCombine(seed, std::hash<std::uint32_t>{}(key.minz));
   hashCombine(seed, std::hash<std::uint32_t>{}(key.maxz));
   hashCombine(seed, std::hash<bool>{}(key.isImageSequence));
-  hashCombine(seed, std::hash<std::uint64_t>{}(key.fileMtimeNs));
+  hashCombine(seed, std::hash<std::uint64_t>{}(key.fileModifiedTimeNs));
   hashCombine(seed, std::hash<std::uint64_t>{}(key.fileSize));
   for (auto ch : key.channels) {
     hashCombine(seed, std::hash<std::uint32_t>{}(ch));
@@ -273,24 +303,38 @@ CacheManager::setConfig(const CacheConfig& config)
   CacheConfig configCopy;
   std::string cacheDirCopy;
   bool rebuildDiskIndex = false;
+  bool cacheDisabled = false;
+  bool diskTierDisabled = false;
+  std::vector<CacheKey> evicted;
+  std::vector<std::string> evictedDiskIds;
   {
     std::scoped_lock lock(m_mutex);
     m_config = config;
     if (!m_config.enabled) {
+      evicted.assign(m_lruKeys.begin(), m_lruKeys.end());
       m_entries.clear();
       m_lruKeys.clear();
       m_currentRamBytes = 0;
+      for (const auto& kv : m_diskEntries) {
+        evictedDiskIds.push_back(kv.first);
+      }
       m_diskEntries.clear();
       m_currentDiskBytes = 0;
       m_diskIndexRoot.clear();
-      return;
-    }
-
-    if (!m_config.enableDisk || m_cacheDir.empty()) {
+      cacheDisabled = true;
+      diskTierDisabled = true;
+    } else if (!m_config.enableDisk || m_cacheDir.empty()) {
+      for (const auto& kv : m_diskEntries) {
+        evictedDiskIds.push_back(kv.first);
+      }
       m_diskEntries.clear();
       m_currentDiskBytes = 0;
       m_diskIndexRoot.clear();
+      diskTierDisabled = true;
     } else if (m_diskIndexRoot != m_cacheDir) {
+      for (const auto& kv : m_diskEntries) {
+        evictedDiskIds.push_back(kv.first);
+      }
       m_diskEntries.clear();
       m_currentDiskBytes = 0;
       m_diskIndexRoot = m_cacheDir;
@@ -300,6 +344,16 @@ CacheManager::setConfig(const CacheConfig& config)
     }
   }
 
+  if (diskTierDisabled) {
+    appendDiskEntryIdsFromDirectory(evictedDiskIds, m_cacheDir);
+  }
+  notifyEvictedFromMemory(evicted);
+  evicted.clear();
+  notifyEvictedFromDisk(evictedDiskIds);
+  if (cacheDisabled) {
+    return;
+  }
+
   if (rebuildDiskIndex) {
     loadDiskIndex(configCopy, cacheDirCopy);
     evictDiskIfNeeded(configCopy, 0);
@@ -307,12 +361,11 @@ CacheManager::setConfig(const CacheConfig& config)
 
   // A tightened maxRamBytes can push the tier over its new limit, so trim it
   // here rather than waiting for the next store.
-  std::vector<CacheKey> evicted;
   {
     std::scoped_lock lock(m_mutex);
     evictIfNeededLocked(0, evicted);
   }
-  notifyEvicted(evicted);
+  notifyEvictedFromMemory(evicted);
 }
 
 CacheConfig
@@ -435,17 +488,22 @@ CacheManager::clearMemoryCache()
     m_lruKeys.clear();
     m_currentRamBytes = 0;
   }
-  notifyEvicted(evicted);
+  notifyEvictedFromMemory(evicted);
 }
 
 void
 CacheManager::clearDiskCache()
 {
+  std::vector<std::string> evictedIds;
+
   // Drop anything queued for writing first, and wait for a write already in
   // progress. Otherwise a pending write would land after the wipe and leave
   // entries behind that the user just asked to delete.
   {
     std::unique_lock<std::mutex> lock(m_diskQueueMutex);
+    for (const auto& queued : m_diskQueue) {
+      appendUniqueDiskId(evictedIds, diskCacheId(queued.key));
+    }
     m_diskQueue.clear();
     m_pendingDiskBytes = 0;
     m_diskQueueSpace.notify_all();
@@ -454,6 +512,7 @@ CacheManager::clearDiskCache()
 
   std::string cacheDir;
   std::vector<std::string> knownEntryPaths;
+  bool refused = false;
   {
     std::scoped_lock lock(m_mutex);
     cacheDir = m_cacheDir;
@@ -461,18 +520,25 @@ CacheManager::clearDiskCache()
     if (!isAgaveCacheDir(cacheDir)) {
       LOG_WARNING << "Refusing to clear disk cache: directory missing AGAVE cache marker file (" << kCacheMarkerFilename
                   << "): " << cacheDir;
-      return;
+      refused = true;
+    } else {
+      knownEntryPaths.reserve(m_diskEntries.size());
+      for (const auto& kv : m_diskEntries) {
+        appendUniqueDiskId(evictedIds, kv.first);
+        knownEntryPaths.push_back(kv.second.path);
+      }
+      m_diskEntries.clear();
+      m_currentDiskBytes = 0;
     }
+  }
 
-    knownEntryPaths.reserve(m_diskEntries.size());
-    for (const auto& kv : m_diskEntries) {
-      knownEntryPaths.push_back(kv.second.path);
-    }
-    m_diskEntries.clear();
-    m_currentDiskBytes = 0;
+  if (refused) {
+    notifyEvictedFromDisk(evictedIds);
+    return;
   }
 
   if (cacheDir.empty()) {
+    notifyEvictedFromDisk(evictedIds);
     return;
   }
 
@@ -486,6 +552,7 @@ CacheManager::clearDiskCache()
   // sessions or partial writes. We only touch subdirectories that contain a
   // meta.json (i.e. look like cache entries we wrote) — anything else the user
   // may have placed in the cache dir is preserved.
+  appendDiskEntryIdsFromDirectory(evictedIds, cacheDir);
   std::error_code dirEc;
   for (auto it = std::filesystem::directory_iterator(cacheDir, dirEc);
        it != std::filesystem::directory_iterator() && !dirEc;
@@ -500,6 +567,8 @@ CacheManager::clearDiskCache()
       std::filesystem::remove_all(it->path(), rmEc);
     }
   }
+
+  notifyEvictedFromDisk(evictedIds);
 }
 
 void
@@ -640,8 +709,7 @@ CacheManager::enqueueDiskWrite(PendingDiskWrite&& write)
     // out, so there is no second chance. Throttling the producer to disk speed is
     // the correct response to a disk that cannot keep up.
     m_diskQueueSpace.wait(lock, [this, &write] {
-      return m_diskWriterStop ||
-             canQueueDiskWrite(write.config, write.bytes, m_pendingDiskBytes, m_diskQueue.size());
+      return m_diskWriterStop || canQueueDiskWrite(write.config, write.bytes, m_pendingDiskBytes, m_diskQueue.size());
     });
     if (m_diskWriterStop) {
       return false;
@@ -822,7 +890,7 @@ CacheManager::makeKey(const LoadSpec& loadSpec) const
   // Use the normalized filepath for stat() too so equivalent paths produce
   // identical fileMtimeNs / fileSize.
   auto stat = statForKey(key.filepath);
-  key.fileMtimeNs = stat.first;
+  key.fileModifiedTimeNs = stat.first;
   key.fileSize = stat.second;
   return key;
 }
@@ -834,7 +902,7 @@ CacheManager::keyToString(const CacheKey& key) const
   stream << key.filepath << "|" << key.subpath << "|" << key.scene << "|" << key.time << "|";
   stream << key.minx << "," << key.maxx << "," << key.miny << "," << key.maxy << "," << key.minz << "," << key.maxz
          << "|" << (key.isImageSequence ? 1 : 0) << "|";
-  stream << "m=" << key.fileMtimeNs << ",s=" << key.fileSize << "|";
+  stream << "m=" << key.fileModifiedTimeNs << ",s=" << key.fileSize << "|";
   for (size_t i = 0; i < key.channels.size(); ++i) {
     if (i > 0) {
       stream << ",";
@@ -909,7 +977,7 @@ CacheManager::evictIfNeededLocked(std::uint64_t incomingBytes, std::vector<Cache
 }
 
 void
-CacheManager::notifyEvicted(const std::vector<CacheKey>& keys)
+CacheManager::notifyEvictedFromMemory(const std::vector<CacheKey>& keys)
 {
   if (keys.empty()) {
     return;
@@ -934,8 +1002,9 @@ CacheManager::notifyEvictedFromDisk(const std::vector<std::string>& ids)
   if (ids.empty()) {
     return;
   }
-  // Same contract as notifyEvicted: copy the observer list under the lock, then
-  // notify without it, so an observer is free to call back into the cache.
+  // Same contract as notifyEvictedFromMemory: copy the observer list under the
+  // lock, then notify without it, so an observer is free to call back into the
+  // cache.
   std::vector<IEvictionObserver*> observers;
   {
     std::scoped_lock lock(m_mutex);
@@ -1089,7 +1158,7 @@ CacheManager::storeImageInMemory(const CacheKey& key, const std::shared_ptr<Imag
     m_entries.emplace(key, entry);
     m_currentRamBytes += bytes;
   }
-  notifyEvicted(evicted);
+  notifyEvictedFromMemory(evicted);
 }
 
 std::shared_ptr<ImageXYZC>
