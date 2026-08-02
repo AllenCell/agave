@@ -1,7 +1,7 @@
 #include "TimelineDockWidget.h"
 
 #include "AgaveSettings.h"
-#include "CacheStatusSlider.h"
+#include "TimeSlider.h"
 #include "Controls.h"
 #include "QRenderSettings.h"
 #include "TimeSeriesLoaderBridge.h"
@@ -40,7 +40,7 @@ QTimelineWidget::QTimelineWidget(QWidget* pParent, QRenderSettings* qrs)
 
   auto* fullLayout = new QVBoxLayout();
 
-  m_TimeSlider = new TimeSliderWithCacheStatus();
+  m_TimeSlider = new TimeSlider();
   m_TimeSlider->setStatusTip(tr("Set current time sample"));
   m_TimeSlider->setToolTip(tr("Set current time sample"));
   // Tracking is on so scrubbing over cached frames updates the view live.
@@ -55,9 +55,8 @@ QTimelineWidget::QTimelineWidget(QWidget* pParent, QRenderSettings* qrs)
   QObject::connect(m_TimeSlider, &QIntSlider::valueChanged, [this](int t) { this->OnTimeChanged(t); });
   // Committing the drag when the mouse comes up guarantees the final frame is
   // requested even if we skipped it mid-drag because it was uncached remote data.
-  QObject::connect(m_TimeSlider, &TimeSliderWithCacheStatus::sliderReleased, this, [this]() {
-    this->OnTimeChanged(m_TimeSlider->value());
-  });
+  QObject::connect(
+    m_TimeSlider, &TimeSlider::sliderReleased, this, [this]() { this->OnTimeChanged(m_TimeSlider->value()); });
 
   buildPlaybackControls(fullLayout);
 
