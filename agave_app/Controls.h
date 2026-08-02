@@ -242,8 +242,7 @@ signals:
 
 protected:
   // Access to the embedded slider for subclasses that need its geometry -- e.g.
-  // to align an overlay with the groove. Kept protected so the public API of
-  // QIntSlider stays a closed composite.
+  // the TimeSlider needs to align an overlay with the slider groove.
   QSlider& sliderWidget() { return m_slider; }
   const QSlider& sliderWidget() const { return m_slider; }
 

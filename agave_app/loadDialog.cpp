@@ -147,10 +147,11 @@ LoadDialog::LoadDialog(std::string path, const std::vector<MultiscaleDims>& dims
   m_keepSettingsCheckbox = new QCheckBox(this);
   m_keepSettingsCheckbox->setChecked(true);
 
-  // since the row may not be added, don't parent the checkbox to anything yet.
+  // since the row may not be added (if the file is not a time seres),
+  // don't parent the checkbox to anything yet.
   m_prefetchWholeSeriesCheckbox = new QCheckBox();
-  // Seeded by setPrefetchTimeSeries() before exec(); this is only the fallback for
-  // a caller that does not seed it.
+  // we expect the checkbox state to be seeded by setPrefetchTimeSeries() before exec();
+  // this is only the fallback for a caller that does not seed it.
   m_prefetchWholeSeriesCheckbox->setChecked(false);
   m_prefetchWholeSeriesCheckbox->setToolTip(
     tr("Load time steps into memory and the disk cache in the background, ahead of the current one.\n"
@@ -379,8 +380,6 @@ LoadDialog::populateChannels(int level)
 bool
 LoadDialog::hasTimeSeriesChoice() const
 {
-  // The checkbox is only added to the layout when the file has a time series, so
-  // gate on the same condition the layout used.
   return m_prefetchWholeSeriesCheckbox && m_TimeSlider && m_TimeSlider->isEnabled();
 }
 
