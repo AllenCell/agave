@@ -16,9 +16,12 @@
 
 class ImageXYZC;
 
+// This contains enough information to uniquely identify a cache entry.
+// Basically, the unit of cached volumes is a multichannel volume of a single timepoint.
 struct CacheKey
 {
   std::string filepath;
+  // aka multiresolution level:
   std::string subpath;
   std::uint32_t scene = 0;
   std::uint32_t time = 0;
@@ -29,14 +32,15 @@ struct CacheKey
   std::uint32_t maxy = 0;
   std::uint32_t minz = 0;
   std::uint32_t maxz = 0;
+  // for loading tiff image series
   bool isImageSequence = false;
-  // last_write_time of the filepath (or directory) at the time the key was
-  // built, expressed as nanoseconds since epoch. Zero for remote URLs and for
-  // paths we couldn't stat. Folding this into the key invalidates cache
-  // entries when the source file is overwritten.
-  std::uint64_t fileMtimeNs = 0;
+  // Store the last write time of the filepath (or directory) at the time the key was
+  // built. Zero for remote URLs and for paths we couldn't stat.
+  // (If the file was overwritten since being cached, we want a different cache key.)
+  std::uint64_t fileModifiedTimeNs = 0;
   // file_size of filepath at the time the key was built. Zero for
   // directories (zarr) and remote URLs.
+  // (If the file was overwritten since being cached, we want a different cache key.)
   std::uint64_t fileSize = 0;
 
   bool operator==(const CacheKey& other) const;
@@ -210,7 +214,7 @@ private:
   // releasing the lock.
   void evictIfNeededLocked(std::uint64_t incomingBytes, std::vector<CacheKey>& evicted);
   // Precondition: caller must NOT hold m_mutex.
-  void notifyEvicted(const std::vector<CacheKey>& keys);
+  void notifyEvictedFromMemory(const std::vector<CacheKey>& keys);
   // Precondition: caller must NOT hold m_mutex.
   void notifyEvictedFromDisk(const std::vector<std::string>& ids);
   void storeImageInMemory(const CacheKey& key, const std::shared_ptr<ImageXYZC>& image);
