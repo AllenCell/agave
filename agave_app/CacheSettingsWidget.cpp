@@ -54,10 +54,6 @@ CacheSettingsWidget::CacheSettingsWidget(QWidget* parent)
   layout->addRow(QString(), m_applyButton);
   layout->addRow(QString(), m_clearDiskButton);
   setLayout(layout);
-
-  // Prefetch is now a single switch, so there are no dependent controls left to
-  // grey out. How much gets warmed is bounded by the RAM and disk limits rather
-  // than by a separate depth setting.
 }
 
 void

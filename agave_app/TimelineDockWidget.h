@@ -20,7 +20,7 @@ class QTimer;
 class QToolButton;
 class Scene;
 class TimeSeriesLoaderBridge;
-class TimeSliderWithCacheStatus;
+class TimeSlider;
 struct TimeSeriesSettingsData;
 
 class QTimelineWidget : public QWidget
@@ -71,7 +71,7 @@ private:
 
 protected:
   QGridLayout m_MainLayout;
-  TimeSliderWithCacheStatus* m_TimeSlider;
+  TimeSlider* m_TimeSlider;
 
   QRenderSettings* m_qrendersettings;
   Scene* m_scene;
