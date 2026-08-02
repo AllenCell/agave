@@ -52,6 +52,25 @@ toRenderlibConfig(const CacheSettingsData& data)
   return config;
 }
 
+const nlohmann::json*
+objectIfPresent(const nlohmann::json& parent, const char* key)
+{
+  auto it = parent.find(key);
+  if (it != parent.end() && it->is_object()) {
+    return &(*it);
+  }
+  return nullptr;
+}
+
+template<typename T>
+void
+readIfPresent(const nlohmann::json& object, const char* key, T& value)
+{
+  if (object.contains(key)) {
+    value = object[key].get<T>();
+  }
+}
+
 } // namespace
 
 AgaveSettings::AgaveSettings() = default;
@@ -74,7 +93,7 @@ AgaveSettings::configPath() const
     baseDir = QDir::currentPath();
   }
   QDir().mkpath(baseDir);
-  return QDir(baseDir).filePath("cache_settings.json").toStdString();
+  return QDir(baseDir).filePath("agave_settings.json").toStdString();
 }
 
 void
@@ -95,32 +114,21 @@ AgaveSettings::load()
   QByteArray raw = file.readAll();
   try {
     nlohmann::json doc = nlohmann::json::parse(raw.toStdString());
-    if (doc.contains("enabled")) {
-      data.cache.enabled = doc["enabled"].get<bool>();
+    if (const nlohmann::json* cache = objectIfPresent(doc, "cache")) {
+      readIfPresent(*cache, "enabled", data.cache.enabled);
+      readIfPresent(*cache, "enableDisk", data.cache.enableDisk);
+      readIfPresent(*cache, "maxRamBytes", data.cache.maxRamBytes);
+      readIfPresent(*cache, "maxDiskBytes", data.cache.maxDiskBytes);
     }
-    if (doc.contains("enableDisk")) {
-      data.cache.enableDisk = doc["enableDisk"].get<bool>();
-    }
-    if (doc.contains("maxRamBytes")) {
-      data.cache.maxRamBytes = doc["maxRamBytes"].get<std::uint64_t>();
-    }
-    if (doc.contains("maxDiskBytes")) {
-      data.cache.maxDiskBytes = doc["maxDiskBytes"].get<std::uint64_t>();
-    }
-    if (doc.contains("prefetchEnabled")) {
-      data.timeSeries.prefetchEnabled = doc["prefetchEnabled"].get<bool>();
-    }
-    // Older prefetch and status-detail keys were retired. Reads were
-    // contains()-guarded, so older settings files still load; stale keys simply
-    // drop on the next save. No migration needed.
-    if (doc.contains("playbackFps")) {
-      data.timeSeries.playback.fps = doc["playbackFps"].get<float>();
-    }
-    if (doc.contains("playbackLoop")) {
-      data.timeSeries.playback.loop = doc["playbackLoop"].get<bool>();
-    }
-    if (doc.contains("playbackDropFrames")) {
-      data.timeSeries.playback.dropFrames = doc["playbackDropFrames"].get<bool>();
+
+    if (const nlohmann::json* timeSeries = objectIfPresent(doc, "timeSeries")) {
+      readIfPresent(*timeSeries, "prefetchEnabled", data.timeSeries.prefetchEnabled);
+
+      if (const nlohmann::json* playback = objectIfPresent(*timeSeries, "playback")) {
+        readIfPresent(*playback, "fps", data.timeSeries.playback.fps);
+        readIfPresent(*playback, "loop", data.timeSeries.playback.loop);
+        readIfPresent(*playback, "dropFrames", data.timeSeries.playback.dropFrames);
+      }
     }
   } catch (...) {
     m_data = defaultSettings();
@@ -134,14 +142,21 @@ bool
 AgaveSettings::save() const
 {
   nlohmann::json doc;
-  doc["enabled"] = m_data.cache.enabled;
-  doc["enableDisk"] = m_data.cache.enableDisk;
-  doc["maxRamBytes"] = m_data.cache.maxRamBytes;
-  doc["maxDiskBytes"] = m_data.cache.maxDiskBytes;
-  doc["prefetchEnabled"] = m_data.timeSeries.prefetchEnabled;
-  doc["playbackFps"] = m_data.timeSeries.playback.fps;
-  doc["playbackLoop"] = m_data.timeSeries.playback.loop;
-  doc["playbackDropFrames"] = m_data.timeSeries.playback.dropFrames;
+  doc["cache"] = {
+    { "enabled", m_data.cache.enabled },
+    { "enableDisk", m_data.cache.enableDisk },
+    { "maxRamBytes", m_data.cache.maxRamBytes },
+    { "maxDiskBytes", m_data.cache.maxDiskBytes },
+  };
+  doc["timeSeries"] = {
+    { "prefetchEnabled", m_data.timeSeries.prefetchEnabled },
+    { "playback",
+      {
+        { "fps", m_data.timeSeries.playback.fps },
+        { "loop", m_data.timeSeries.playback.loop },
+        { "dropFrames", m_data.timeSeries.playback.dropFrames },
+      } },
+  };
 
   QString path = QString::fromStdString(configPath());
   QFile file(path);
