@@ -31,10 +31,8 @@ public:
   void setStatus(uint32_t time, TimepointStatus status);
   void clearStatuses();
 
-  // Detailed mode paints Failed with its own distinct color; otherwise Failed
-  // renders the same as NotCached. All other states are always visible.
-  void setDetailed(bool detailed);
-  bool detailed() const { return m_detailed; }
+  // Failed paints with its own distinct color so a permanent failure is
+  // visually distinct from a frame that just has not been fetched yet.
 
 protected:
   void paintEvent(QPaintEvent* event) override;
@@ -49,7 +47,6 @@ private:
 
   uint32_t m_minTime = 0;
   std::vector<TimepointStatus> m_statuses;
-  bool m_detailed = false;
   QTimer* m_repaintTimer;
 };
 
@@ -64,7 +61,6 @@ public:
   void setStatuses(uint32_t minTime, const std::vector<TimepointStatus>& statuses);
   void setStatus(uint32_t time, TimepointStatus status);
   void clearStatuses();
-  void setDetailedStatus(bool detailed);
 
   // True while the user is actively dragging the slider handle with the mouse.
   // Keyboard, wheel, spinner, and programmatic changes leave this false.

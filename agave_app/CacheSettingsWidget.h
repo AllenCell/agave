@@ -1,6 +1,6 @@
 #pragma once
 
-#include "CacheSettings.h"
+#include "AgaveSettings.h"
 
 #include <QCheckBox>
 #include <QLabel>
@@ -15,8 +15,9 @@ class CacheSettingsWidget : public QWidget
 public:
   explicit CacheSettingsWidget(QWidget* parent = nullptr);
 
-  void setSettings(const CacheSettingsData& data);
-  CacheSettingsData getSettings() const;
+  void setSettingsData(AgaveSettingsData* settings);
+  void refreshFromSettings();
+  void writeToSettings();
 
   QPushButton* applyButton() const { return m_applyButton; }
   QPushButton* clearDiskButton() const { return m_clearDiskButton; }
@@ -31,10 +32,6 @@ private:
   QPushButton* m_clearDiskButton = nullptr;
 
   QCheckBox* m_prefetchEnabled = nullptr;
-  QCheckBox* m_showDetailedCacheStatus = nullptr;
 
-  // Last value passed to setSettings. getSettings() starts from this so fields
-  // this widget does not present -- the playback settings, which live on the
-  // timeline dock -- survive a round trip instead of being reset to defaults.
-  CacheSettingsData m_lastSet;
+  AgaveSettingsData* m_settings = nullptr;
 };

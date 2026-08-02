@@ -1,5 +1,6 @@
 #include "TimelineDockWidget.h"
 
+#include "AgaveSettings.h"
 #include "CacheStatusSlider.h"
 #include "Controls.h"
 #include "QRenderSettings.h"
@@ -162,6 +163,7 @@ QTimelineWidget::buildPlaybackControls(QVBoxLayout* layout)
       prefetch.wrapAround = config.loop;
       m_loader->setPrefetchConfig(prefetch);
     }
+    writePlaybackSettings(config);
   };
   connect(m_fpsSpinner, QOverload<int>::of(&QSpinBox::valueChanged), this, [pushConfig](int) { pushConfig(); });
   connect(m_loopCheckbox, &QCheckBox::toggled, this, [pushConfig](bool) { pushConfig(); });
@@ -314,17 +316,50 @@ QTimelineWidget::refreshCacheStatus()
 }
 
 void
-QTimelineWidget::setDetailedCacheStatus(bool detailed)
+QTimelineWidget::writePlaybackSettings(const TimeSeriesPlayer::Config& config)
 {
-  if (m_TimeSlider) {
-    m_TimeSlider->setDetailedStatus(detailed);
+  if (!m_settings) {
+    return;
   }
+  m_settings->playback.fps = config.fps;
+  m_settings->playback.loop = config.loop;
+  m_settings->playback.dropFrames = config.mode == TimeSeriesPlayer::Mode::RealTime;
+}
+
+void
+QTimelineWidget::setSettingsData(TimeSeriesSettingsData* settings)
+{
+  m_settings = settings;
+  applySettingsData();
+}
+
+void
+QTimelineWidget::applySettingsData()
+{
+  if (!m_settings) {
+    return;
+  }
+
+  TimeSeriesLoader::PrefetchConfig prefetch;
+  prefetch.enabled = m_settings->prefetchEnabled;
+  // Prefetch must wrap when playback loops, or looping stalls at the end of the
+  // series waiting for a first frame that nothing would fetch back.
+  prefetch.wrapAround = m_settings->playback.loop;
+  setPrefetchConfig(prefetch);
+
+  TimeSeriesPlayer::Config playback;
+  playback.fps = m_settings->playback.fps;
+  playback.loop = m_settings->playback.loop;
+  playback.mode =
+    m_settings->playback.dropFrames ? TimeSeriesPlayer::Mode::RealTime : TimeSeriesPlayer::Mode::ShowEveryFrame;
+  setPlaybackConfig(playback);
 }
 
 void
 QTimelineWidget::setPlaybackConfig(const TimeSeriesPlayer::Config& config)
 {
   m_player.setConfig(config);
+  writePlaybackSettings(config);
   if (m_fpsSpinner) {
     m_fpsSpinner->setValue(static_cast<int>(config.fps));
   }
