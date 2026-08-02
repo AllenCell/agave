@@ -3,7 +3,7 @@
 #include "ui_agaveGui.h"
 
 #include "Camera.h"
-#include "CacheSettings.h"
+#include "AgaveSettings.h"
 #include "GLView3D.h"
 #include "IAppView3D.h"
 #include "QtGLContext.h"
@@ -182,11 +182,7 @@ private:
   Scene m_appScene;
   int m_currentScene = 0;
 
-  CacheSettings m_cacheSettings;
-
-  // Push prefetch/playback settings down to the timeline dock's loader and
-  // player. Called on startup and whenever the cache settings are applied.
-  void applyTimeSeriesSettings(const CacheSettingsData& data);
+  AgaveSettings m_settings;
 
   QAction* m_recentFileActs[MaxRecentFiles];
   QAction* m_recentFileSeparator;
