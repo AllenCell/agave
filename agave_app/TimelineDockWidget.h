@@ -33,8 +33,7 @@ public:
 
   void onNewImage(Scene* s, const LoadSpec& loadSpec, std::shared_ptr<IFileReader> reader);
   // Set the slider position. Pass blockSignals to move it without triggering a
-  // load -- the old single-argument version always triggered one, which was a
-  // trap for programmatic callers.
+  // load.
   void setTime(int t, bool blockSignals = false);
 
   void OnTimeChanged(int newTime);
