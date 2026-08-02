@@ -138,45 +138,37 @@ CacheStatusStrip::paintEvent(QPaintEvent* /*event*/)
   }
 
   QPainter painter(this);
-  const QColor cached = palette().color(QPalette::Highlight);
-  const QColor queued = QColor(cached.red(), cached.green(), cached.blue(), 70);
-  const QColor loading = QColor(cached.red(), cached.green(), cached.blue(), 150);
-  // Disk-resident: dimmer than in-memory, since it is available but not instant.
-  // This is the normal resting state for a series larger than the memory budget,
-  // so it must be visible rather than blank.
-  const QColor onDisk = QColor(cached.red(), cached.green(), cached.blue(), 110);
-  const QColor failed(200, 60, 60);
+  // Traffic-light palette: at a glance the strip tells you what you have in RAM
+  // (green), what is on disk (cyan -- cached but a tier away), what is on its way
+  // (yellow), and what is not there yet (red). Queued and Loading share a color
+  // because the user's question ("is it working?") is answered by either state.
+  const QColor ramCached(60, 180, 75);      // in-memory
+  const QColor diskCached(60, 180, 200);    // on-disk, cheap to reload
+  const QColor inFlight(240, 210, 60);      // Queued or Loading
+  const QColor notCached(200, 70, 60);      // not fetched
+  // Detailed mode splits Failed off with a darker red so a permanent failure is
+  // visually distinct from a frame that just has not been fetched yet.
+  const QColor failedDetailed(120, 30, 30);
 
   for (int i = 0; i < count; ++i) {
     QColor color;
     switch (m_statuses[static_cast<size_t>(i)]) {
       case TimepointStatus::RamCached:
-        color = cached;
+        color = ramCached;
         break;
       case TimepointStatus::DiskCached:
-        // Shown in both modes: in the simple two-state view it still counts as
-        // "you have this data", just not in memory.
-        color = onDisk;
+        color = diskCached;
         break;
       case TimepointStatus::Queued:
-        if (!m_detailed) {
-          continue;
-        }
-        color = queued;
-        break;
       case TimepointStatus::Loading:
-        if (!m_detailed) {
-          continue;
-        }
-        color = loading;
+        color = inFlight;
         break;
       case TimepointStatus::Failed:
-        if (!m_detailed) {
-          continue;
-        }
-        color = failed;
+        color = m_detailed ? failedDetailed : notCached;
         break;
       case TimepointStatus::NotCached:
+        color = notCached;
+        break;
       default:
         continue;
     }
@@ -196,6 +188,15 @@ TimeSliderWithCacheStatus::TimeSliderWithCacheStatus(QWidget* parent)
 {
   layoutStrip();
   m_strip->show();
+
+  connect(&sliderWidget(), &QSlider::sliderPressed, this, &TimeSliderWithCacheStatus::sliderPressed);
+  connect(&sliderWidget(), &QSlider::sliderReleased, this, &TimeSliderWithCacheStatus::sliderReleased);
+}
+
+bool
+TimeSliderWithCacheStatus::isSliderDown() const
+{
+  return sliderWidget().isSliderDown();
 }
 
 void

@@ -10,8 +10,9 @@
 
 class QTimer;
 
-// Thin strip drawn along the bottom of a slider showing which timepoints are
-// cached.
+// Thin strip drawn along the bottom of a slider showing per-timepoint fetch
+// state as a traffic light: green in-memory, cyan on-disk, yellow being
+// fetched, red not fetched.
 //
 // Implemented as a mouse-transparent overlay parented to the slider rather than
 // by subclassing QSlider, so QIntSlider's composite structure is left alone and
@@ -30,8 +31,8 @@ public:
   void setStatus(uint32_t time, TimepointStatus status);
   void clearStatuses();
 
-  // Detailed mode distinguishes queued/loading/failed as well as cached; the
-  // default shows only cached vs not.
+  // Detailed mode paints Failed with its own distinct color; otherwise Failed
+  // renders the same as NotCached. All other states are always visible.
   void setDetailed(bool detailed);
   bool detailed() const { return m_detailed; }
 
@@ -64,6 +65,16 @@ public:
   void setStatus(uint32_t time, TimepointStatus status);
   void clearStatuses();
   void setDetailedStatus(bool detailed);
+
+  // True while the user is actively dragging the slider handle with the mouse.
+  // Keyboard, wheel, spinner, and programmatic changes leave this false.
+  bool isSliderDown() const;
+
+signals:
+  // Forwarded from the inner QSlider so callers can react to drag start/end
+  // without reaching through the protected sliderWidget() accessor.
+  void sliderPressed();
+  void sliderReleased();
 
 protected:
   void resizeEvent(QResizeEvent* event) override;

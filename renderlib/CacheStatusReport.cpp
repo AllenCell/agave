@@ -4,6 +4,8 @@
 #include "IFileReader.h"
 #include "Status.h"
 
+#include <iomanip>
+#include <sstream>
 #include <string>
 
 namespace {
@@ -18,6 +20,14 @@ formatUsage(std::uint64_t used, std::uint64_t limit)
     text += " / " + LoadSpec::bytesToStringLabel(static_cast<size_t>(limit));
   }
   return text;
+}
+
+std::string
+formatMegabytes(std::uint64_t bytes)
+{
+  std::ostringstream ss;
+  ss << std::fixed << std::setprecision(1) << (static_cast<double>(bytes) / (1024.0 * 1024.0));
+  return ss.str();
 }
 
 } // namespace
@@ -69,9 +79,7 @@ reportCacheStatistics(CStatus* status)
     // Those queued writes have already reserved disk space, so the committed total
     // is this plus the Disk figure above -- that sum is what stays under the limit.
     const std::uint64_t pendingBytes = cache.pendingDiskBytes();
-    if (pendingBytes > 0) {
-      status->SetStatisticChanged("Cache", "Disk Writes Pending Bytes", std::to_string(pendingBytes));
-    }
+    status->SetStatisticChanged("Cache", "Disk Writes Pending Size", formatMegabytes(pendingBytes), "MB");
     // Structurally always zero now that the queue back-pressures instead of
     // dropping. Reported only if it ever isn't, as a standing assertion. Note the
     // backlog abandoned at shutdown is deliberate and not counted here.

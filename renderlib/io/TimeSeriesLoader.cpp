@@ -2,7 +2,6 @@
 
 #include "ImageXYZC.h"
 #include "LoadRequest.h"
-#include "Logging.h"
 
 #include <algorithm>
 #include <chrono>
@@ -13,6 +12,7 @@ namespace {
 // interactive load. Short enough that a scrub preempts promptly, long enough not
 // to spin.
 constexpr auto kPollInterval = std::chrono::milliseconds(2);
+constexpr auto kRetiredPollInterval = std::chrono::milliseconds(50);
 
 std::uint64_t
 imageBytes(const ImageXYZC& image)
@@ -41,6 +41,11 @@ TimeSeriesLoader::~TimeSeriesLoader()
     // FutureLoadRequest's destructor would otherwise wait for it to finish.
     for (auto& entry : m_inFlight) {
       entry.second->cancel();
+    }
+    for (auto& retired : m_retiredRequests) {
+      if (retired.request) {
+        retired.request->cancel();
+      }
     }
   }
   m_wake.notify_all();
@@ -387,7 +392,7 @@ TimeSeriesLoader::prefetchPermissionLocked() const
     return PrefetchPermission::None;
   }
   const uint32_t maxInFlight = std::max(1u, m_reader->maxConcurrentLoads());
-  if (m_inFlight.size() >= maxInFlight) {
+  if ((m_inFlight.size() + m_retiredRequests.size()) >= maxInFlight) {
     return PrefetchPermission::None;
   }
 
@@ -641,11 +646,39 @@ TimeSeriesLoader::notifyPrefetchIdle()
 }
 
 void
+TimeSeriesLoader::retireRequestLocked(std::shared_ptr<LoadRequest>& request, std::shared_ptr<IFileReader> reader)
+{
+  if (!request) {
+    return;
+  }
+
+  request->cancel();
+  RetiredRequest retired;
+  retired.request = std::move(request);
+  retired.reader = std::move(reader);
+  m_retiredRequests.push_back(std::move(retired));
+}
+
+void
+TimeSeriesLoader::reapRetiredRequestsLocked()
+{
+  for (auto it = m_retiredRequests.begin(); it != m_retiredRequests.end();) {
+    if (it->request && !it->request->isReady()) {
+      ++it;
+      continue;
+    }
+    it = m_retiredRequests.erase(it);
+  }
+}
+
+void
 TimeSeriesLoader::threadMain()
 {
   std::unique_lock<std::mutex> lock(m_mutex);
 
   while (!m_stop) {
+    reapRetiredRequestsLocked();
+
     // ---- Interactive request wins over everything else. ----
     if (m_interactivePending) {
       const uint32_t time = m_interactiveTime;
@@ -745,6 +778,9 @@ TimeSeriesLoader::threadMain()
         }
       }
       m_prefetchIdleReported = false;
+      if (preempted && request) {
+        retireRequestLocked(request, reader);
+      }
 
       lock.unlock();
       notifyStatusChanges(changes);
@@ -927,6 +963,12 @@ TimeSeriesLoader::threadMain()
       m_wake.wait_for(lock, kPollInterval);
       continue;
     }
+    if (!m_retiredRequests.empty()) {
+      // Poll cancelled workers until they are ready to destroy without blocking
+      // this loader thread.
+      m_wake.wait_for(lock, kRetiredPollInterval);
+      continue;
+    }
 
     const bool reportIdle = m_haveSeries && !m_prefetchIdleReported;
     if (reportIdle) {
@@ -958,6 +1000,14 @@ TimeSeriesLoader::threadMain()
   }
   auto outstanding = std::move(m_inFlight);
   m_inFlight.clear();
+  auto retired = std::move(m_retiredRequests);
+  m_retiredRequests.clear();
   lock.unlock();
+  for (auto& entry : retired) {
+    if (entry.request) {
+      entry.request->cancel();
+    }
+  }
+  retired.clear();
   outstanding.clear();
 }

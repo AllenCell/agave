@@ -12,9 +12,12 @@
 #include "tensorstore/kvstore/generation.h"
 #include "tensorstore/open.h"
 
+#include "absl/time/time.h"
+
 #include <algorithm>
-#include <chrono>
+#include <atomic>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 
@@ -494,7 +497,6 @@ FileReaderZarr::loadDimensions(const std::string& filepath, uint32_t scene)
 std::shared_ptr<ImageXYZC>
 FileReaderZarr::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progress)
 {
-  auto tStart = std::chrono::high_resolution_clock::now();
   // load channels
   std::shared_ptr<ImageXYZC> emptyimage;
 
@@ -563,8 +565,15 @@ FileReaderZarr::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progr
   size_t channelsize_bytes = planesize_bytes * (size_t)dims.sizeZ;
   uint8_t* data = new uint8_t[channelsize_bytes * nch];
   memset(data, 0, channelsize_bytes * nch);
-  // stash it here in case of early exit, it will be deleted
-  std::unique_ptr<uint8_t[]> smartPtr(data);
+  // TensorStore reads may outlive this stack frame if cancellation abandons
+  // their futures. Share ownership with the target arrays so they never write
+  // into freed memory. On success ImageXYZC takes over the raw pointer.
+  auto dataReleased = std::make_shared<std::atomic_bool>(false);
+  std::shared_ptr<uint8_t> dataOwner(data, [dataReleased](uint8_t* ptr) {
+    if (!dataReleased->load(std::memory_order_relaxed)) {
+      delete[] ptr;
+    }
+  });
 
   // still assuming 1 sample per pixel (scalar data) here.
   size_t rawPlanesize = (size_t)dims.sizeX * (size_t)dims.sizeY * (size_t)(dims.bitsPerPixel / 8);
@@ -577,12 +586,12 @@ FileReaderZarr::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progr
 
   // Otherwise one scratch buffer per channel, so the reads can be in flight
   // together rather than taking turns over a single shared buffer.
-  std::unique_ptr<uint8_t[]> smartPtrTemp;
+  std::shared_ptr<uint8_t> channelRawOwner;
   uint8_t* channelRawMem = nullptr;
   if (!readDirectToDest) {
     channelRawMem = new uint8_t[rawChannelSize * nch];
     memset(channelRawMem, 0, rawChannelSize * nch);
-    smartPtrTemp.reset(channelRawMem);
+    channelRawOwner = std::shared_ptr<uint8_t>(channelRawMem, std::default_delete<uint8_t[]>());
   }
   uint32_t minx, maxx, miny, maxy, minz, maxz;
   minx = (loadSpec.maxx > loadSpec.minx) ? loadSpec.minx : 0;
@@ -607,9 +616,15 @@ FileReaderZarr::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progr
   // a remote store, where each read is dominated by latency.
   std::vector<tensorstore::Future<void>> channelReads;
   channelReads.reserve(nch);
+  auto cancelChannelReads = [&channelReads]() {
+    for (auto& read : channelReads) {
+      read.reset();
+    }
+  };
 
   for (uint32_t channel = 0; channel < nch; ++channel) {
     if (progress.isCancelled()) {
+      cancelChannelReads();
       return emptyimage;
     }
     uint32_t channelToLoad = channel;
@@ -657,19 +672,24 @@ FileReaderZarr::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progr
     const tensorstore::Index shapeToLoad[kNumDims] = { 1, 1, dims.sizeZ, dims.sizeY, dims.sizeX };
     if (levelDims.dtype == "uint8") {
       auto arr = tensorstore::Array(reinterpret_cast<uint8_t*>(destptr), shapeToLoad);
-      channelReads.push_back(tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(arr)));
+      const auto& owner = readDirectToDest ? dataOwner : channelRawOwner;
+      channelReads.push_back(tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(owner, arr)));
     } else if (levelDims.dtype == "int32") {
       auto arr = tensorstore::Array(reinterpret_cast<int32_t*>(destptr), shapeToLoad);
-      channelReads.push_back(tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(arr)));
+      const auto& owner = readDirectToDest ? dataOwner : channelRawOwner;
+      channelReads.push_back(tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(owner, arr)));
     } else if (levelDims.dtype == "uint16") {
       auto arr = tensorstore::Array(reinterpret_cast<uint16_t*>(destptr), shapeToLoad);
-      channelReads.push_back(tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(arr)));
+      const auto& owner = readDirectToDest ? dataOwner : channelRawOwner;
+      channelReads.push_back(tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(owner, arr)));
     } else if (levelDims.dtype == "float32") {
       auto arr = tensorstore::Array(reinterpret_cast<float*>(destptr), shapeToLoad);
-      channelReads.push_back(tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(arr)));
+      const auto& owner = readDirectToDest ? dataOwner : channelRawOwner;
+      channelReads.push_back(tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(owner, arr)));
     } else {
       LOG_ERROR << "Unrecognized format (" << levelDims.dtype
                 << "). Please let us know if you need support for this format. Can not load data.";
+      cancelChannelReads();
       return emptyimage;
     }
   }
@@ -678,12 +698,22 @@ FileReaderZarr::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progr
   // overlaps the CPU work with the remaining transfers.
   for (uint32_t channel = 0; channel < nch; ++channel) {
     if (progress.isCancelled()) {
+      cancelChannelReads();
       return emptyimage;
+    }
+
+    while (!channelReads[channel].ready()) {
+      if (progress.isCancelled()) {
+        cancelChannelReads();
+        return emptyimage;
+      }
+      channelReads[channel].WaitFor(absl::Milliseconds(5));
     }
 
     const auto& readResult = channelReads[channel].result();
     if (!readResult.ok()) {
       LOG_ERROR << "Zarr read failed for channel " << channel << ": " << readResult.status();
+      cancelChannelReads();
       return emptyimage;
     }
 
@@ -697,34 +727,23 @@ FileReaderZarr::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progr
     progress.setProgress(channel + 1, nch);
   }
 
-  auto tEnd = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> elapsed = tEnd - tStart;
-  LOG_DEBUG << "zarr loaded in " << (elapsed.count() * 1000.0) << "ms";
-
-  auto tStartImage = std::chrono::high_resolution_clock::now();
-
   // TODO: convert data to uint16_t pixels if not already.
-  // we can release the smartPtr because ImageXYZC will now own the raw data memory
+  // ImageXYZC owns the raw data after construction succeeds.
   ImageXYZC* im = new ImageXYZC(dims.sizeX,
                                 dims.sizeY,
                                 dims.sizeZ,
                                 nch,
                                 ImageXYZC::IN_MEMORY_BPP, // dims.bitsPerPixel,
-                                smartPtr.release(),
+                                data,
                                 dims.physicalSizeX,
                                 dims.physicalSizeY,
                                 dims.physicalSizeZ,
                                 dims.spatialUnits);
+  dataReleased->store(true, std::memory_order_relaxed);
+  dataOwner.reset();
 
   std::vector<std::string> channelNames = dims.getChannelNames(loadSpec.channels);
   im->setChannelNames(channelNames);
-
-  tEnd = std::chrono::high_resolution_clock::now();
-  elapsed = tEnd - tStartImage;
-  LOG_DEBUG << "ImageXYZC prepared in " << (elapsed.count() * 1000.0) << "ms";
-
-  elapsed = tEnd - tStart;
-  LOG_DEBUG << "Loaded " << loadSpec.filepath << " in " << (elapsed.count() * 1000.0) << "ms";
 
   std::shared_ptr<ImageXYZC> sharedImage(im);
   return sharedImage;

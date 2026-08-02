@@ -201,6 +201,8 @@ private:
 
   void notifyStatusChanges(const std::vector<std::pair<uint32_t, TimepointStatus>>& changes);
   void notifyPrefetchIdle();
+  void retireRequestLocked(std::shared_ptr<LoadRequest>& request, std::shared_ptr<IFileReader> reader);
+  void reapRetiredRequestsLocked();
 
   CacheManager& m_cache;
 
@@ -238,6 +240,18 @@ private:
 
   // Prefetch loads currently in flight, keyed by timepoint.
   std::map<uint32_t, std::shared_ptr<LoadRequest>> m_inFlight;
+  struct RetiredRequest
+  {
+    // Keep the reader alive too. BlockingFileReader's worker captures `this`,
+    // so the reader must outlive a cancelled request that is still unwinding.
+    // Declared before request so it is destroyed after request.
+    std::shared_ptr<IFileReader> reader;
+    std::shared_ptr<LoadRequest> request;
+  };
+  // Cancelled interactive requests whose workers have not observed cancellation
+  // yet. Destroying FutureLoadRequest before it is ready waits for the worker;
+  // holding it here lets the loader keep serving newer interactive/cache hits.
+  std::vector<RetiredRequest> m_retiredRequests;
   // In-flight time steps being fetched only to warm the disk cache.
   std::set<uint32_t> m_warmOnly;
   // Time steps whose disk warm write was refused for lack of disk space. Skipped

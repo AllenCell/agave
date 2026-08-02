@@ -3,7 +3,6 @@
 #include "AppScene.h"
 #include "Fuse.h"
 #include "ImageXYZC.h"
-#include "Logging.h"
 #include "VulkanUtil.h"
 #include "gfxVulkan/Backend.h"
 #include "gfxVulkan/Device.h"
@@ -354,8 +353,9 @@ VolumeTextureVk::setLinearFiltering(bool linearFiltering)
     return false;
   }
 
-  // Safe to replace immediately: endSingleTimeCommands() waits for queue idle
-  // after every submission, and descriptor sets are re-written each frame.
+  // Safe to replace immediately: endSingleTimeCommands() waits for the sampler
+  // replacement submission to finish, and descriptor sets are re-written each
+  // frame.
   m_volumeTexture.replaceSampler(std::move(*newSampler));
   m_linearFiltering = linearFiltering;
   return true;
