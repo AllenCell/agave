@@ -21,6 +21,7 @@ class QToolButton;
 class Scene;
 class TimeSeriesLoaderBridge;
 class TimeSliderWithCacheStatus;
+struct TimeSeriesSettingsData;
 
 class QTimelineWidget : public QWidget
 {
@@ -38,12 +39,12 @@ public:
 
   void OnTimeChanged(int newTime);
 
+  void setSettingsData(TimeSeriesSettingsData* settings);
+  void applySettingsData();
+
   // Push current prefetch settings down to the loader.
   void setPrefetchConfig(const TimeSeriesLoader::PrefetchConfig& config);
   void cancelPrefetch();
-  // Show queued/loading/failed states as well as cached. For debugging prefetch.
-  void setDetailedCacheStatus(bool detailed);
-
   // Playback settings (frame rate, loop, stall vs drop-frames).
   void setPlaybackConfig(const TimeSeriesPlayer::Config& config);
   TimeSeriesPlayer::Config playbackConfig() const;
@@ -58,6 +59,7 @@ private:
   void onLoadFailed(uint32_t time, uint64_t seq);
   void onTimepointStatusChanged(uint32_t time, int status);
   void refreshCacheStatus();
+  void writePlaybackSettings(const TimeSeriesPlayer::Config& config);
 
   void buildPlaybackControls(QVBoxLayout* layout);
   void togglePlayPause();
@@ -82,6 +84,7 @@ protected:
   // Playback. The state machine lives in renderlib; these are just its controls
   // and the clock that drives it.
   TimeSeriesPlayer m_player;
+  TimeSeriesSettingsData* m_settings = nullptr;
   QToolButton* m_playPauseButton = nullptr;
   QToolButton* m_stopButton = nullptr;
   QSpinBox* m_fpsSpinner = nullptr;

@@ -114,16 +114,6 @@ CacheStatusStrip::clearStatuses()
 }
 
 void
-CacheStatusStrip::setDetailed(bool detailed)
-{
-  if (m_detailed == detailed) {
-    return;
-  }
-  m_detailed = detailed;
-  scheduleRepaint();
-}
-
-void
 CacheStatusStrip::paintEvent(QPaintEvent* /*event*/)
 {
   if (m_statuses.empty()) {
@@ -164,8 +154,8 @@ CacheStatusStrip::paintEvent(QPaintEvent* /*event*/)
   const QColor diskCached(60, 180, 200); // on-disk, cheap to reload
   const QColor inFlight(240, 210, 60);   // Queued or Loading
   const QColor notCached(200, 70, 60);   // not fetched
-  // Detailed mode splits Failed off with a darker red so a permanent failure is
-  // visually distinct from a frame that just has not been fetched yet.
+  // Failed gets a darker red so a permanent failure is visually distinct from a
+  // frame that just has not been fetched yet.
   const QColor failedDetailed(120, 30, 30);
 
   for (int i = 0; i < count; ++i) {
@@ -182,7 +172,7 @@ CacheStatusStrip::paintEvent(QPaintEvent* /*event*/)
         color = inFlight;
         break;
       case TimepointStatus::Failed:
-        color = m_detailed ? failedDetailed : notCached;
+        color = failedDetailed;
         break;
       case TimepointStatus::NotCached:
         color = notCached;
@@ -247,10 +237,4 @@ void
 TimeSliderWithCacheStatus::clearStatuses()
 {
   m_strip->clearStatuses();
-}
-
-void
-TimeSliderWithCacheStatus::setDetailedStatus(bool detailed)
-{
-  m_strip->setDetailed(detailed);
 }

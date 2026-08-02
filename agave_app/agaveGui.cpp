@@ -104,22 +104,16 @@ agaveGui::agaveGui(QWidget* parent)
   createDockWindows();
   setDockOptions(AllowTabbedDocks);
 
-  CacheSettingsData cacheData = m_cacheSettings.load();
-  m_cacheSettingsDockWidget->widget()->setSettings(cacheData);
-  m_cacheSettings.applyToRenderlib(cacheData);
-  applyTimeSeriesSettings(cacheData);
+  m_settings.load();
+  // m_settings must outlive these dock widgets, because they hold a pointer to the settings data.
+  m_cacheSettingsDockWidget->widget()->setSettingsData(&m_settings.data());
+  m_timelinedock->timelineWidget().setSettingsData(&m_settings.data().timeSeries);
+  m_settings.applyCacheToRenderlib();
   connect(m_cacheSettingsDockWidget->widget()->applyButton(), &QPushButton::clicked, this, [this]() {
-    CacheSettingsData data = m_cacheSettingsDockWidget->widget()->getSettings();
-    // Playback settings live on the timeline dock, not in this widget, so fold
-    // the live values in before persisting or the file would keep stale ones.
-    const TimeSeriesPlayer::Config playback = m_timelinedock->timelineWidget().playbackConfig();
-    data.playbackFps = playback.fps;
-    data.playbackLoop = playback.loop;
-    data.playbackDropFrames = playback.mode == TimeSeriesPlayer::Mode::RealTime;
-
-    m_cacheSettings.save(data);
-    m_cacheSettings.applyToRenderlib(data);
-    applyTimeSeriesSettings(data);
+    m_cacheSettingsDockWidget->widget()->writeToSettings();
+    m_settings.applyCacheToRenderlib();
+    m_timelinedock->timelineWidget().applySettingsData();
+    m_settings.save();
   });
   connect(m_cacheSettingsDockWidget->widget()->clearDiskButton(), &QPushButton::clicked, this, [this]() {
     // Show the directory that will actually be cleared.
@@ -215,29 +209,6 @@ agaveGui::OnUpdateRenderer()
   std::shared_ptr<CStatus> s = m_view->getStatus();
   m_statisticsDockWidget->setStatus(s);
   // s->onNewImage(info.fileName(), &m_appScene);
-}
-
-void
-agaveGui::applyTimeSeriesSettings(const CacheSettingsData& data)
-{
-  QTimelineWidget& timeline = m_timelinedock->timelineWidget();
-
-  TimeSeriesLoader::PrefetchConfig prefetch;
-  prefetch.enabled = data.prefetchEnabled;
-  // historyMargin is deliberately left at its renderlib default; it is not a
-  // user-facing setting.
-  // Prefetch must wrap when playback loops, or looping stalls at the end of the
-  // series waiting for a first frame that nothing would fetch back.
-  prefetch.wrapAround = data.playbackLoop;
-  timeline.setPrefetchConfig(prefetch);
-
-  TimeSeriesPlayer::Config playback;
-  playback.fps = data.playbackFps;
-  playback.loop = data.playbackLoop;
-  playback.mode = data.playbackDropFrames ? TimeSeriesPlayer::Mode::RealTime : TimeSeriesPlayer::Mode::ShowEveryFrame;
-  timeline.setPlaybackConfig(playback);
-
-  timeline.setDetailedCacheStatus(data.showDetailedCacheStatus);
 }
 
 void
@@ -901,7 +872,7 @@ agaveGui::open(const std::string& file, const Serialize::ViewerState* vs, bool i
     // Show the current prefetch setting rather than a fixed default, so the box
     // round-trips it. Without this, applying the box in both directions below
     // would turn prefetch off on every load for anyone who had enabled it.
-    loadDialog->setPrefetchTimeSeries(m_cacheSettingsDockWidget->widget()->getSettings().prefetchEnabled);
+    loadDialog->setPrefetchTimeSeries(m_settings.data().timeSeries.prefetchEnabled);
     if (loadDialog->exec() == QDialog::Accepted) {
       loadSpec = loadDialog->getLoadSpec();
       // the loadSpec will need to remember that we loaded an image sequence
@@ -921,11 +892,10 @@ agaveGui::open(const std::string& file, const Serialize::ViewerState* vs, bool i
       // does not show the box, and must not be read as "prefetch off" and persisted
       // over the setting the next series will use.
       if (loadDialog->hasTimeSeriesChoice()) {
-        CacheSettingsData data = m_cacheSettingsDockWidget->widget()->getSettings();
-        data.prefetchEnabled = loadDialog->getPrefetchTimeSeries();
-        m_cacheSettingsDockWidget->widget()->setSettings(data);
-        m_cacheSettings.save(data);
-        applyTimeSeriesSettings(data);
+        m_settings.data().timeSeries.prefetchEnabled = loadDialog->getPrefetchTimeSeries();
+        m_cacheSettingsDockWidget->widget()->refreshFromSettings();
+        m_timelinedock->timelineWidget().applySettingsData();
+        m_settings.save();
       }
     } else {
       LOG_INFO << "Canceled load dialog.";
