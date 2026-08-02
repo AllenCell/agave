@@ -176,13 +176,13 @@ public:
   CacheStats getStats() const;
   void resetStats();
 
-  // Volumes waiting to be written to the disk tier. Writes are asynchronous, so
-  // a non-zero value here is normal; it is capped by kMaxPendingDiskWrites plus
-  // one in progress, because a full queue blocks the producer.
+  // Volumes waiting to be written to the disk tier, plus one currently in
+  // progress. Writes are asynchronous, so a non-zero value here is normal; the
+  // queue applies count and byte back-pressure before accepting more.
   std::size_t pendingDiskWrites() const;
-  // Bytes belonging to volumes queued for writing but not yet written. Counted
-  // against maxDiskBytes alongside diskBytesUsed, so the tier never overshoots
-  // its cap by the size of the backlog.
+  // Bytes belonging to volumes queued for writing or currently being written.
+  // Counted against maxDiskBytes alongside diskBytesUsed, so the tier never
+  // overshoots its cap by the size of the backlog.
   std::uint64_t pendingDiskBytes() const;
   // Disk writes abandoned because the queue was full. Now structurally always
   // zero -- the queue applies back-pressure instead of dropping -- and retained
@@ -291,9 +291,9 @@ private:
   // low-priority writer thread.
   //
   // The queue is bounded and applies BACK-PRESSURE when full: the producer waits
-  // for a slot rather than abandoning a write. Dropping is not survivable here --
-  // RAM eviction is a pure drop that never writes on the way out, so a dropped
-  // write loses that frame from the disk tier permanently.
+  // for count and byte capacity rather than abandoning a write. Dropping is not
+  // survivable here -- RAM eviction is a pure drop that never writes on the way
+  // out, so a dropped write loses that frame from the disk tier permanently.
   //
   // Each queued entry also reserves its disk bytes (m_pendingDiskBytes) so
   // eviction makes room for the whole backlog and the tier never overshoots
@@ -318,8 +318,8 @@ private:
   mutable std::mutex m_diskQueueMutex;
   std::condition_variable m_diskQueueWake;
   std::condition_variable m_diskQueueDrained;
-  // Signalled whenever a slot frees, to release a producer blocked on a full
-  // queue.
+  // Signalled whenever count or byte capacity frees, to release a producer
+  // blocked on a full queue.
   std::condition_variable m_diskQueueSpace;
   std::deque<PendingDiskWrite> m_diskQueue;
   std::thread m_diskWriterThread;

@@ -937,7 +937,7 @@ TEST_CASE("CacheManager writes to disk asynchronously", "[cache][disk]")
     // there is no second chance.
     for (int i = 0; i < 40; ++i) {
       REQUIRE(cache.storeImage(makeSpec("burst_" + std::to_string(i)), makeImage(4, 4, 4, 1)));
-      REQUIRE(cache.pendingDiskWrites() <= 9); // kMaxPendingDiskWrites + one in progress
+      REQUIRE(cache.pendingDiskWrites() <= 3); // kMaxQueuedDiskWrites + one in progress
     }
     cache.flushDiskWrites();
     REQUIRE(cache.pendingDiskWrites() == 0);

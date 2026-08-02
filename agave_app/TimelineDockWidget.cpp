@@ -14,10 +14,13 @@
 #include <QCheckBox>
 #include <QHBoxLayout>
 #include <QScrollArea>
+#include <QShortcut>
 #include <QSpinBox>
 #include <QStyle>
 #include <QTimer>
 #include <QToolButton>
+
+#include <algorithm>
 
 QTimelineWidget::QTimelineWidget(QWidget* pParent, QRenderSettings* qrs)
   : QWidget(pParent)
@@ -39,9 +42,9 @@ QTimelineWidget::QTimelineWidget(QWidget* pParent, QRenderSettings* qrs)
   m_TimeSlider = new TimeSliderWithCacheStatus();
   m_TimeSlider->setStatusTip(tr("Set current time sample"));
   m_TimeSlider->setToolTip(tr("Set current time sample"));
-  // Loading is asynchronous now, so live scrubbing is safe: dragging issues
-  // interactive requests and the loader coalesces them, cancelling the load for
-  // any position the user has already left.
+  // Tracking is on so scrubbing over cached frames updates the view live.
+  // OnTimeChanged gates uncached frames while the handle is being dragged; the
+  // final position is committed by the sliderReleased handler below.
   m_TimeSlider->setTracking(true);
   m_TimeSlider->setRange(0, 0);
   m_TimeSlider->setSingleStep(1);
@@ -49,6 +52,11 @@ QTimelineWidget::QTimelineWidget(QWidget* pParent, QRenderSettings* qrs)
   fullLayout->addWidget(m_TimeSlider);
 
   QObject::connect(m_TimeSlider, &QIntSlider::valueChanged, [this](int t) { this->OnTimeChanged(t); });
+  // Committing the drag when the mouse comes up guarantees the final frame is
+  // requested even if we skipped it mid-drag because it was uncached remote data.
+  QObject::connect(m_TimeSlider, &TimeSliderWithCacheStatus::sliderReleased, this, [this]() {
+    this->OnTimeChanged(m_TimeSlider->value());
+  });
 
   buildPlaybackControls(fullLayout);
 
@@ -122,9 +130,21 @@ QTimelineWidget::buildPlaybackControls(QVBoxLayout* layout)
 
   m_clockOrigin = std::chrono::steady_clock::now();
 
-  connect(m_playPauseButton, &QToolButton::clicked, this, [this]() { togglePlayPause(); });
-  connect(m_stopButton, &QToolButton::clicked, this, [this]() { stopPlayback(); });
+  // pressed rather than clicked so the toggle fires on mouse-down instead of
+  // waiting for release + hit-test. Under Smooth playback the event loop is busy
+  // repainting a fresh volume frame each tick, and cutting the click round-trip
+  // in half makes pause visibly snappier.
+  connect(m_playPauseButton, &QToolButton::pressed, this, [this]() { togglePlayPause(); });
+  connect(m_stopButton, &QToolButton::pressed, this, [this]() { stopPlayback(); });
   connect(m_playbackTimer, &QTimer::timeout, this, [this]() { onPlaybackTick(); });
+
+  // Spacebar toggles play/pause without having to route through the button's
+  // mouse-event pipeline, so it stays responsive when the mouse is over the 3D
+  // view. Scoped to the top-level window so focus does not have to be on the
+  // timeline dock for it to work.
+  auto* playShortcut = new QShortcut(QKeySequence(Qt::Key_Space), this);
+  playShortcut->setContext(Qt::WindowShortcut);
+  connect(playShortcut, &QShortcut::activated, this, [this]() { togglePlayPause(); });
 
   auto pushConfig = [this]() {
     TimeSeriesPlayer::Config config = m_player.config();
@@ -167,7 +187,13 @@ QTimelineWidget::togglePlayPause()
   if (m_player.isPlaying()) {
     m_player.pause();
   } else {
-    m_player.play(static_cast<uint32_t>(std::max(0, m_scene->m_timeLine.currentTime())), nowMs());
+    const uint32_t displayedTime = static_cast<uint32_t>(std::max(0, m_scene->m_timeLine.currentTime()));
+    const uint32_t requestedTime =
+      m_TimeSlider ? static_cast<uint32_t>(std::max(0, m_TimeSlider->value())) : displayedTime;
+    m_playbackCursorTime = requestedTime;
+    m_havePlaybackCursor = true;
+    m_playbackDisplayPending = false;
+    m_player.play(requestedTime, nowMs());
   }
   syncPlaybackUi();
 }
@@ -176,10 +202,13 @@ void
 QTimelineWidget::stopPlayback()
 {
   std::optional<uint32_t> origin = m_player.stop();
+  m_playbackDisplayPending = false;
   syncPlaybackUi();
   if (origin) {
     // Returning to the origin is a normal time change, so go through the slider
     // and let the usual load path run.
+    m_playbackCursorTime = *origin;
+    m_havePlaybackCursor = true;
     setTime(static_cast<int>(*origin));
   }
 }
@@ -206,8 +235,12 @@ QTimelineWidget::onPlaybackTick()
   if (!m_scene || !m_loader) {
     return;
   }
+  if (m_playbackDisplayPending) {
+    return;
+  }
 
-  const uint32_t current = static_cast<uint32_t>(std::max(0, m_scene->m_timeLine.currentTime()));
+  const uint32_t current =
+    m_havePlaybackCursor ? m_playbackCursorTime : static_cast<uint32_t>(std::max(0, m_scene->m_timeLine.currentTime()));
   std::optional<uint32_t> next = m_player.advance(
     nowMs(), current, [this](uint32_t t) { return m_loader->status(t) == TimepointStatus::RamCached; });
 
@@ -216,15 +249,22 @@ QTimelineWidget::onPlaybackTick()
     syncPlaybackUi();
   }
   if (next) {
+    m_playbackCursorTime = *next;
+    m_havePlaybackCursor = true;
+    m_playbackDisplayPending = true;
     setTime(static_cast<int>(*next));
     return;
   }
 
-  // Holding, because the next frame is not in memory yet. Make sure something is
-  // actually fetching it: advance() only asks whether a frame is ready, it never
-  // causes it to become ready. With prefetch enabled the window supplies it, but
-  // with prefetch off nothing would, and ShowEveryFrame waits for ever -- which
-  // looked like the play button doing nothing at all.
+  // Holding in ShowEveryFrame, because the next frame is not in memory yet. Make
+  // sure something is actually fetching it: advance() only asks whether a frame
+  // is ready, it never causes it to become ready. With prefetch enabled the
+  // window supplies it, but with prefetch off nothing would, and ShowEveryFrame
+  // waits for ever -- which looked like the play button doing nothing at all.
+  //
+  // RealTime/Smooth deliberately skips this. It should advance to a resident
+  // frame when the interval elapses, not start source reads for every red frame
+  // it is supposed to skip.
   //
   // Requested straight on the loader rather than through setTime(), on purpose.
   // setTime() moves the slider, which would display a frame the player has not
@@ -236,7 +276,7 @@ QTimelineWidget::onPlaybackTick()
   // hand, and re-requesting every 5ms tick would cancel and restart the load it
   // is waiting for. Failed is left alone deliberately: retrying a frame that
   // cannot load would spin here for ever.
-  if (m_player.isPlaying()) {
+  if (m_player.isPlaying() && m_player.config().mode == TimeSeriesPlayer::Mode::ShowEveryFrame) {
     if (const std::optional<uint32_t> candidate = m_player.peekNextTime(current)) {
       const TimepointStatus s = m_loader->status(*candidate);
       if (s == TimepointStatus::NotCached || s == TimepointStatus::DiskCached) {
@@ -321,6 +361,9 @@ QTimelineWidget::onNewImage(Scene* s, const LoadSpec& loadSpec, std::shared_ptr<
   int32_t minT = m_scene ? m_scene->m_timeLine.minTime() : 0;
   int32_t maxT = m_scene ? m_scene->m_timeLine.maxTime() : 0;
   int32_t currentT = m_scene ? m_scene->m_timeLine.currentTime() : 0;
+  m_playbackCursorTime = static_cast<uint32_t>(std::max(0, currentT));
+  m_havePlaybackCursor = true;
+  m_playbackDisplayPending = false;
 
   m_TimeSlider->setRange(minT, maxT);
   m_TimeSlider->setValue(currentT, true);
@@ -393,10 +436,27 @@ QTimelineWidget::OnTimeChanged(int newTime)
     return;
   }
 
+  // While the user is dragging the slider handle, only fetch frames that are
+  // already resident (RAM or disk). Frames that would require a network fetch
+  // are skipped until the drag ends -- otherwise every intermediate position
+  // over remote uncached data kicks off a load, and the view drags behind the
+  // handle. The sliderReleased handler commits whatever the drag lands on.
+  //
+  // Keyboard, wheel, spinner, and programmatic changes all leave isSliderDown
+  // false, so they go through unchanged.
+  if (m_TimeSlider->isSliderDown()) {
+    const TimepointStatus s = m_loader->status(static_cast<uint32_t>(std::max(0, newTime)));
+    if (s != TimepointStatus::RamCached && s != TimepointStatus::DiskCached) {
+      return;
+    }
+  }
+
   // Fire and forget. The load happens on the loader thread; onLoadComplete
   // installs the volume when it arrives. No wait cursor, because the UI is not
   // blocked any more.
-  m_latestRequestSeq = m_loader->requestTime(static_cast<uint32_t>(std::max(0, newTime)));
+  m_playbackCursorTime = static_cast<uint32_t>(std::max(0, newTime));
+  m_havePlaybackCursor = true;
+  m_latestRequestSeq = m_loader->requestTime(m_playbackCursorTime);
 }
 
 void
@@ -421,6 +481,9 @@ QTimelineWidget::onLoadComplete(uint32_t time, std::shared_ptr<ImageXYZC> image,
   }
 
   m_scene->m_timeLine.setCurrentTime(static_cast<int32_t>(time));
+  m_playbackCursorTime = time;
+  m_havePlaybackCursor = true;
+  m_playbackDisplayPending = false;
 
   m_loadSpec.time = time;
 
@@ -439,7 +502,11 @@ QTimelineWidget::onLoadFailed(uint32_t time, uint64_t seq)
   // Put the slider back where the scene actually is, rather than leaving it
   // pointing at a time we never managed to load.
   if (m_scene) {
-    setTime(m_scene->m_timeLine.currentTime(), /*blockSignals=*/true);
+    const uint32_t displayedTime = static_cast<uint32_t>(std::max(0, m_scene->m_timeLine.currentTime()));
+    m_playbackCursorTime = displayedTime;
+    m_havePlaybackCursor = true;
+    m_playbackDisplayPending = false;
+    setTime(static_cast<int>(displayedTime), /*blockSignals=*/true);
   }
 }
 
