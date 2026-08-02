@@ -869,9 +869,7 @@ agaveGui::open(const std::string& file, const Serialize::ViewerState* vs, bool i
 
   if (!vs) {
     LoadDialog* loadDialog = new LoadDialog(file, multiscaledims, sceneToLoad, this);
-    // Show the current prefetch setting rather than a fixed default, so the box
-    // round-trips it. Without this, applying the box in both directions below
-    // would turn prefetch off on every load for anyone who had enabled it.
+    // Make sure loadDialog gets initialized from the loaded prefetch setting.
     loadDialog->setPrefetchTimeSeries(m_settings.data().timeSeries.prefetchEnabled);
     if (loadDialog->exec() == QDialog::Accepted) {
       loadSpec = loadDialog->getLoadSpec();
@@ -880,18 +878,8 @@ agaveGui::open(const std::string& file, const Serialize::ViewerState* vs, bool i
       dims = multiscaledims[loadDialog->getMultiscaleLevelIndex()].getVolumeDimensions();
       keepCurrentUISettings = loadDialog->getKeepSettings();
 
-      // Prefetching the time series is a per-load choice, so persist it as the
-      // new default too: the cache dock would otherwise show a stale value.
-      //
-      // Applied in BOTH directions. It used to act only when checked, which made
-      // the box a no-op when cleared -- prefetchEnabled defaults to true, so it was
-      // already on and clearing the box changed nothing observable. Safe to apply
-      // both ways only because the box was seeded from the setting above.
-      //
-      // Gated on the choice having been offered at all: a single-timepoint file
-      // does not show the box, and must not be read as "prefetch off" and persisted
-      // over the setting the next series will use.
       if (loadDialog->hasTimeSeriesChoice()) {
+        // update prefetch settings from the load dialog choice
         m_settings.data().timeSeries.prefetchEnabled = loadDialog->getPrefetchTimeSeries();
         m_cacheSettingsDockWidget->widget()->refreshFromSettings();
         m_timelinedock->timelineWidget().applySettingsData();
