@@ -1,4 +1,4 @@
-#include "CacheStatusSlider.h"
+#include "TimeSlider.h"
 
 #include <QEvent>
 #include <QPainter>
@@ -190,51 +190,51 @@ CacheStatusStrip::paintEvent(QPaintEvent* /*event*/)
   }
 }
 
-TimeSliderWithCacheStatus::TimeSliderWithCacheStatus(QWidget* parent)
+TimeSlider::TimeSlider(QWidget* parent)
   : QIntSlider(parent)
   , m_strip(new CacheStatusStrip(&sliderWidget()))
 {
   layoutStrip();
   m_strip->show();
 
-  connect(&sliderWidget(), &QSlider::sliderPressed, this, &TimeSliderWithCacheStatus::sliderPressed);
-  connect(&sliderWidget(), &QSlider::sliderReleased, this, &TimeSliderWithCacheStatus::sliderReleased);
+  connect(&sliderWidget(), &QSlider::sliderPressed, this, &TimeSlider::sliderPressed);
+  connect(&sliderWidget(), &QSlider::sliderReleased, this, &TimeSlider::sliderReleased);
 }
 
 bool
-TimeSliderWithCacheStatus::isSliderDown() const
+TimeSlider::isSliderDown() const
 {
   return sliderWidget().isSliderDown();
 }
 
 void
-TimeSliderWithCacheStatus::layoutStrip()
+TimeSlider::layoutStrip()
 {
   m_strip->setGeometry(sliderWidget().rect());
 }
 
 void
-TimeSliderWithCacheStatus::resizeEvent(QResizeEvent* event)
+TimeSlider::resizeEvent(QResizeEvent* event)
 {
   QIntSlider::resizeEvent(event);
   layoutStrip();
 }
 
 void
-TimeSliderWithCacheStatus::setStatuses(uint32_t minTime, const std::vector<TimepointStatus>& statuses)
+TimeSlider::setStatuses(uint32_t minTime, const std::vector<TimepointStatus>& statuses)
 {
   layoutStrip();
   m_strip->setStatuses(minTime, statuses);
 }
 
 void
-TimeSliderWithCacheStatus::setStatus(uint32_t time, TimepointStatus status)
+TimeSlider::setStatus(uint32_t time, TimepointStatus status)
 {
   m_strip->setStatus(time, status);
 }
 
 void
-TimeSliderWithCacheStatus::clearStatuses()
+TimeSlider::clearStatuses()
 {
   m_strip->clearStatuses();
 }

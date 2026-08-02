@@ -51,12 +51,12 @@ private:
 };
 
 // QIntSlider plus a cache status strip.
-class TimeSliderWithCacheStatus : public QIntSlider
+class TimeSlider : public QIntSlider
 {
   Q_OBJECT
 
 public:
-  explicit TimeSliderWithCacheStatus(QWidget* parent = nullptr);
+  explicit TimeSlider(QWidget* parent = nullptr);
 
   void setStatuses(uint32_t minTime, const std::vector<TimepointStatus>& statuses);
   void setStatus(uint32_t time, TimepointStatus status);
