@@ -89,6 +89,13 @@ protected:
   QCheckBox* m_dropFramesCheckbox = nullptr;
   QTimer* m_playbackTimer = nullptr;
   std::chrono::steady_clock::time_point m_clockOrigin;
+  // Playback advances from the requested playhead, not always from the scene's
+  // displayed time. Those differ after the user scrubs to an uncached/red
+  // timepoint: the slider moves immediately, while the scene remains on the last
+  // displayed frame until loading finishes.
+  uint32_t m_playbackCursorTime = 0;
+  bool m_havePlaybackCursor = false;
+  bool m_playbackDisplayPending = false;
   // Newest interactive request we have issued. Completions carrying an older
   // sequence number are discarded: the user has already moved on.
   uint64_t m_latestRequestSeq = 0;

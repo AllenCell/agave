@@ -337,8 +337,6 @@ CacheManager::findImage(const LoadSpec& loadSpec)
       if (it != m_entries.end()) {
         touchEntry(it->second.lruIt);
         m_stats.ramHits++;
-        LOG_DEBUG << "Cache stats: ram_hits=" << m_stats.ramHits << " disk_hits=" << m_stats.diskHits
-                  << " misses=" << m_stats.misses << " disk_writes=" << m_stats.diskWrites;
         // NOTE: we deliberately do not refresh the matching DiskEntry's
         // lastAccess (or its on-disk meta.json) on a RAM hit. The disk LRU
         // is only consulted when an entry has fallen out of RAM, and
@@ -365,8 +363,6 @@ CacheManager::findImage(const LoadSpec& loadSpec)
       {
         std::scoped_lock lock(m_mutex);
         m_stats.diskHits++;
-        LOG_DEBUG << "Cache stats: ram_hits=" << m_stats.ramHits << " disk_hits=" << m_stats.diskHits
-                  << " misses=" << m_stats.misses << " disk_writes=" << m_stats.diskWrites;
       }
       storeImageInMemory(key, diskImage);
       return diskImage;
@@ -376,8 +372,6 @@ CacheManager::findImage(const LoadSpec& loadSpec)
   {
     std::scoped_lock lock(m_mutex);
     m_stats.misses++;
-    LOG_DEBUG << "Cache stats: ram_hits=" << m_stats.ramHits << " disk_hits=" << m_stats.diskHits
-              << " misses=" << m_stats.misses << " disk_writes=" << m_stats.diskWrites;
   }
 
   return nullptr;
@@ -577,20 +571,64 @@ CacheManager::getStats() const
 }
 
 namespace {
-// Bounded by SHUTDOWN exposure, not by memory. stopDiskWriter abandons the
-// backlog so quitting stays instant, which makes this exactly the number of
-// frames that can be lost by quitting mid-warm.
-//
-// Memory is not the constraint it once appeared to be: volumes queued via
-// storeImage are already resident in the RAM tier, so their shared_ptr costs
-// nothing extra until eviction. Only storeImageOnDiskOnly writes add memory the
-// RAM budget does not know about, and those are issued one at a time.
-constexpr std::size_t kMaxPendingDiskWrites = 8;
+// Bounded by shutdown exposure AND by memory pressure. Every queued write owns a
+// shared_ptr<ImageXYZC>; once the RAM cache evicts that image, the disk queue is
+// the remaining owner and those bytes are outside the RAM cache budget. Keeping
+// the count small prevents a burst of large timepoints from turning into a
+// hidden multi-GB backlog.
+constexpr std::size_t kMaxQueuedDiskWrites = 2;
+
+// Keep queued + in-progress disk-write images under this fraction of the RAM
+// cache budget. A single write is always allowed to stand alone, even when it is
+// larger than the fraction, otherwise a valid large timepoint could never reach
+// disk.
+constexpr std::uint64_t kPendingDiskBytesRamDivisor = 2;
+
+std::uint64_t
+diskWriteBacklogLimitBytes(const CacheConfig& config, std::uint64_t writeBytes)
+{
+  std::uint64_t limit = writeBytes;
+  if (config.maxRamBytes > 0) {
+    limit = std::max(limit, config.maxRamBytes / kPendingDiskBytesRamDivisor);
+  }
+  if (config.maxDiskBytes > 0) {
+    limit = std::min(limit, config.maxDiskBytes);
+    // The caller refuses writes larger than the disk cap before waiting.
+    limit = std::max(limit, writeBytes);
+  }
+  return limit;
+}
+
+bool
+canQueueDiskWrite(const CacheConfig& config,
+                  std::uint64_t writeBytes,
+                  std::uint64_t pendingBytes,
+                  std::size_t queuedWrites)
+{
+  if (queuedWrites >= kMaxQueuedDiskWrites) {
+    return false;
+  }
+  if (pendingBytes > std::numeric_limits<std::uint64_t>::max() - writeBytes) {
+    return false;
+  }
+  const std::uint64_t afterQueue = pendingBytes + writeBytes;
+  if (afterQueue > diskWriteBacklogLimitBytes(config, writeBytes)) {
+    return false;
+  }
+  // If the disk budget itself is smaller than the backlog, wait for older
+  // writes to land first. Once they are committed, reserveDiskSpace can evict
+  // them normally if this new write needs the room.
+  return config.maxDiskBytes == 0 || afterQueue <= config.maxDiskBytes;
+}
 } // namespace
 
 bool
 CacheManager::enqueueDiskWrite(PendingDiskWrite&& write)
 {
+  if (write.config.maxDiskBytes == 0 || write.bytes > write.config.maxDiskBytes) {
+    return reserveDiskSpace(write.config, write.bytes, 0);
+  }
+
   std::uint64_t pendingBytes = 0;
   {
     std::unique_lock<std::mutex> lock(m_diskQueueMutex);
@@ -601,8 +639,10 @@ CacheManager::enqueueDiskWrite(PendingDiskWrite&& write)
     // tier permanently: RAM eviction is a pure drop and never writes on the way
     // out, so there is no second chance. Throttling the producer to disk speed is
     // the correct response to a disk that cannot keep up.
-    m_diskQueueSpace.wait(lock,
-                          [this] { return m_diskWriterStop || m_diskQueue.size() < kMaxPendingDiskWrites; });
+    m_diskQueueSpace.wait(lock, [this, &write] {
+      return m_diskWriterStop ||
+             canQueueDiskWrite(write.config, write.bytes, m_pendingDiskBytes, m_diskQueue.size());
+    });
     if (m_diskWriterStop) {
       return false;
     }
@@ -621,7 +661,14 @@ CacheManager::enqueueDiskWrite(PendingDiskWrite&& write)
     if (m_diskWriterStop) {
       return false;
     }
-    m_pendingDiskBytes += write.bytes;
+    if (!canQueueDiskWrite(write.config, write.bytes, m_pendingDiskBytes, m_diskQueue.size())) {
+      // Another producer claimed the capacity while we were reserving disk
+      // space. Retry through the public entry point so the same waits apply.
+      lock.unlock();
+      return enqueueDiskWrite(std::move(write));
+    }
+    const std::uint64_t queuedBytes = write.bytes;
+    m_pendingDiskBytes += queuedBytes;
     m_diskQueue.push_back(std::move(write));
 
     // Started lazily so a RAM-only cache -- which is what the tests and any
@@ -670,8 +717,9 @@ CacheManager::diskWriterMain()
     const std::uint64_t writeBytes = write.bytes;
     m_diskWriteInProgress = true;
     m_inProgressDiskId = diskCacheId(write.key);
-    // A slot is free the moment the entry leaves the queue, so release a producer
-    // waiting on one -- it does not have to wait for the write itself.
+    // A queue slot is free the moment the entry leaves the queue, so release a
+    // producer waiting on count capacity. Byte capacity is released when the
+    // write finishes and m_pendingDiskBytes is decremented below.
     m_diskQueueSpace.notify_one();
 
     // Write without the queue lock so producers never block on disk I/O.
@@ -693,6 +741,7 @@ CacheManager::diskWriterMain()
     m_pendingDiskBytes = m_pendingDiskBytes >= writeBytes ? m_pendingDiskBytes - writeBytes : 0;
     m_diskWriteInProgress = false;
     m_inProgressDiskId.clear();
+    m_diskQueueSpace.notify_all();
     m_diskQueueDrained.notify_all();
   }
 }
@@ -705,9 +754,9 @@ CacheManager::stopDiskWriter()
     m_diskWriterStop = true;
     // Abandon anything still queued rather than making shutdown wait on a
     // backlog of full-volume writes. Deliberate: quitting stays instant, and at
-    // most kMaxPendingDiskWrites frames are re-fetched in a later session. A
-    // later session probes the filesystem, so it correctly sees them as absent
-    // rather than trusting a write that never landed.
+    // most kMaxQueuedDiskWrites frames are re-fetched in a later session. A later
+    // session probes the filesystem, so it correctly sees them as absent rather
+    // than trusting a write that never landed.
     m_diskQueue.clear();
     m_pendingDiskBytes = 0;
   }
@@ -1050,7 +1099,8 @@ CacheManager::loadFromDisk(const CacheKey& key, const CacheConfig& config, const
     return nullptr;
   }
 
-  std::filesystem::path entryPath = std::filesystem::path(cacheDir) / diskCacheId(key);
+  const std::string id = diskCacheId(key);
+  std::filesystem::path entryPath = std::filesystem::path(cacheDir) / id;
   std::filesystem::path metaPath = entryPath / "meta.json";
   std::filesystem::path dataPath = entryPath / "data.zarr";
   if (!std::filesystem::exists(metaPath) || !std::filesystem::exists(dataPath)) {
