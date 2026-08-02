@@ -44,5 +44,6 @@ applyTimeStepToScene(Scene* scene, const std::shared_ptr<ImageXYZC>& image, Rend
     renderSettings->m_DirtyFlags.SetFlag(VolumeDataDirty);
     renderSettings->m_DirtyFlags.SetFlag(TransferFunctionDirty);
   }
+
   return true;
 }
