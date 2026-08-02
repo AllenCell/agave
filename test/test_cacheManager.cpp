@@ -5,6 +5,7 @@
 #include "renderlib/IFileReader.h"
 #include "renderlib/ImageXYZC.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -892,6 +893,71 @@ TEST_CASE("CacheManager notifies eviction observers", "[cacheManager]")
     cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
 
     REQUIRE(observer.evicted.empty());
+  }
+}
+
+TEST_CASE("CacheManager notifies disk eviction observers", "[cacheManager][disk]")
+{
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  TempCacheDir tmp;
+  CacheManager cache(tmp.str());
+  RecordingEvictionObserver observer;
+  cache.addEvictionObserver(&observer);
+
+  SECTION("clearDiskCache notifies for every dropped disk entry")
+  {
+    cache.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
+
+    const LoadSpec specA = makeSpec("clear_notify_a");
+    const LoadSpec specB = makeSpec("clear_notify_b");
+    const std::string idA = cache.diskCacheIdFor(specA);
+    const std::string idB = cache.diskCacheIdFor(specB);
+
+    cache.storeImage(specA, makeImage(4, 4, 4, 1));
+    cache.storeImage(specB, makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
+
+    cache.clearDiskCache();
+
+    REQUIRE(observer.evictedFromDisk.size() == 2);
+    CHECK(std::find(observer.evictedFromDisk.begin(), observer.evictedFromDisk.end(), idA) !=
+          observer.evictedFromDisk.end());
+    CHECK(std::find(observer.evictedFromDisk.begin(), observer.evictedFromDisk.end(), idB) !=
+          observer.evictedFromDisk.end());
+  }
+
+  SECTION("Disabling the disk tier notifies for every active disk entry")
+  {
+    cache.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
+
+    const LoadSpec spec = makeSpec("disable_disk_notify");
+    const std::string id = cache.diskCacheIdFor(spec);
+    cache.storeImage(spec, makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
+
+    cache.setConfig(ramOnlyConfig(oneImage * 4));
+
+    REQUIRE(observer.evictedFromDisk.size() == 1);
+    CHECK(observer.evictedFromDisk[0] == id);
+    CHECK_FALSE(cache.containsOnDisk(spec));
+  }
+
+  SECTION("Disabling the whole cache notifies both memory and disk observers")
+  {
+    cache.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
+
+    const LoadSpec spec = makeSpec("disable_all_notify");
+    const std::string id = cache.diskCacheIdFor(spec);
+    cache.storeImage(spec, makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
+
+    CacheConfig disabled;
+    cache.setConfig(disabled);
+
+    REQUIRE(observer.evicted.size() == 1);
+    REQUIRE(observer.evictedFromDisk.size() == 1);
+    CHECK(observer.evicted[0].find("disable_all_notify") != std::string::npos);
+    CHECK(observer.evictedFromDisk[0] == id);
   }
 }
 
