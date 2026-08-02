@@ -16,10 +16,32 @@ namespace {
 // sits. Small enough to read as an annotation rather than a second control.
 constexpr int kStripHeight = 3;
 constexpr int kStripBottomMargin = 1;
+// QStyle::SC_SliderGroove reports the outer groove. The dark Windows/Qt style
+// paints the visible rail inset from that rectangle; match the painted pixels so
+// the colored strip ends line up with the track.
+constexpr int kGroovePaintInset = 2;
 
 // Repaint coalescing interval. Prefetch emits one status change per timepoint, so
 // without this a long series would repaint dozens of times in quick succession.
 constexpr int kRepaintCoalesceMs = 50;
+
+void
+initSliderStyleOption(const QSlider& slider, QStyleOptionSlider& opt)
+{
+  opt.initFrom(&slider);
+  opt.rect = slider.rect();
+  opt.orientation = slider.orientation();
+  opt.minimum = slider.minimum();
+  opt.maximum = slider.maximum();
+  opt.sliderPosition = slider.sliderPosition();
+  opt.sliderValue = slider.value();
+  opt.singleStep = slider.singleStep();
+  opt.pageStep = slider.pageStep();
+  opt.tickPosition = slider.tickPosition();
+  opt.tickInterval = slider.tickInterval();
+  opt.upsideDown = slider.invertedAppearance();
+  opt.subControls = QStyle::SC_SliderGroove;
+}
 
 } // namespace
 
@@ -108,22 +130,18 @@ CacheStatusStrip::paintEvent(QPaintEvent* /*event*/)
     return;
   }
 
-  // Align horizontally with the groove of the slider we overlay, so a segment
-  // sits under the handle position for its timepoint.
+  // Align horizontally with the same groove/track sub-control that Qt asks the
+  // active style to draw for the slider underneath.
   int left = 0;
   int usableWidth = width();
   if (auto* slider = qobject_cast<QSlider*>(parentWidget())) {
     QStyleOptionSlider opt;
-    opt.initFrom(slider);
-    opt.orientation = slider->orientation();
-    opt.minimum = slider->minimum();
-    opt.maximum = slider->maximum();
-    opt.sliderPosition = slider->sliderPosition();
-    opt.sliderValue = slider->value();
+    initSliderStyleOption(*slider, opt);
     const QRect groove = slider->style()->subControlRect(QStyle::CC_Slider, &opt, QStyle::SC_SliderGroove, slider);
-    if (groove.width() > 0) {
-      left = groove.left();
-      usableWidth = groove.width();
+    if (groove.isValid() && groove.width() > 0) {
+      const int inset = groove.width() > 2 * kGroovePaintInset ? kGroovePaintInset : 0;
+      left = groove.left() + inset;
+      usableWidth = groove.width() - 2 * inset;
     }
   }
 
@@ -142,10 +160,10 @@ CacheStatusStrip::paintEvent(QPaintEvent* /*event*/)
   // (green), what is on disk (cyan -- cached but a tier away), what is on its way
   // (yellow), and what is not there yet (red). Queued and Loading share a color
   // because the user's question ("is it working?") is answered by either state.
-  const QColor ramCached(60, 180, 75);      // in-memory
-  const QColor diskCached(60, 180, 200);    // on-disk, cheap to reload
-  const QColor inFlight(240, 210, 60);      // Queued or Loading
-  const QColor notCached(200, 70, 60);      // not fetched
+  const QColor ramCached(60, 180, 75);   // in-memory
+  const QColor diskCached(60, 180, 200); // on-disk, cheap to reload
+  const QColor inFlight(240, 210, 60);   // Queued or Loading
+  const QColor notCached(200, 70, 60);   // not fetched
   // Detailed mode splits Failed off with a darker red so a permanent failure is
   // visually distinct from a frame that just has not been fetched yet.
   const QColor failedDetailed(120, 30, 30);
