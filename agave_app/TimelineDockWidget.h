@@ -54,7 +54,6 @@ private:
 
   void buildPlaybackControls(QVBoxLayout* layout);
   void togglePlayPause();
-  void stopPlayback();
   void onPlaybackTick();
   // Reflect player state in the buttons and start/stop the tick timer.
   void syncPlaybackUi();
@@ -81,7 +80,6 @@ protected:
   TimeSeriesSettingsData* m_settings = nullptr;
   bool m_applyingSettings = false;
   QToolButton* m_playPauseButton = nullptr;
-  QToolButton* m_stopButton = nullptr;
   QSpinBox* m_fpsSpinner = nullptr;
   QCheckBox* m_loopCheckbox = nullptr;
   QCheckBox* m_dropFramesCheckbox = nullptr;
