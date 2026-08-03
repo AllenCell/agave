@@ -446,14 +446,6 @@ QTimelineWidget::setPrefetchConfig(const TimeSeriesLoader::PrefetchConfig& confi
 }
 
 void
-QTimelineWidget::cancelPrefetch()
-{
-  if (m_loader) {
-    m_loader->cancelPrefetch();
-  }
-}
-
-void
 QTimelineWidget::OnTimeChanged(int newTime)
 {
   if (!m_scene || !m_loader) {
