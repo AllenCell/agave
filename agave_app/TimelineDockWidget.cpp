@@ -93,12 +93,6 @@ QTimelineWidget::buildPlaybackControls(QVBoxLayout* layout)
   m_playPauseButton->setStatusTip(tr("Play or pause playback through the time series"));
   row->addWidget(m_playPauseButton);
 
-  m_stopButton = new QToolButton();
-  m_stopButton->setIcon(style()->standardIcon(QStyle::SP_MediaStop));
-  m_stopButton->setToolTip(tr("Stop and return to where playback started"));
-  m_stopButton->setStatusTip(tr("Stop playback and return to the time it started from"));
-  row->addWidget(m_stopButton);
-
   m_fpsSpinner = new QSpinBox();
   m_fpsSpinner->setRange(1, 120);
   m_fpsSpinner->setValue(10);
@@ -136,7 +130,6 @@ QTimelineWidget::buildPlaybackControls(QVBoxLayout* layout)
   // repainting a fresh volume frame each tick, and cutting the click round-trip
   // in half makes pause visibly snappier.
   connect(m_playPauseButton, &QToolButton::pressed, this, [this]() { togglePlayPause(); });
-  connect(m_stopButton, &QToolButton::pressed, this, [this]() { stopPlayback(); });
   connect(m_playbackTimer, &QTimer::timeout, this, [this]() { onPlaybackTick(); });
 
   // Spacebar toggles play/pause without having to route through the button's
@@ -201,21 +194,6 @@ QTimelineWidget::togglePlayPause()
     m_player.play(requestedTime, nowMs());
   }
   syncPlaybackUi();
-}
-
-void
-QTimelineWidget::stopPlayback()
-{
-  std::optional<uint32_t> origin = m_player.stop();
-  m_playbackDisplayPending = false;
-  syncPlaybackUi();
-  if (origin) {
-    // Returning to the origin is a normal time change, so go through the slider
-    // and let the usual load path run.
-    m_playbackCursorTime = *origin;
-    m_havePlaybackCursor = true;
-    setTime(static_cast<int>(*origin));
-  }
 }
 
 void
@@ -409,7 +387,6 @@ QTimelineWidget::onNewImage(Scene* s, const LoadSpec& loadSpec, std::shared_ptr<
   syncPlaybackUi();
   if (m_playPauseButton) {
     m_playPauseButton->setEnabled(haveTimeSeries);
-    m_stopButton->setEnabled(haveTimeSeries);
     m_fpsSpinner->setEnabled(haveTimeSeries);
     m_loopCheckbox->setEnabled(haveTimeSeries);
     m_dropFramesCheckbox->setEnabled(haveTimeSeries);
