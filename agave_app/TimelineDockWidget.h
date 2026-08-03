@@ -28,7 +28,9 @@ class QTimelineWidget : public QWidget
   Q_OBJECT
 
 public:
-  QTimelineWidget(QWidget* pParent = nullptr, QRenderSettings* qrs = nullptr);
+  QTimelineWidget(QWidget* pParent = nullptr,
+                  QRenderSettings* qrs = nullptr,
+                  TimeSeriesSettingsData* settings = nullptr);
   ~QTimelineWidget() override;
 
   void onNewImage(Scene* s, const LoadSpec& loadSpec, std::shared_ptr<IFileReader> reader);
@@ -38,15 +40,10 @@ public:
 
   void OnTimeChanged(int newTime);
 
-  void setSettingsData(TimeSeriesSettingsData* settings);
-  void applySettingsData();
+  void updateUiFromSettings();
 
   // Push current prefetch settings down to the loader.
-  void setPrefetchConfig(const TimeSeriesLoader::PrefetchConfig& config);
   void cancelPrefetch();
-  // Playback settings (frame rate, loop, stall vs drop-frames).
-  void setPlaybackConfig(const TimeSeriesPlayer::Config& config);
-  TimeSeriesPlayer::Config playbackConfig() const;
 
   TimeSeriesLoader* loader() { return m_loader.get(); }
 
@@ -68,6 +65,9 @@ private:
   void syncPlaybackUi();
   uint64_t nowMs() const;
 
+  void setPlaybackConfig(const TimeSeriesPlayer::Config& config);
+  void setPrefetchConfig(const TimeSeriesLoader::PrefetchConfig& config);
+
 protected:
   QGridLayout m_MainLayout;
   TimeSlider* m_TimeSlider;
@@ -84,6 +84,7 @@ protected:
   // and the clock that drives it.
   TimeSeriesPlayer m_player;
   TimeSeriesSettingsData* m_settings = nullptr;
+  bool m_applyingSettings = false;
   QToolButton* m_playPauseButton = nullptr;
   QToolButton* m_stopButton = nullptr;
   QSpinBox* m_fpsSpinner = nullptr;
@@ -108,7 +109,9 @@ class QTimelineDockWidget : public QDockWidget
   Q_OBJECT
 
 public:
-  QTimelineDockWidget(QWidget* pParent = nullptr, QRenderSettings* qrs = nullptr);
+  QTimelineDockWidget(QWidget* pParent = nullptr,
+                      QRenderSettings* qrs = nullptr,
+                      TimeSeriesSettingsData* settings = nullptr);
 
   void onNewImage(Scene* s, const LoadSpec& loadSpec, std::shared_ptr<IFileReader> reader)
   {

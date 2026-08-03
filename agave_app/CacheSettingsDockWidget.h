@@ -9,7 +9,7 @@ class CacheSettingsDockWidget : public QDockWidget
   Q_OBJECT
 
 public:
-  explicit CacheSettingsDockWidget(QWidget* parent = nullptr);
+  explicit CacheSettingsDockWidget(QWidget* parent = nullptr, AgaveSettingsData* settings = nullptr);
 
   CacheSettingsWidget* widget() { return &m_settingsWidget; }
 
