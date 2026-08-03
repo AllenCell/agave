@@ -34,6 +34,11 @@ target_include_directories(agave_py2 PRIVATE
 target_link_libraries(agave_py2 PRIVATE renderlib)
 
 if(WIN32)
+  install(CODE [[
+    if(POLICY CMP0207)
+      cmake_policy(SET CMP0207 NEW)
+    endif()
+  ]])
   install(TARGETS agave_py2
           RUNTIME_DEPENDENCIES
           DIRECTORIES "$<TARGET_FILE_DIR:agave_py2>"
