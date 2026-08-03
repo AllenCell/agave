@@ -42,11 +42,6 @@ public:
 
   void updateUiFromSettings();
 
-  // Push current prefetch settings down to the loader.
-  void cancelPrefetch();
-
-  TimeSeriesLoader* loader() { return m_loader.get(); }
-
 signals:
   void timeChanged(int newTime);
 
