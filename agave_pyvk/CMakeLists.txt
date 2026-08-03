@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.24)
 project(agave_pyvk VERSION 1.9.0 LANGUAGES CXX)
 
+if(POLICY CMP0207)
+  cmake_policy(SET CMP0207 NEW)
+endif()
+
 find_package(Python 3.10 REQUIRED COMPONENTS Interpreter Development.Module)
 # nanobind caches the ABI extension suffix. Recompute it when an existing CMake
 # build tree is deliberately reconfigured for another Python interpreter.
@@ -34,11 +38,6 @@ target_include_directories(agave_py2 PRIVATE
 target_link_libraries(agave_py2 PRIVATE renderlib)
 
 if(WIN32)
-  install(CODE [[
-    if(POLICY CMP0207)
-      cmake_policy(SET CMP0207 NEW)
-    endif()
-  ]])
   install(TARGETS agave_py2
           RUNTIME_DEPENDENCIES
           DIRECTORIES "$<TARGET_FILE_DIR:agave_py2>"
