@@ -101,18 +101,15 @@ agaveGui::agaveGui(QWidget* parent)
   createActions();
   createMenus();
   createToolbars();
+  m_settings.load();
   createDockWindows();
   setDockOptions(AllowTabbedDocks);
 
-  m_settings.load();
-  // m_settings must outlive these dock widgets, because they hold a pointer to the settings data.
-  m_cacheSettingsDockWidget->widget()->setSettingsData(&m_settings.data());
-  m_timelinedock->timelineWidget().setSettingsData(&m_settings.data().timeSeries);
   m_settings.applyCacheToRenderlib();
   connect(m_cacheSettingsDockWidget->widget()->applyButton(), &QPushButton::clicked, this, [this]() {
     m_cacheSettingsDockWidget->widget()->writeToSettings();
     m_settings.applyCacheToRenderlib();
-    m_timelinedock->timelineWidget().applySettingsData();
+    m_timelinedock->timelineWidget().updateUiFromSettings();
     m_settings.save();
   });
   connect(m_cacheSettingsDockWidget->widget()->clearDiskButton(), &QPushButton::clicked, this, [this]() {
@@ -393,7 +390,7 @@ agaveGui::createDockWindows()
   m_cameradock->setAllowedAreas(Qt::AllDockWidgetAreas);
   addDockWidget(Qt::RightDockWidgetArea, m_cameradock);
 
-  m_timelinedock = new QTimelineDockWidget(this, &m_qrendersettings);
+  m_timelinedock = new QTimelineDockWidget(this, &m_qrendersettings, &m_settings.data().timeSeries);
   m_timelinedock->setAllowedAreas(Qt::AllDockWidgetAreas);
   addDockWidget(Qt::RightDockWidgetArea, m_timelinedock);
   m_timelinedock->setVisible(false); // hide by default
@@ -409,7 +406,7 @@ agaveGui::createDockWindows()
   m_statisticsDockWidget->setAllowedAreas(Qt::AllDockWidgetAreas);
   addDockWidget(Qt::RightDockWidgetArea, m_statisticsDockWidget);
 
-  m_cacheSettingsDockWidget = new CacheSettingsDockWidget(this);
+  m_cacheSettingsDockWidget = new CacheSettingsDockWidget(this, &m_settings.data());
   m_cacheSettingsDockWidget->setAllowedAreas(Qt::AllDockWidgetAreas);
   addDockWidget(Qt::LeftDockWidgetArea, m_cacheSettingsDockWidget);
   m_cacheSettingsDockWidget->setVisible(false);
@@ -881,8 +878,8 @@ agaveGui::open(const std::string& file, const Serialize::ViewerState* vs, bool i
       if (loadDialog->hasTimeSeriesChoice()) {
         // update prefetch settings from the load dialog choice
         m_settings.data().timeSeries.prefetchEnabled = loadDialog->getPrefetchTimeSeries();
-        m_cacheSettingsDockWidget->widget()->refreshFromSettings();
-        m_timelinedock->timelineWidget().applySettingsData();
+        m_cacheSettingsDockWidget->widget()->updateUiFromSettings();
+        m_timelinedock->timelineWidget().updateUiFromSettings();
         m_settings.save();
       }
     } else {

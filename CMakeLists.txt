@@ -30,9 +30,7 @@ endif(POLICY CMP0048)
 
 cmake_policy(SET CMP0091 NEW) # enable new "MSVC runtime library selection" (https://cmake.org/cmake/help/latest/variable/CMAKE_MSVC_RUNTIME_LIBRARY.html)
 cmake_policy(SET CMP0135 NEW) # set timestamps to time of extraction for ExternalProject_Add
-if(POLICY CMP0207)
-  cmake_policy(SET CMP0207 NEW) # file(GET_RUNTIME_DEPENDENCIES) normalizes paths before matching
-endif()
+cmake_policy(SET CMP0207 NEW) # file(GET_RUNTIME_DEPENDENCIES) normalizes paths before matching
 
 project(
   agave
