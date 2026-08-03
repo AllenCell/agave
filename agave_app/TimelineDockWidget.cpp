@@ -23,13 +23,14 @@
 
 #include <algorithm>
 
-QTimelineWidget::QTimelineWidget(QWidget* pParent, QRenderSettings* qrs)
+QTimelineWidget::QTimelineWidget(QWidget* pParent, QRenderSettings* qrs, TimeSeriesSettingsData* settings)
   : QWidget(pParent)
   , m_MainLayout()
   , m_qrendersettings(qrs)
   , m_scene(nullptr)
   , m_loader(std::make_unique<TimeSeriesLoader>())
   , m_bridge(new TimeSeriesLoaderBridge(this))
+  , m_settings(settings)
 {
   // Create main layout
   m_MainLayout.setAlignment(Qt::AlignTop);
@@ -147,6 +148,9 @@ QTimelineWidget::buildPlaybackControls(QVBoxLayout* layout)
   connect(playShortcut, &QShortcut::activated, this, [this]() { togglePlayPause(); });
 
   auto pushConfig = [this]() {
+    if (m_applyingSettings) {
+      return;
+    }
     TimeSeriesPlayer::Config config = m_player.config();
     config.fps = static_cast<float>(m_fpsSpinner->value());
     config.loop = m_loopCheckbox->isChecked();
@@ -326,14 +330,7 @@ QTimelineWidget::writePlaybackSettings(const TimeSeriesPlayer::Config& config)
 }
 
 void
-QTimelineWidget::setSettingsData(TimeSeriesSettingsData* settings)
-{
-  m_settings = settings;
-  applySettingsData();
-}
-
-void
-QTimelineWidget::applySettingsData()
+QTimelineWidget::updateUiFromSettings()
 {
   if (!m_settings) {
     return;
@@ -359,6 +356,7 @@ QTimelineWidget::setPlaybackConfig(const TimeSeriesPlayer::Config& config)
 {
   m_player.setConfig(config);
   writePlaybackSettings(config);
+  m_applyingSettings = true;
   if (m_fpsSpinner) {
     m_fpsSpinner->setValue(static_cast<int>(config.fps));
   }
@@ -368,12 +366,7 @@ QTimelineWidget::setPlaybackConfig(const TimeSeriesPlayer::Config& config)
   if (m_dropFramesCheckbox) {
     m_dropFramesCheckbox->setChecked(config.mode == TimeSeriesPlayer::Mode::RealTime);
   }
-}
-
-TimeSeriesPlayer::Config
-QTimelineWidget::playbackConfig() const
-{
-  return m_player.config();
+  m_applyingSettings = false;
 }
 
 QTimelineWidget::~QTimelineWidget()
@@ -544,9 +537,9 @@ QTimelineWidget::onLoadFailed(uint32_t time, uint64_t seq)
   }
 }
 
-QTimelineDockWidget::QTimelineDockWidget(QWidget* parent, QRenderSettings* qrs)
+QTimelineDockWidget::QTimelineDockWidget(QWidget* parent, QRenderSettings* qrs, TimeSeriesSettingsData* settings)
   : QDockWidget(parent)
-  , m_TimelineWidget(this, qrs)
+  , m_TimelineWidget(this, qrs, settings)
 {
   setWindowTitle(tr("Time"));
 

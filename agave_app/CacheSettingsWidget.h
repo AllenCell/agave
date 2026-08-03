@@ -13,10 +13,9 @@ class CacheSettingsWidget : public QWidget
   Q_OBJECT
 
 public:
-  explicit CacheSettingsWidget(QWidget* parent = nullptr);
+  explicit CacheSettingsWidget(QWidget* parent = nullptr, AgaveSettingsData* settings = nullptr);
 
-  void setSettingsData(AgaveSettingsData* settings);
-  void refreshFromSettings();
+  void updateUiFromSettings();
   void writeToSettings();
 
   QPushButton* applyButton() const { return m_applyButton; }
@@ -34,4 +33,5 @@ private:
   QCheckBox* m_prefetchEnabled = nullptr;
 
   AgaveSettingsData* m_settings = nullptr;
+  bool m_refreshingSettings = false;
 };

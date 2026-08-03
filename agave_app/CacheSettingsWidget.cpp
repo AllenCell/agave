@@ -4,8 +4,9 @@
 
 #include <QFormLayout>
 
-CacheSettingsWidget::CacheSettingsWidget(QWidget* parent)
+CacheSettingsWidget::CacheSettingsWidget(QWidget* parent, AgaveSettingsData* settings)
   : QWidget(parent)
+  , m_settings(settings)
 {
   auto* layout = new QFormLayout(this);
 
@@ -57,29 +58,24 @@ CacheSettingsWidget::CacheSettingsWidget(QWidget* parent)
 }
 
 void
-CacheSettingsWidget::setSettingsData(AgaveSettingsData* settings)
-{
-  m_settings = settings;
-  refreshFromSettings();
-}
-
-void
-CacheSettingsWidget::refreshFromSettings()
+CacheSettingsWidget::updateUiFromSettings()
 {
   if (!m_settings) {
     return;
   }
+  m_refreshingSettings = true;
   m_enableCache->setChecked(m_settings->cache.enabled);
   m_enableDisk->setChecked(m_settings->cache.enableDisk);
   m_ramLimitMB->setValue(static_cast<int>(m_settings->cache.maxRamBytes / (1024ULL * 1024ULL)));
   m_diskLimitGB->setValue(static_cast<int>(m_settings->cache.maxDiskBytes / (1024ULL * 1024ULL * 1024ULL)));
   m_prefetchEnabled->setChecked(m_settings->timeSeries.prefetchEnabled);
+  m_refreshingSettings = false;
 }
 
 void
 CacheSettingsWidget::writeToSettings()
 {
-  if (!m_settings) {
+  if (!m_settings || m_refreshingSettings) {
     return;
   }
   m_settings->cache.enabled = m_enableCache->isChecked();
