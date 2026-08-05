@@ -8,7 +8,7 @@ nanobind; there is no WebSocket or serialized protocol buffer.
 import json
 import math
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 import numpy
 from PIL import Image
@@ -280,6 +280,37 @@ class AgaveRenderer:
         return self.load_data(
             path, scene, multiresolution_level, time, channels, region
         )
+
+    def load_array(
+        self,
+        data: numpy.ndarray,
+        name: str = "array",
+        voxel_size: Sequence[float] = (1.0, 1.0, 1.0),
+        spatial_units: str = "units",
+        channel_names: Optional[Sequence[str]] = None,
+    ) -> dict:
+        """Replace the current volume with a copied ZYX or CZYX NumPy array."""
+        if self._renderer is None:
+            raise RuntimeError("Renderer is closed")
+
+        array = numpy.asarray(data)
+        if array.dtype not in (
+            numpy.dtype("uint8"),
+            numpy.dtype("uint16"),
+            numpy.dtype("float32"),
+        ):
+            raise TypeError("data dtype must be uint8, uint16, or float32")
+        if array.ndim not in (3, 4):
+            raise ValueError("data must have ZYX or CZYX shape")
+
+        result = self._renderer.load_array(
+            numpy.ascontiguousarray(array),
+            name,
+            list(voxel_size),
+            spatial_units,
+            list(channel_names) if channel_names is not None else [],
+        )
+        return json.loads(result)
 
     def show_scale_bar(self, on: int):
         return self._execute("SHOW_SCALE_BAR", on)

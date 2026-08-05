@@ -10,8 +10,10 @@
 #include <vector>
 
 class CCamera;
+class ImageXYZC;
 class RenderSettings;
 class Scene;
+struct VolumeDimensions;
 
 namespace gfxApi {
 class Framebuffer;
@@ -55,6 +57,9 @@ public:
 
   static std::vector<CommandArgType> commandArgumentTypes(int commandId);
   PythonRendererResult execute(int commandId, const PythonRendererArguments& args);
+  std::string loadVolume(std::shared_ptr<ImageXYZC> image,
+                         const VolumeDimensions& dimensions,
+                         const std::string& name);
   void close();
 
   void setStreamMode(int32_t mode) override;
