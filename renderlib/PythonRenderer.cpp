@@ -18,10 +18,11 @@
 #include "renderlib.h"
 
 #include <mutex>
-#include <nlohmann/json.hpp>
 #include <stdexcept>
 #include <utility>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 namespace {
 
