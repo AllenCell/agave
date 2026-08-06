@@ -14,6 +14,28 @@ with AgaveRenderer(mode="pathtrace") as renderer:
     renderer.redraw()
 ```
 
+NumPy volumes can also be loaded directly. Three-dimensional arrays use ZYX
+order and four-dimensional arrays use CZYX order:
+
+```python
+import numpy as np
+
+volume = np.zeros((2, 64, 256, 256), dtype=np.uint16)
+with AgaveRenderer(mode="pathtrace") as renderer:
+    info = renderer.load_array(
+        volume,
+        name="example",
+        voxel_size=(0.108, 0.108, 0.29),
+        spatial_units="um",
+        channel_names=("DNA", "membrane"),
+    )
+```
+
+`uint8`, `uint16`, and `float32` arrays are accepted and copied into AGAVE's
+channel-major `uint16` storage. `uint8` values are widened without rescaling;
+each `float32` channel is independently min-max normalized to the full 16-bit
+range. A new call replaces the current volume and represents one time point.
+
 A Vulkan 1.3-capable driver and the Vulkan SDK are required to build. The
 remaining native dependencies are the same ones used by renderlib.
 
