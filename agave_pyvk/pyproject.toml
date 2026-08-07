@@ -31,7 +31,7 @@ skip = "*-musllinux_*"
 archs = ["auto64"]
 
 [tool.cibuildwheel.linux]
-manylinux-x86_64-image = "manylinux_2014"
+manylinux-x86_64-image = "manylinux2014"
 environment = { VULKAN_SDK = "/opt/1.4.350.1/x86_64" }
 before-all = [
     "apt-get update",
