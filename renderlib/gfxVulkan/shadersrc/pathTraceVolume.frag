@@ -11,6 +11,7 @@ const vec3 BLACK = vec3(0, 0, 0);
 const vec3 WHITE = vec3(1.0, 1.0, 1.0);
 const int ShaderType_Brdf = 0;
 const int ShaderType_Phase = 1;
+const int MultichannelBlend_Weighted = 1;
 
 layout(location = 0) in vec2 vUv;
 layout(location = 0) out vec4 out_FragColor;
@@ -76,6 +77,7 @@ layout(set = 0, binding = 0, std140) uniform PathTraceVolumeParams
   int gShadingType;
   int gUseWoodcockTracking;
   float gExtinctionMajorant;
+  int gMultichannelBlendMode;
   vec3 gGradientDeltaX;
   vec3 gGradientDeltaY;
   vec3 gGradientDeltaZ;
@@ -123,6 +125,7 @@ pathTraceVolumeParams;
 #define gShadingType pathTraceVolumeParams.gShadingType
 #define gUseWoodcockTracking pathTraceVolumeParams.gUseWoodcockTracking
 #define gExtinctionMajorant pathTraceVolumeParams.gExtinctionMajorant
+#define gMultichannelBlendMode pathTraceVolumeParams.gMultichannelBlendMode
 #define gGradientDeltaX pathTraceVolumeParams.gGradientDeltaX
 #define gGradientDeltaY pathTraceVolumeParams.gGradientDeltaY
 #define gGradientDeltaZ pathTraceVolumeParams.gGradientDeltaZ
@@ -441,6 +444,39 @@ GetNormalizedIntensityMax4ch(in vec3 P, out int ch)
     }
   }
   return maxIn; // *factor;
+}
+
+float
+GetWeightedOpacity4ch(in vec3 P, out vec4 intensity, out vec4 opacity)
+{
+  intensity = UINT16_MAX * texture(volumeTexture, PtoVolumeTex(P));
+  intensity = evalTf4ch(intensity);
+  opacity = vec4(0.0f);
+
+  float opacitySum = 0.0f;
+  int channelCount = min(g_nChannels, 4);
+  for (int i = 0; i < channelCount; ++i) {
+    opacity[i] = max(intensity[i] * g_opacity[i], 0.0f);
+    opacitySum += opacity[i];
+  }
+  // Each enabled channel represents an equal part of the medium. The
+  // extinction at this sample is therefore their arithmetic mean.
+  return opacitySum / float(max(channelCount, 1));
+}
+
+int
+SelectWeightedChannel(in vec4 opacity, inout uvec2 seed)
+{
+  float opacitySum = opacity.x + opacity.y + opacity.z + opacity.w;
+  float target = rand(seed) * opacitySum;
+  float cumulative = 0.0f;
+  int channelCount = min(g_nChannels, 4);
+  for (int i = 0; i < channelCount; ++i) {
+    cumulative += opacity[i];
+    if (target < cumulative)
+      return i;
+  }
+  return max(channelCount - 1, 0);
 }
 
 float
@@ -1013,9 +1049,17 @@ FreePath(inout Ray R, inout uvec2 seed)
         return false;
 
       Ps = rayAt(R, MinT);
-      int ch = 0;
-      float intensity = GetNormalizedIntensityMax4ch(Ps, ch);
-      float sigmaT = gDensityScale * max(GetOpacity(intensity, ch), 0.0f);
+      float sampleOpacity;
+      if (gMultichannelBlendMode == MultichannelBlend_Weighted) {
+        vec4 intensity;
+        vec4 opacity;
+        sampleOpacity = GetWeightedOpacity4ch(Ps, intensity, opacity);
+      } else {
+        int ch = 0;
+        float intensity = GetNormalizedIntensityMax4ch(Ps, ch);
+        sampleOpacity = max(GetOpacity(intensity, ch), 0.0f);
+      }
+      float sigmaT = gDensityScale * sampleOpacity;
       float acceptance = clamp(sigmaT / majorant, 0.0f, 1.0f);
       if (rand(seed) < acceptance)
         return true;
@@ -1037,8 +1081,14 @@ FreePath(inout Ray R, inout uvec2 seed)
     if (MinT > MaxT)
       return false;
 
-    intensity = GetNormalizedIntensityMax4ch(Ps, ch);
-    SigmaT = gDensityScale * GetOpacity(intensity, ch);
+    if (gMultichannelBlendMode == MultichannelBlend_Weighted) {
+      vec4 intensities;
+      vec4 opacities;
+      SigmaT = gDensityScale * GetWeightedOpacity4ch(Ps, intensities, opacities);
+    } else {
+      intensity = GetNormalizedIntensityMax4ch(Ps, ch);
+      SigmaT = gDensityScale * GetOpacity(intensity, ch);
+    }
 
     Sum += SigmaT * gStepSizeShadow;
     MinT += gStepSizeShadow;
@@ -1192,11 +1242,24 @@ SampleDistance(inout Ray R, inout uvec2 seed, out vec3 Ps, out float intensity, 
         return false;
 
       Ps = rayAt(R, MinT);
-      intensity = GetNormalizedIntensityMax4ch(Ps, ch);
-      float sigmaT = gDensityScale * max(GetOpacity(intensity, ch), 0.0f);
+      vec4 intensities;
+      vec4 opacities;
+      float sampleOpacity;
+      if (gMultichannelBlendMode == MultichannelBlend_Weighted) {
+        sampleOpacity = GetWeightedOpacity4ch(Ps, intensities, opacities);
+      } else {
+        intensity = GetNormalizedIntensityMax4ch(Ps, ch);
+        sampleOpacity = max(GetOpacity(intensity, ch), 0.0f);
+      }
+      float sigmaT = gDensityScale * sampleOpacity;
       float acceptance = clamp(sigmaT / majorant, 0.0f, 1.0f);
-      if (rand(seed) < acceptance)
+      if (rand(seed) < acceptance) {
+        if (gMultichannelBlendMode == MultichannelBlend_Weighted) {
+          ch = SelectWeightedChannel(opacities, seed);
+          intensity = intensities[ch];
+        }
         return true;
+      }
     }
   }
 
@@ -1217,6 +1280,8 @@ SampleDistance(inout Ray R, inout uvec2 seed, out vec3 Ps, out float intensity, 
 
   float Sum = 0.0f;
   float SigmaT = 0.0f; // accumulated extinction along ray march
+  vec4 intensities = vec4(0.0f);
+  vec4 opacities = vec4(0.0f);
 
   MinT += rand(seed) * gStepSize;
   // int ch = 0;
@@ -1228,12 +1293,21 @@ SampleDistance(inout Ray R, inout uvec2 seed, out vec3 Ps, out float intensity, 
     if (MinT > MaxT)
       return false;
 
-    intensity = GetNormalizedIntensityMax4ch(Ps, ch);
-    SigmaT = gDensityScale * GetOpacity(intensity, ch);
+    if (gMultichannelBlendMode == MultichannelBlend_Weighted) {
+      SigmaT = gDensityScale * GetWeightedOpacity4ch(Ps, intensities, opacities);
+    } else {
+      intensity = GetNormalizedIntensityMax4ch(Ps, ch);
+      SigmaT = gDensityScale * GetOpacity(intensity, ch);
+    }
     // SigmaT = gDensityScale * GetBlendedOpacity(volumedata, GetIntensity4ch(Ps, volumedata));
 
     Sum += SigmaT * gStepSize;
     MinT += gStepSize;
+  }
+
+  if (gMultichannelBlendMode == MultichannelBlend_Weighted) {
+    ch = SelectWeightedChannel(opacities, seed);
+    intensity = intensities[ch];
   }
 
   // Ps is the point
