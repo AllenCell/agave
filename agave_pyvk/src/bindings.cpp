@@ -91,6 +91,7 @@ checkedProduct(size_t left, size_t right)
   return left * right;
 }
 
+// TODO should there be a command for this?
 std::string
 loadArray(PythonRenderer& renderer,
           const nb::ndarray<nb::numpy, nb::c_contig, nb::device::cpu>& array,
@@ -162,22 +163,15 @@ loadArray(PythonRenderer& renderer,
   const size_t sourceChannelBytes = checkedProduct(voxelsPerChannel, array.itemsize());
   const size_t outputChannelBytes = checkedProduct(voxelsPerChannel, ImageXYZC::IN_MEMORY_BPP / 8);
   for (uint32_t channel = 0; channel < dimensions.sizeC; ++channel) {
-    if (!FileReaderUtil::convertChannelData(converted.get() + channel * outputChannelBytes,
-                                            source + channel * sourceChannelBytes,
-                                            dimensions)) {
+    if (!FileReaderUtil::convertChannelData(
+          converted.get() + channel * outputChannelBytes, source + channel * sourceChannelBytes, dimensions)) {
       throw nb::value_error("data could not be converted to AGAVE's uint16 volume format");
     }
   }
 
   std::vector<uint32_t> shape = { dimensions.sizeC, dimensions.sizeZ, dimensions.sizeY, dimensions.sizeX };
-  auto image = FileReader::loadFromArray_4D(std::move(converted),
-                                            shape,
-                                            name,
-                                            { 'C', 'Z', 'Y', 'X' },
-                                            channelNames,
-                                            voxelSize,
-                                            spatialUnits,
-                                            false);
+  auto image = FileReader::loadFromArray_4D(
+    std::move(converted), shape, name, { 'C', 'Z', 'Y', 'X' }, channelNames, voxelSize, spatialUnits, false);
   return renderer.loadVolume(std::move(image), dimensions, name);
 }
 
