@@ -35,7 +35,7 @@ manylinux-x86_64-image = "manylinux2014"
 environment = { VULKAN_SDK = "/opt/1.4.350.1/x86_64" }
 before-all = [
     "yum update -y",
-    "yum install -y cmake curl git libcurl-devel mesa-libEGL-devel mesa-libGL-devel xz-devel libtiff-devel libX11-devel libxcb-devel libzstd-devel nasm ninja-build patch pkgconfig xz zlib-devel",
+    "yum install -y vulkan-loader-devel shaderc-devel glslc cmake curl git libcurl-devel mesa-libEGL-devel mesa-libGL-devel xz-devel libtiff-devel libX11-devel libxcb-devel libzstd-devel nasm ninja-build patch pkgconfig xz zlib-devel",
     "python3 -m pip install 'cmake>=3.24' ninja",
     # spdlog-devel is not in the manylinux2014 (CentOS 7) repos; install it header-only from source so find_package(spdlog) works.
     "git clone --depth 1 --branch v1.14.1 https://github.com/gabime/spdlog.git /tmp/spdlog",
