@@ -190,8 +190,7 @@ CacheManager::initialize(const std::string& cacheDir)
                            "lifetime of the process.");
   }
 
-  // Probe writability once, here, rather than on every config-apply: the cache
-  // root is fixed for the lifetime of the process. If the directory can't be
+  // The cache root is fixed for the lifetime of the process. If the directory can't be
   // created or written, leave the root unset so the disk tier stays inert
   // regardless of what any later CacheConfig requests.
   std::string root = cacheDir;
