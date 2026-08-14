@@ -273,9 +273,8 @@ main(int argc, char* argv[])
     }
 
     // Register the cache directory once for the lifetime of the process, after
-    // renderlib has successfully initialized. Resolving the platform path needs
-    // the Qt application name (set above). Applies to both server and GUI mode;
-    // caching stays inert until a CacheConfig enables it.
+    // renderlib has successfully initialized. 
+    // Note that caching stays inert until a CacheConfig enables it.
     CacheManager::initialize(getCacheDirectory());
 
     if (isServer) {
