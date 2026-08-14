@@ -118,20 +118,6 @@ jobs:
         with:
           name: agave-linux
           path: ./build/install/Release/agave-install
-      - name: Install and test agave_pyvk
-        working-directory: agave_pyvk
-        run: |
-          python -m pip install -e ".[test]"
-          python -c "from agave_pyvk import AgaveRenderer; import agave_pyvk._native"
-          python -m pytest tests
-      - run: python -m pip install cibuildwheel==3.3.0
-      - name: Build agave_pyvk wheels
-        run: python -m cibuildwheel agave_pyvk --output-dir wheelhouse
-      - uses: actions/upload-artifact@v6
-        with:
-          name: agave-pyvk-agave-linux
-          path: wheelhouse/*.whl
-          if-no-files-found: error
 
   macos-build:
     runs-on: macos-15
@@ -178,20 +164,6 @@ jobs:
         with:
           name: agave-macos-arm64
           path: ./build/agave-macos-arm64.dmg
-      - name: Install and test agave_pyvk
-        working-directory: agave_pyvk
-        run: |
-          python -m pip install -e ".[test]"
-          python -c "from agave_pyvk import AgaveRenderer; import agave_pyvk._native"
-          python -m pytest tests
-      - run: python -m pip install cibuildwheel==3.3.0
-      - name: Build agave_pyvk wheels
-        run: python -m cibuildwheel agave_pyvk --output-dir wheelhouse
-      - uses: actions/upload-artifact@v6
-        with:
-          name: agave-pyvk-agave-macos-arm64
-          path: wheelhouse/*.whl
-          if-no-files-found: error
 
   windows-build:
     runs-on: windows-latest
@@ -241,21 +213,108 @@ jobs:
         with:
           name: agave-win
           path: ./build/agave-win.exe
-      - name: Install and test agave_pyvk
-        working-directory: agave_pyvk
+
+  linux-pyvk-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: "recursive"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
+        with:
+          vulkan_version: 1.4.350.1
+          cache: true
+      - name: Install dependencies
+        run: sudo apt-get install libspdlog-dev libglm-dev libgl1-mesa-dev libegl1-mesa-dev libtiff-dev libzstd-dev libcurl4-openssl-dev nasm
+      - run: python -m pip install cibuildwheel==3.3.0
+      - name: Build agave_pyvk wheels
+        run: python -m cibuildwheel agave_pyvk --output-dir wheelhouse
+      - name: Install and test the Python 3.12 wheel
+        run: |
+          python -m pip install pytest wheelhouse/*cp312*.whl
+          python -c "from agave_pyvk import AgaveRenderer; import agave_pyvk._native"
+          python -m pytest agave_pyvk/tests
+      - uses: actions/upload-artifact@v6
+        with:
+          name: agave-pyvk-agave-linux
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  macos-pyvk-build:
+    runs-on: macos-15
+    env:
+      CC: clang
+      CXX: clang++
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: "recursive"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
+        with:
+          vulkan_version: 1.4.350.1
+          cache: true
+      - name: Install dependencies
+        run: |
+          brew install spdlog nasm curl
+          if [ -d /usr/local/include/openssl ]; then
+            mv /usr/local/include/openssl /usr/local/include/openssl.bak
+          fi
+      - run: python -m pip install cibuildwheel==3.3.0
+      - name: Build agave_pyvk wheels
+        run: python -m cibuildwheel agave_pyvk --output-dir wheelhouse
+      - name: Install and test the Python 3.12 wheel
+        run: |
+          python -m pip install pytest wheelhouse/*cp312*.whl
+          python -c "from agave_pyvk import AgaveRenderer; import agave_pyvk._native"
+          python -m pytest agave_pyvk/tests
+      - uses: actions/upload-artifact@v6
+        with:
+          name: agave-pyvk-agave-macos-arm64
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  windows-pyvk-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: "recursive"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
+        with:
+          vulkan_version: 1.4.350.0
+          cache: true
+      - name: Install dependencies
         shell: cmd
         run: |
+          choco install nasm -y
           call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          python -m pip install -e ".[test]"
-          if errorlevel 1 exit /b %errorlevel%
-          python -c "from agave_pyvk import AgaveRenderer; import agave_pyvk._native"
-          python -m pytest tests
+          vcpkg install --triplet x64-windows tiff glm zlib libjpeg-turbo liblzma spdlog zstd curl
+      - name: Remove bad Strawberry Perl patch binary in search path
+        run: echo "C:\Program Files\git\usr\bin" >> $env:GITHUB_PATH
       - run: python -m pip install cibuildwheel==3.3.0
       - name: Build agave_pyvk wheels with MSVC 18
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
           python -m cibuildwheel agave_pyvk --output-dir wheelhouse
+      - name: Install and test the Python 3.12 wheel
+        shell: pwsh
+        run: |
+          python -m pip install pytest
+          $wheel = Get-ChildItem wheelhouse/*cp312*.whl | Select-Object -First 1
+          python -m pip install $wheel.FullName
+          python -c "from agave_pyvk import AgaveRenderer; import agave_pyvk._native"
+          python -m pytest agave_pyvk/tests
       - uses: actions/upload-artifact@v6
         with:
           name: agave-pyvk-agave-win

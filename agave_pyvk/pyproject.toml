@@ -45,8 +45,6 @@ before-all = [
     "echo '6cce33c7e5383814150c5041820769d93c65a1fd883002e5949b067045a07daa  /tmp/vulkan_sdk.tar.xz' | sha256sum --check",
     "mkdir -p /opt && tar -xf /tmp/vulkan_sdk.tar.xz -C /opt",
     "export VULKAN_SDK=/opt/1.4.350.1/x86_64",
-    "cmake -S /project -B /project/build-cibw-linux -G Ninja -DCMAKE_BUILD_TYPE=Release -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=OFF",
-    "cmake --build /project/build-cibw-linux --target renderlib --parallel",
 ]
 before-build = """cmake -S {package}/.. -B {package}/../build-cibw-linux -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build-cibw-linux --target stage_agave_pyvk --config Release --parallel"""
 
