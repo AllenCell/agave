@@ -39,6 +39,10 @@ before-all = [
     "dnf install -y cmake curl git libcurl-devel openssl-devel mesa-libEGL-devel mesa-libGL-devel xz-devel libtiff-devel libX11-devel libxcb-devel libzstd-devel nasm ninja-build patch pkgconfig spdlog-devel xz zlib-devel",
     "python3 -m pip install ninja",
     
+    "curl --fail --location https://sdk.lunarg.com/sdk/download/1.4.350.1/linux/vulkan_sdk.tar.xz --output /tmp/vulkan_sdk.tar.xz",
+    "echo '6cce33c7e5383814150c5041820769d93c65a1fd883002e5949b067045a07daa  /tmp/vulkan_sdk.tar.xz' | sha256sum --check",
+    "mkdir -p /opt && tar -xf /tmp/vulkan_sdk.tar.xz -C /opt",
+
     "curl --fail --location https://curl.se/download/curl-8.10.1.tar.gz --output /tmp/curl-8.10.1.tar.gz",
     "echo 'd15ebab765d793e2e96db090f0e172d127859d78ca6f6391d7eafecfd894bbc0  /tmp/curl-8.10.1.tar.gz' | sha256sum --check",
     "tar -xf /tmp/curl-8.10.1.tar.gz -C /tmp",
@@ -48,9 +52,6 @@ before-all = [
     "cmake --install /tmp/curl-build",
     
     "/opt/curl/bin/curl-config --version",
-    "curl --fail --location https://sdk.lunarg.com/sdk/download/1.4.350.1/linux/vulkan_sdk.tar.xz --output /tmp/vulkan_sdk.tar.xz",
-    "echo '6cce33c7e5383814150c5041820769d93c65a1fd883002e5949b067045a07daa  /tmp/vulkan_sdk.tar.xz' | sha256sum --check",
-    "mkdir -p /opt && tar -xf /tmp/vulkan_sdk.tar.xz -C /opt",
 ]
 before-build = """cmake -G Ninja -S {package}/.. -B {package}/../build-cibw-linux -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DCMAKE_PREFIX_PATH=/opt/curl -DCURL_DIR=/opt/curl/lib/cmake/CURL -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build-cibw-linux --target stage_agave_pyvk --config Release --parallel"""
 
