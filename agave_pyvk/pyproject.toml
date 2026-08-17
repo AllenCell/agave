@@ -39,6 +39,11 @@ before-all = [
     "dnf install -y cmake curl git libcurl-devel openssl-devel mesa-libEGL-devel mesa-libGL-devel xz-devel libtiff-devel libX11-devel libxcb-devel libzstd-devel nasm ninja-build patch pkgconfig spdlog-devel xz zlib-devel",
     "python3 -m pip install ninja",
     
+    "git clone --branch v1.5.7 --depth 1 https://github.com/facebook/zstd.git /tmp/zstd-1.5.7",
+    "cmake -S /tmp/zstd-1.5.7/build/cmake -B /tmp/zstd-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/zstd -DCMAKE_INSTALL_LIBDIR=lib -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_SHARED=OFF -DZSTD_BUILD_STATIC=ON -DZSTD_BUILD_TESTS=OFF",
+    "cmake --build /tmp/zstd-build --parallel",
+    "cmake --install /tmp/zstd-build",
+
     "curl --fail --location https://sdk.lunarg.com/sdk/download/1.4.350.1/linux/vulkan_sdk.tar.xz --output /tmp/vulkan_sdk.tar.xz",
     "echo '6cce33c7e5383814150c5041820769d93c65a1fd883002e5949b067045a07daa  /tmp/vulkan_sdk.tar.xz' | sha256sum --check",
     "mkdir -p /opt && tar -xf /tmp/vulkan_sdk.tar.xz -C /opt",
@@ -53,12 +58,12 @@ before-all = [
     
     "/opt/curl/bin/curl-config --version",
 ]
-before-build = """cmake -G Ninja -S {package}/.. -B {package}/../build-cibw-linux -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DCMAKE_PREFIX_PATH=/opt/curl -DCURL_DIR=/opt/curl/lib/cmake/CURL -DTENSORSTORE_USE_SYSTEM_OPENSSL=ON -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build-cibw-linux --target stage_agave_pyvk --config Release --parallel"""
+before-build = """cmake -G Ninja -S {package}/.. -B {package}/../build-cibw-linux -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DCMAKE_PREFIX_PATH="/opt/curl;/opt/zstd" -DZstd_ROOT=/opt/zstd -DLIBCZI_BUILD_PREFER_EXTERNALPACKAGE_ZSTD=ON -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DCURL_DIR=/opt/curl/lib/cmake/CURL -DTENSORSTORE_USE_SYSTEM_OPENSSL=ON -DTENSORSTORE_USE_SYSTEM_ZSTD=ON -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build-cibw-linux --target stage_agave_pyvk --config Release --parallel"""
 
 [tool.cibuildwheel.macos]
 archs = ["arm64"]
 environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
-before-build = """cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel"""
+before-build = """cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel 4"""
 
 [tool.cibuildwheel.windows]
 before-build = '''for /f "delims=" %P in ('python -c "import sys; print(sys.executable)"') do (cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="%P" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel)'''
