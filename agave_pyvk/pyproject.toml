@@ -38,7 +38,16 @@ before-all = [
     "dnf install -y epel-release",
     "dnf install -y cmake curl git libcurl-devel mesa-libEGL-devel mesa-libGL-devel xz-devel libtiff-devel libX11-devel libxcb-devel libzstd-devel nasm ninja-build patch pkgconfig spdlog-devel xz zlib-devel",
     "python3 -m pip install ninja",
-    "curl --fail --location https://sdk.lunarg.com/sdk/download/1.4.350.1/linux/vulkan_sdk.tar.xz --output /tmp/vulkan_sdk.tar.xz",
+    
+    "curl --fail --location https://curl.se/download/curl-8.10.1.tar.gz --output /tmp/curl-8.10.1.tar.gz",
+    "echo 'd15ebab765d793e2e96db090f0e172d127859d78ca6f6391d7eafecfd894bbc0  /tmp/curl-8.10.1.tar.gz' | sha256sum --check",
+    "tar -xf /tmp/curl-8.10.1.tar.gz -C /tmp",
+
+    "cmake -S /tmp/curl-8.10.1 -B /tmp/curl-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/curl -DCMAKE_INSTALL_LIBDIR=lib -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=OFF -DBUILD_CURL_EXE=OFF -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF -DBUILD_LIBCURL_DOCS=OFF -DBUILD_MISC_DOCS=OFF -DHTTP_ONLY=ON -DCURL_USE_OPENSSL=ON -DCURL_USE_LIBPSL=OFF -DCURL_USE_LIBSSH2=OFF -DUSE_LIBIDN2=OFF",
+    "cmake --build /tmp/curl-build --parallel",
+    "cmake --install /tmp/curl-build",
+    
+    "/opt/curl/bin/curl-config --version",    "curl --fail --location https://sdk.lunarg.com/sdk/download/1.4.350.1/linux/vulkan_sdk.tar.xz --output /tmp/vulkan_sdk.tar.xz",
     "echo '6cce33c7e5383814150c5041820769d93c65a1fd883002e5949b067045a07daa  /tmp/vulkan_sdk.tar.xz' | sha256sum --check",
     "mkdir -p /opt && tar -xf /tmp/vulkan_sdk.tar.xz -C /opt",
     "export VULKAN_SDK=/opt/1.4.350.1/x86_64",
