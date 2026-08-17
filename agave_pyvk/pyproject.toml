@@ -37,13 +37,13 @@ before-all = [
     "dnf update -y",
     "dnf install -y epel-release",
     "dnf install -y cmake curl git libcurl-devel mesa-libEGL-devel mesa-libGL-devel xz-devel libtiff-devel libX11-devel libxcb-devel libzstd-devel nasm ninja-build patch pkgconfig spdlog-devel xz zlib-devel",
-    "python3 -m pip install 'cmake>=3.24' ninja",
+    "python3 -m pip install ninja",
     "curl --fail --location https://sdk.lunarg.com/sdk/download/1.4.350.1/linux/vulkan_sdk.tar.xz --output /tmp/vulkan_sdk.tar.xz",
     "echo '6cce33c7e5383814150c5041820769d93c65a1fd883002e5949b067045a07daa  /tmp/vulkan_sdk.tar.xz' | sha256sum --check",
     "mkdir -p /opt && tar -xf /tmp/vulkan_sdk.tar.xz -C /opt",
     "export VULKAN_SDK=/opt/1.4.350.1/x86_64",
 ]
-before-build = """cmake -S {package}/.. -B {package}/../build-cibw-linux -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build-cibw-linux --target stage_agave_pyvk --config Release --parallel"""
+before-build = """cmake -G Ninja -S {package}/.. -B {package}/../build-cibw-linux -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build-cibw-linux --target stage_agave_pyvk --config Release --parallel"""
 
 [tool.cibuildwheel.macos]
 archs = ["arm64"]
