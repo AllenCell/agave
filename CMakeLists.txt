@@ -43,9 +43,6 @@ project(
 option(AGAVE_BUILD_APP "Build the Qt desktop application and installers" ON)
 option(AGAVE_BUILD_TESTS "Build the C++ test suite" ON)
 
-option(AGAVE_BUILD_APP "Build the Qt desktop application and installers" ON)
-option(AGAVE_BUILD_TESTS "Build the C++ test suite" ON)
-
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
