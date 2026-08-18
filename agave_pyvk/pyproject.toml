@@ -31,7 +31,7 @@ skip =  "cp38-* cp39-* cp310-* cp314t-win* cp315-* cp315t-* *_i686 *-win32 *-mus
 archs = ["auto64"]
 
 [tool.cibuildwheel.linux]
-manylinux-x86_64-image = "manylinux_2_28"
+manylinux-x86_64-image = "manylinux_2_31"
 environment = {VULKAN_SDK = "/opt/1.4.350.1/x86_64", LD_LIBRARY_PATH = "/opt/curl/lib", PKG_CONFIG_PATH = "/opt/curl/lib/pkgconfig"}
 before-all = [
     "dnf update -y",
