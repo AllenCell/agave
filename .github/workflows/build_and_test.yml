@@ -248,7 +248,7 @@ jobs:
     env:
       CC: clang
       CXX: clang++
-      MACOSX_DEPLOYMENT_TARGET: "11.0"
+      MACOSX_DEPLOYMENT_TARGET: "15.0"
     steps:
       - uses: actions/checkout@v6
         with:
@@ -266,7 +266,6 @@ jobs:
           if [ -d /usr/local/include/openssl ]; then
             mv /usr/local/include/openssl /usr/local/include/openssl.bak
           fi
-          brew reinstall --build-from-source fmt webp
       - run: python -m pip install cibuildwheel==3.3.0
       - name: Build agave_pyvk wheels
         run: python -m cibuildwheel agave_pyvk --output-dir wheelhouse
