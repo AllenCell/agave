@@ -10,10 +10,12 @@
 #include "renderlib/Logging.h"
 #include "renderlib/Status.h"
 #include "renderlib/VolumeDimensions.h"
+#include "renderlib/CacheManager.h"
 #include "renderlib/io/FileReader.h"
 #include "renderlib/version.hpp"
 
 #include "AppearanceDockWidget.h"
+#include "CacheSettingsDockWidget.h"
 #include "CameraDockWidget.h"
 #include "Serialize.h"
 #include "StatisticsDockWidget.h"
@@ -97,6 +99,28 @@ agaveGui::agaveGui(QWidget* parent)
   createToolbars();
   createDockWindows();
   setDockOptions(AllowTabbedDocks);
+
+  CacheSettingsData cacheData = m_cacheSettings.load();
+  m_cacheSettingsDockWidget->widget()->setSettings(cacheData);
+  m_cacheSettings.applyToRenderlib(cacheData);
+  connect(m_cacheSettingsDockWidget->widget()->applyButton(), &QPushButton::clicked, this, [this]() {
+    CacheSettingsData data = m_cacheSettingsDockWidget->widget()->getSettings();
+    m_cacheSettings.save(data);
+    m_cacheSettings.applyToRenderlib(data);
+  });
+  connect(m_cacheSettingsDockWidget->widget()->clearDiskButton(), &QPushButton::clicked, this, [this]() {
+    // Show the directory that will actually be cleared.
+    QString cacheDir = QString::fromStdString(CacheManager::instance().getCacheDirectory());
+    QMessageBox::StandardButton reply =
+      QMessageBox::question(this,
+                            tr("Clear disk cache"),
+                            tr("Delete all cached volume data in:\n%1\n\nThis cannot be undone.").arg(cacheDir),
+                            QMessageBox::Yes | QMessageBox::No,
+                            QMessageBox::No);
+    if (reply == QMessageBox::Yes) {
+      CacheManager::instance().clearDiskCache();
+    }
+  });
 
   m_tabs = new QTabWidget(this);
 
@@ -368,6 +392,11 @@ agaveGui::createDockWindows()
   m_statisticsDockWidget->setAllowedAreas(Qt::AllDockWidgetAreas);
   addDockWidget(Qt::RightDockWidgetArea, m_statisticsDockWidget);
 
+  m_cacheSettingsDockWidget = new CacheSettingsDockWidget(this);
+  m_cacheSettingsDockWidget->setAllowedAreas(Qt::AllDockWidgetAreas);
+  addDockWidget(Qt::LeftDockWidgetArea, m_cacheSettingsDockWidget);
+  m_cacheSettingsDockWidget->setVisible(false);
+
   m_viewMenu->addSeparator();
   m_viewMenu->addAction(m_cameradock->toggleViewAction());
   m_viewMenu->addSeparator();
@@ -376,6 +405,8 @@ agaveGui::createDockWindows()
   m_viewMenu->addAction(m_appearanceDockWidget->toggleViewAction());
   m_viewMenu->addSeparator();
   m_viewMenu->addAction(m_statisticsDockWidget->toggleViewAction());
+  m_viewMenu->addSeparator();
+  m_viewMenu->addAction(m_cacheSettingsDockWidget->toggleViewAction());
 }
 
 QSlider*
@@ -596,6 +627,7 @@ agaveGui::onRenderAction()
   m_glView->doneCurrent();
   m_glView->setEnabled(false);
   m_glView->setUpdatesEnabled(false);
+  m_cacheSettingsDockWidget->setEnabled(false);
   if (m_captureSettings.width == 0 && m_captureSettings.height == 0) {
     m_captureSettings.width = m_glView->width();
     m_captureSettings.height = m_glView->height();
@@ -630,6 +662,7 @@ agaveGui::onRenderAction()
     m_renderSettings.m_DirtyFlags.SetFlag(LightsDirty);
     m_renderSettings.m_DirtyFlags.SetFlag(RenderParamsDirty);
     m_renderSettings.m_DirtyFlags.SetFlag(TransferFunctionDirty);
+    m_cacheSettingsDockWidget->setEnabled(true);
     m_glView->setEnabled(true);
     m_glView->resizeGL(m_glView->width(), m_glView->height());
     m_glView->setUpdatesEnabled(true);
