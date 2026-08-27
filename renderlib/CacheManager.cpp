@@ -265,20 +265,42 @@ CacheManager::getCacheDirectory() const
 void
 CacheManager::setConfig(const CacheConfig& config)
 {
+  CacheConfig configCopy;
+  std::string cacheDirCopy;
+  bool rebuildDiskIndex = false;
+  {
+    std::scoped_lock lock(m_mutex);
+    m_config = config;
+    if (!m_config.enabled) {
+      m_entries.clear();
+      m_lruKeys.clear();
+      m_currentRamBytes = 0;
+      m_diskEntries.clear();
+      m_currentDiskBytes = 0;
+      m_diskIndexRoot.clear();
+      return;
+    }
+
+    if (!m_config.enableDisk || m_cacheDir.empty()) {
+      m_diskEntries.clear();
+      m_currentDiskBytes = 0;
+      m_diskIndexRoot.clear();
+    } else if (m_diskIndexRoot != m_cacheDir) {
+      m_diskEntries.clear();
+      m_currentDiskBytes = 0;
+      m_diskIndexRoot = m_cacheDir;
+      rebuildDiskIndex = true;
+      configCopy = m_config;
+      cacheDirCopy = m_cacheDir;
+    }
+  }
+
+  if (rebuildDiskIndex) {
+    loadDiskIndex(configCopy, cacheDirCopy);
+    evictDiskIfNeeded(configCopy, 0);
+  }
+
   std::scoped_lock lock(m_mutex);
-  m_config = config;
-  if (!m_config.enabled) {
-    m_entries.clear();
-    m_lruKeys.clear();
-    m_currentRamBytes = 0;
-    m_diskEntries.clear();
-    m_currentDiskBytes = 0;
-    return;
-  }
-  if (!m_config.enableDisk || m_cacheDir.empty()) {
-    m_diskEntries.clear();
-    m_currentDiskBytes = 0;
-  }
   evictIfNeededLocked(0);
 }
 
@@ -718,6 +740,10 @@ CacheManager::storeToDisk(const CacheKey& key,
     return;
   }
 
+  // Make room before writing, so we never temporarily exceed the cap on
+  // disk and don't waste a large write that would have to be undone.
+  evictDiskIfNeeded(config, bytes);
+
   writeCacheMarker(cacheDir);
 
   std::filesystem::path entryPath = std::filesystem::path(cacheDir) / diskCacheId(key);
@@ -810,4 +836,134 @@ CacheManager::storeToDisk(const CacheKey& key,
     m_diskEntries[diskCacheId(key)] = entry;
     m_currentDiskBytes += bytes;
   }
+}
+
+void
+CacheManager::loadDiskIndex(const CacheConfig& config, const std::string& cacheDir)
+{
+  if (cacheDir.empty() || !config.enableDisk) {
+    return;
+  }
+
+  std::filesystem::path root(cacheDir);
+  std::error_code ec;
+  std::filesystem::create_directories(root, ec);
+  if (!std::filesystem::exists(root)) {
+    return;
+  }
+  writeCacheMarker(cacheDir);
+
+  std::unordered_map<std::string, DiskEntry> entries;
+  std::uint64_t totalBytes = 0;
+
+  std::error_code iterEc;
+  for (const auto& dirEntry : std::filesystem::directory_iterator(root, iterEc)) {
+    if (iterEc) {
+      LOG_WARNING << "loadDiskIndex: error reading cache directory " << root.string() << ": " << iterEc.message();
+      break;
+    }
+    if (!dirEntry.is_directory()) {
+      continue;
+    }
+
+    std::filesystem::path metaPath = dirEntry.path() / "meta.json";
+    if (!std::filesystem::exists(metaPath)) {
+      continue;
+    }
+
+    try {
+      nlohmann::json meta;
+      std::ifstream metaFile(metaPath.string());
+      metaFile >> meta;
+      if (!meta.contains("lastAccess")) {
+        continue;
+      }
+
+      DiskEntry entry;
+      entry.path = dirEntry.path().string();
+      entry.lastAccess = meta["lastAccess"].get<std::uint64_t>();
+      if (meta.contains("bytes")) {
+        entry.bytes = meta["bytes"].get<std::uint64_t>();
+      } else {
+        entry.bytes = directorySizeBytes(entry.path);
+      }
+
+      std::string id = dirEntry.path().filename().string();
+      entries[id] = entry;
+      totalBytes += entry.bytes;
+    } catch (...) {
+      continue;
+    }
+  }
+
+  std::scoped_lock lock(m_mutex);
+  m_diskEntries = std::move(entries);
+  m_currentDiskBytes = totalBytes;
+}
+
+void
+CacheManager::evictDiskIfNeeded(const CacheConfig& config, std::uint64_t incomingBytes)
+{
+  if (!config.enableDisk || config.maxDiskBytes == 0) {
+    return;
+  }
+
+  // Hold the lock for the entire eviction so a concurrent storeToDisk can't
+  // re-populate an entry we're about to delete on disk (which would
+  // otherwise let us nuke the fresh file). Each per-entry remove_all is a
+  // single small zarr directory, so keeping the lock held is acceptable.
+  std::scoped_lock lock(m_mutex);
+
+  if ((m_currentDiskBytes + incomingBytes) <= config.maxDiskBytes) {
+    return;
+  }
+
+  // Sort entries by lastAccess ascending so we evict the oldest first.
+  std::vector<std::pair<std::uint64_t, std::string>> byAge;
+  byAge.reserve(m_diskEntries.size());
+  for (const auto& kv : m_diskEntries) {
+    byAge.emplace_back(kv.second.lastAccess, kv.first);
+  }
+  std::sort(byAge.begin(), byAge.end());
+
+  for (const auto& aged : byAge) {
+    if ((m_currentDiskBytes + incomingBytes) <= config.maxDiskBytes) {
+      break;
+    }
+    auto it = m_diskEntries.find(aged.second);
+    if (it == m_diskEntries.end()) {
+      continue;
+    }
+    std::string path = it->second.path;
+    std::uint64_t bytes = it->second.bytes;
+    if (m_currentDiskBytes >= bytes) {
+      m_currentDiskBytes -= bytes;
+    } else {
+      m_currentDiskBytes = 0;
+    }
+    m_diskEntries.erase(it);
+
+    std::error_code ec;
+    std::filesystem::remove_all(path, ec);
+    if (ec) {
+      // On Windows this can fail if another thread (e.g. loadFromDisk)
+      // still holds tensorstore file handles into the same path. The
+      // bookkeeping has already been updated to reflect eviction; the
+      // stale files will be picked up by the next clearDiskCache.
+      LOG_WARNING << "Disk cache eviction: failed to remove " << path << ": " << ec.message();
+    }
+  }
+}
+
+std::uint64_t
+CacheManager::directorySizeBytes(const std::string& path) const
+{
+  std::uint64_t total = 0;
+  std::error_code ec;
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(path, ec)) {
+    if (entry.is_regular_file()) {
+      total += static_cast<std::uint64_t>(entry.file_size());
+    }
+  }
+  return total;
 }

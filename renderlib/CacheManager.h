@@ -108,6 +108,9 @@ private:
                    const std::shared_ptr<ImageXYZC>& image,
                    const CacheConfig& config,
                    const std::string& cacheDir);
+  void loadDiskIndex(const CacheConfig& config, const std::string& cacheDir);
+  void evictDiskIfNeeded(const CacheConfig& config, std::uint64_t incomingBytes);
+  std::uint64_t directorySizeBytes(const std::string& path) const;
   // Writes a marker file to a directory we manage as our own disk cache root.
   // clearDiskCache refuses to delete anything unless this marker is present,
   // protecting against accidental wipes of user-typed paths (e.g. "C:\").
@@ -139,6 +142,12 @@ private:
 
   std::unordered_map<std::string, DiskEntry> m_diskEntries;
   std::uint64_t m_currentDiskBytes = 0;
+
+  // Tracks the root the in-memory index was last built against (used to
+  // decide when a rebuild is needed).
+  // Set to m_cacheDir when the in-memory disk index is built, such as on startup.
+  // Clear this value to signal that the in-memory disk index is no longer valid.
+  std::string m_diskIndexRoot;
 
   CacheStats m_stats;
 };
