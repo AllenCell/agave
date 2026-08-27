@@ -345,3 +345,210 @@ TEST_CASE("CacheManager respects RAM limit and evicts LRU entries", "[cache]")
     REQUIRE(cache.findImage(makeSpec("b")) == nullptr);
   }
 }
+
+TEST_CASE("CacheManager disk tier round-trips images and respects the disk cap", "[cache][disk]")
+{
+  // 4x4x4x1 uint16 image -> 128 raw bytes. On-disk zarr representation is a
+  // few KB once chunk + metadata files are accounted for, so a 1 MB cap is
+  // comfortably oversized for the round-trip and clear-cache tests, and we
+  // size the cap explicitly down to a couple of images for the eviction
+  // test. Total disk usage per test is well under a megabyte.
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+
+  // Fresh temp dir + cache rooted at it for each section.
+  TempCacheDir tmp;
+  CacheManager cache(tmp.str());
+
+  SECTION("Enabling the disk tier writes the AGAVE marker file")
+  {
+    cache.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
+
+    REQUIRE(std::filesystem::exists(tmp.path() / ".agave-cache-dir"));
+  }
+
+  SECTION("Round-trip: store, drop RAM, find reloads from disk with bit-identical data")
+  {
+    cache.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
+
+    auto img = makeImageWithPattern(4, 4, 4, 1);
+    auto spec = makeSpec("disk_roundtrip");
+    cache.storeImage(spec, img);
+
+    // Drop RAM cache; disk cache survives.
+    cache.clearMemoryCache();
+    cache.resetStats();
+
+    auto found = cache.findImage(spec);
+    REQUIRE(found != nullptr);
+    // The reloaded image is a fresh instance, not the same shared_ptr.
+    REQUIRE(found.get() != img.get());
+
+    auto stats = cache.getStats();
+    REQUIRE(stats.diskHits == 1);
+    REQUIRE(stats.ramHits == 0);
+
+    REQUIRE(found->sizeX() == 4);
+    REQUIRE(found->sizeY() == 4);
+    REQUIRE(found->sizeZ() == 4);
+    REQUIRE(found->sizeC() == 1);
+
+    const std::uint64_t bytes = imageBytes(4, 4, 4, 1);
+    REQUIRE(std::memcmp(img->ptr(), found->ptr(), bytes) == 0);
+  }
+
+  SECTION("An image larger than maxDiskBytes is not written to disk")
+  {
+    // Cap is below a single image, so storeToDisk must refuse outright.
+    cache.setConfig(diskConfig(oneImage * 4, oneImage / 2));
+
+    auto spec = makeSpec("too_big_for_disk");
+    cache.storeImage(spec, makeImage(4, 4, 4, 1));
+
+    // No entry subdirectory should have been created.
+    REQUIRE(countSubdirs(tmp.path()) == 0);
+
+    // Drop RAM to force a disk-or-miss lookup; with no entry on disk we
+    // should get a miss.
+    cache.clearMemoryCache();
+  REQUIRE(cache.findImage(spec) == nullptr);
+}
+  SECTION("Disk eviction removes the oldest entry to stay under the cap")
+  {
+    // Cap large enough for two entries' raw byte estimate but not three.
+    cache.setConfig(diskConfig(oneImage * 4, oneImage * 2));
+
+    cache.storeImage(makeSpec("disk_a"), makeImage(4, 4, 4, 1));
+    // Sleep briefly so lastAccess timestamps are distinct on fast disks.
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    cache.storeImage(makeSpec("disk_b"), makeImage(4, 4, 4, 1));
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    cache.storeImage(makeSpec("disk_c"), makeImage(4, 4, 4, 1));
+
+    // Drop RAM so finds have to go through the disk tier.
+    cache.clearMemoryCache();
+
+    REQUIRE(cache.findImage(makeSpec("disk_a")) == nullptr);
+    REQUIRE(cache.findImage(makeSpec("disk_b")) != nullptr);
+    REQUIRE(cache.findImage(makeSpec("disk_c")) != nullptr);
+
+    // After eviction there should be at most two entry subdirectories on
+    // disk (the marker file is not a directory).
+    REQUIRE(countSubdirs(tmp.path()) <= 2);
+  }
+
+  SECTION("clearDiskCache removes entry subdirectories but keeps the marker")
+  {
+    cache.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
+
+    cache.storeImage(makeSpec("clear_a"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("clear_b"), makeImage(4, 4, 4, 1));
+    REQUIRE(countSubdirs(tmp.path()) >= 2);
+
+    cache.clearDiskCache();
+
+    REQUIRE(countSubdirs(tmp.path()) == 0);
+    REQUIRE(std::filesystem::exists(tmp.path() / ".agave-cache-dir"));
+  }
+
+  SECTION("clearDiskCache refuses to touch a directory without the AGAVE marker")
+  {
+    cache.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
+
+    cache.storeImage(makeSpec("guarded_a"), makeImage(4, 4, 4, 1));
+    int subdirsBefore = countSubdirs(tmp.path());
+    REQUIRE(subdirsBefore >= 1);
+
+    // Simulate a directory that doesn't belong to AGAVE by removing the
+    // marker file. clearDiskCache must refuse.
+    std::error_code ec;
+    std::filesystem::remove(tmp.path() / ".agave-cache-dir", ec);
+    REQUIRE_FALSE(ec);
+
+    cache.clearDiskCache();
+
+    REQUIRE(countSubdirs(tmp.path()) == subdirsBefore);
+  }
+
+  SECTION("A fresh cache instance rebuilds the disk index from an existing cache dir")
+  {
+    cache.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
+    cache.storeImage(makeSpec("persistent"), makeImage(4, 4, 4, 1));
+
+    // Simulate a session restart: a brand-new CacheManager rooted at the same
+    // directory must rebuild its disk index on first use and serve the
+    // persisted entry from disk.
+    CacheManager restarted(tmp.str());
+    restarted.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
+
+    auto found = restarted.findImage(makeSpec("persistent"));
+    REQUIRE(found != nullptr);
+    REQUIRE(restarted.getStats().diskHits == 1);
+  }
+}
+
+TEST_CASE("CacheManager cache directory is fixed at construction", "[cache][disk]")
+{
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+
+  SECTION("getCacheDirectory reflects the constructed path")
+  {
+    TempCacheDir tmp;
+    CacheManager cache(tmp.str());
+    REQUIRE(cache.getCacheDirectory() == tmp.str());
+  }
+
+  SECTION("A cache constructed with no directory is RAM-only")
+  {
+    CacheManager cache; // empty cache directory
+    REQUIRE(cache.getCacheDirectory().empty());
+
+    // Even with a disk-enabled config, an empty root keeps the disk tier inert.
+    cache.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
+
+    auto spec = makeSpec("no_dir");
+    cache.storeImage(spec, makeImage(4, 4, 4, 1));
+
+    // RAM still serves it within the session...
+    REQUIRE(cache.findImage(spec) != nullptr);
+
+    // ...but nothing was persisted to disk, so once RAM is dropped it misses.
+    cache.clearMemoryCache();
+    REQUIRE(cache.findImage(spec) == nullptr);
+  }
+}
+
+TEST_CASE("CacheManager invalidates entries when the source file mtime changes", "[cache][mtime]")
+{
+  CacheManager cache;
+
+  // Use a real file on disk so the cache key picks up its mtime via
+  // std::filesystem::last_write_time. We bump the file's mtime explicitly
+  // (rather than sleeping and rewriting) so the test is deterministic on
+  // filesystems with coarse mtime resolution.
+  static std::atomic<int> sCounter{ 0 };
+  std::filesystem::path srcFile = std::filesystem::temp_directory_path() /
+                                  ("agave_cache_mtime_test_" + std::to_string(sCounter.fetch_add(1)) + ".bin");
+  {
+    std::ofstream out(srcFile.string());
+    out << "initial content";
+  }
+
+  cache.setConfig(ramOnlyConfig(imageBytes(4, 4, 4, 1) * 4));
+
+  LoadSpec spec;
+  spec.filepath = srcFile.string();
+  cache.storeImage(spec, makeImage(4, 4, 4, 1));
+  REQUIRE(cache.findImage(spec) != nullptr);
+
+  // Bump the file's last_write_time well into the future; subsequent
+  // makeKey calls now produce a different key and must miss.
+  std::error_code ec;
+  auto futureTime = std::filesystem::last_write_time(srcFile, ec) + std::chrono::seconds(60);
+  REQUIRE_FALSE(ec);
+  std::filesystem::last_write_time(srcFile, futureTime, ec);
+  REQUIRE_FALSE(ec);
+
+  REQUIRE(cache.findImage(spec) == nullptr);
+
+  std::filesystem::remove(srcFile, ec);
+}
