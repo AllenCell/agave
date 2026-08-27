@@ -73,10 +73,9 @@ availableMemoryBytes()
     // small on purpose and uses inactive/purgeable/speculative pages as
     // reclaimable buffer (this is what Activity Monitor reports as
     // "Available"). Including them avoids massive under-reporting.
-    std::uint64_t reclaimablePages = static_cast<std::uint64_t>(vm_stats.free_count) +
-                                     static_cast<std::uint64_t>(vm_stats.inactive_count) +
-                                     static_cast<std::uint64_t>(vm_stats.purgeable_count) +
-                                     static_cast<std::uint64_t>(vm_stats.speculative_count);
+    std::uint64_t reclaimablePages =
+      static_cast<std::uint64_t>(vm_stats.free_count) + static_cast<std::uint64_t>(vm_stats.inactive_count) +
+      static_cast<std::uint64_t>(vm_stats.purgeable_count) + static_cast<std::uint64_t>(vm_stats.speculative_count);
     return reclaimablePages * static_cast<std::uint64_t>(page_size);
   }
   return 0;
