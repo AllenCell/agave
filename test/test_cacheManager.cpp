@@ -410,8 +410,9 @@ TEST_CASE("CacheManager disk tier round-trips images and respects the disk cap",
     // Drop RAM to force a disk-or-miss lookup; with no entry on disk we
     // should get a miss.
     cache.clearMemoryCache();
-  REQUIRE(cache.findImage(spec) == nullptr);
-}
+    REQUIRE(cache.findImage(spec) == nullptr);
+  }
+
   SECTION("Disk eviction removes the oldest entry to stay under the cap")
   {
     // Cap large enough for two entries' raw byte estimate but not three.
@@ -551,4 +552,127 @@ TEST_CASE("CacheManager invalidates entries when the source file mtime changes",
   REQUIRE(cache.findImage(spec) == nullptr);
 
   std::filesystem::remove(srcFile, ec);
+}
+
+TEST_CASE("CacheManager normalizes equivalent filepaths to the same key", "[cache][normalize]")
+{
+  // These tests use synthetic paths that don't exist on disk; statForKey
+  // returns (0, 0) for them, so the cache key depends only on the
+  // (normalized) filepath string and the other LoadSpec fields.
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+
+  CacheManager cache;
+  cache.setConfig(ramOnlyConfig(oneImage * 4));
+
+  SECTION("'./' segment is normalized away")
+  {
+    LoadSpec stored;
+    stored.filepath = "/some/dir/foo.tif";
+    cache.storeImage(stored, makeImage(4, 4, 4, 1));
+
+    LoadSpec lookup;
+    lookup.filepath = "/some/dir/./foo.tif";
+    REQUIRE(cache.findImage(lookup) != nullptr);
+  }
+
+  SECTION("'..' segment is normalized away")
+  {
+    LoadSpec stored;
+    stored.filepath = "/some/dir/foo.tif";
+    cache.storeImage(stored, makeImage(4, 4, 4, 1));
+
+    LoadSpec lookup;
+    lookup.filepath = "/some/dir/subdir/../foo.tif";
+    REQUIRE(cache.findImage(lookup) != nullptr);
+  }
+
+  SECTION("Duplicate path separators are collapsed")
+  {
+    LoadSpec stored;
+    stored.filepath = "/some/dir/foo.tif";
+    cache.storeImage(stored, makeImage(4, 4, 4, 1));
+
+    LoadSpec lookup;
+    lookup.filepath = "/some//dir///foo.tif";
+    REQUIRE(cache.findImage(lookup) != nullptr);
+  }
+
+  SECTION("Bare names (no slashes) pass through unchanged")
+  {
+    LoadSpec stored;
+    stored.filepath = "in_memory_array_42";
+    cache.storeImage(stored, makeImage(4, 4, 4, 1));
+
+    LoadSpec lookup;
+    lookup.filepath = "in_memory_array_42";
+    REQUIRE(cache.findImage(lookup) != nullptr);
+  }
+
+  SECTION("Remote URLs are passed through without normalization")
+  {
+    LoadSpec stored;
+    stored.filepath = "http://example.com/path/to/data.zarr";
+    cache.storeImage(stored, makeImage(4, 4, 4, 1));
+
+    LoadSpec lookup;
+    lookup.filepath = "http://example.com/path/to/data.zarr";
+    REQUIRE(cache.findImage(lookup) != nullptr);
+  }
+
+  SECTION("Distinct paths still produce distinct keys (no false hits)")
+  {
+    LoadSpec stored;
+    stored.filepath = "/some/dir/foo.tif";
+    cache.storeImage(stored, makeImage(4, 4, 4, 1));
+
+    LoadSpec lookup;
+    lookup.filepath = "/some/dir/bar.tif";
+    REQUIRE(cache.findImage(lookup) == nullptr);
+  }
+
+#ifdef _WIN32
+  SECTION("UNC paths normalize across slash style and case on Windows")
+  {
+    LoadSpec stored;
+    stored.filepath = "\\\\Server\\Share\\Path\\Foo.tif";
+    cache.storeImage(stored, makeImage(4, 4, 4, 1));
+
+    // Same UNC path, lowercase, mixed slashes.
+    LoadSpec lookupSlash;
+    lookupSlash.filepath = "//server/share/path/foo.tif";
+    REQUIRE(cache.findImage(lookupSlash) != nullptr);
+
+    // Same UNC path, with a '..' segment in the relative tail.
+    LoadSpec lookupDotDot;
+    lookupDotDot.filepath = "\\\\server\\share\\path\\subdir\\..\\foo.tif";
+    REQUIRE(cache.findImage(lookupDotDot) != nullptr);
+
+    // Different UNC share — must NOT collide.
+    LoadSpec otherShare;
+    otherShare.filepath = "\\\\server\\othershare\\path\\foo.tif";
+    REQUIRE(cache.findImage(otherShare) == nullptr);
+  }
+
+  SECTION("Forward and back slashes are equivalent on Windows")
+  {
+    LoadSpec stored;
+    stored.filepath = "C:/some/dir/foo.tif";
+    cache.storeImage(stored, makeImage(4, 4, 4, 1));
+
+    LoadSpec lookup;
+    lookup.filepath = "C:\\some\\dir\\foo.tif";
+    REQUIRE(cache.findImage(lookup) != nullptr);
+  }
+
+  SECTION("Case differences are equivalent on Windows")
+  {
+    LoadSpec stored;
+    stored.filepath = "C:/Some/Dir/Foo.tif";
+    cache.storeImage(stored, makeImage(4, 4, 4, 1));
+
+    LoadSpec lookup;
+    lookup.filepath = "c:/some/dir/foo.tif";
+    REQUIRE(cache.findImage(lookup) != nullptr);
+  }
+#endif
 }
