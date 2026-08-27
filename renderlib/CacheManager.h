@@ -119,9 +119,7 @@ private:
 
   mutable std::mutex m_mutex;
   CacheConfig m_config;
-  // The disk cache root, fixed at construction. Distinct from m_diskIndexRoot,
-  // which tracks the root the in-memory index was last built against (used to
-  // decide when a rebuild is needed).
+  // The disk cache root, fixed at construction.
   const std::string m_cacheDir;
   std::uint64_t m_currentRamBytes = 0;
   std::list<CacheKey> m_lruKeys;
@@ -144,6 +142,11 @@ private:
 
   std::unordered_map<std::string, DiskEntry> m_diskEntries;
   std::uint64_t m_currentDiskBytes = 0;
+
+  // Tracks the root the in-memory index was last built against (used to
+  // decide when a rebuild is needed).
+  // Set to m_cacheDir when the in-memory disk index is built, such as on startup.
+  // Clear this value to signal that the in-memory disk index is no longer valid.
   std::string m_diskIndexRoot;
 
   CacheStats m_stats;
