@@ -1262,6 +1262,10 @@ agaveGui::viewerStateToApp(const Serialize::ViewerState& v)
   m_renderSettings.m_RenderSettings.m_DensityScale = v.density;
   m_renderSettings.m_RenderSettings.m_StepSizeFactor = v.pathTracer.primaryStepSize;
   m_renderSettings.m_RenderSettings.m_StepSizeFactorShadow = v.pathTracer.secondaryStepSize;
+  m_renderSettings.m_RenderSettings.m_MultichannelBlendMode =
+    v.pathTracer.multichannelBlendMode == static_cast<int32_t>(MultichannelBlendMode::Weighted)
+      ? MultichannelBlendMode::Weighted
+      : MultichannelBlendMode::Max;
   m_renderSettings.m_RenderSettings.m_InterpolatedVolumeSampling = v.interpolate;
 
   // channels
@@ -1403,6 +1407,8 @@ agaveGui::appToViewerState()
 
   v.pathTracer.primaryStepSize = m_renderSettings.m_RenderSettings.m_StepSizeFactor;
   v.pathTracer.secondaryStepSize = m_renderSettings.m_RenderSettings.m_StepSizeFactorShadow;
+  v.pathTracer.multichannelBlendMode =
+    static_cast<int32_t>(m_renderSettings.m_RenderSettings.m_MultichannelBlendMode);
 
   if (m_appScene.m_volume) {
     for (size_t i = 0; i < m_appScene.m_volume->sizeC(); ++i) {

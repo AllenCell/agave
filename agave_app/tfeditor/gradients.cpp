@@ -54,6 +54,9 @@ bound_point(double x, double y, const QRectF& bounds, int lock, double& out_x, d
 }
 
 static constexpr double SCATTERSIZE = 10.0;
+// Grow the clickable area of control points beyond their drawn size so they are easier to grab.
+static constexpr double SCATTER_PICK_PADDING = 4.0;
+static constexpr double SCATTER_PICK_RADIUS = SCATTERSIZE / 2.0 + SCATTER_PICK_PADDING;
 static constexpr double MIN_HISTOGRAM_BAR_HEIGHT_LOG = 0.001;
 static constexpr double HISTOGRAM_Y_HEADROOM = 1.1;
 static constexpr int MIN_BAR_HEIGHT_PIXELS = 2;
@@ -455,7 +458,7 @@ GradientEditor::onPlotMousePress(QMouseEvent* event)
 
   auto graph = m_customPlot->graph(0);
   for (int n = 0; n < (graph->data()->size()); n++) {
-    // get xy of each data pt in pixels. compare with scattersize.
+    // get xy of each data pt in pixels. compare with the pick radius.
     // first hit wins.
     double x = (graph->data()->begin() + n)->key;
     double y = (graph->data()->begin() + n)->value;
@@ -464,7 +467,7 @@ GradientEditor::onPlotMousePress(QMouseEvent* event)
     double dx = (px - (double)event->pos().x());
     double dy = (py - (double)event->pos().y());
     dist = sqrt(dx * dx + dy * dy);
-    if (dist < SCATTERSIZE / 2.0) {
+    if (dist < SCATTER_PICK_RADIUS) {
       indexOfDataPoint = n;
       // remember dist!
       break;

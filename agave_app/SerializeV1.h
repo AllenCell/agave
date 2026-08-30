@@ -11,11 +11,14 @@ struct PathTraceSettings_V1
 {
   float primaryStepSize = 4.0f;
   float secondaryStepSize = 4.0f;
+  int32_t multichannelBlendMode = 0; // 0 = Max, 1 = Weighted
   bool operator==(const PathTraceSettings_V1& other) const
   {
-    return primaryStepSize == other.primaryStepSize && secondaryStepSize == other.secondaryStepSize;
+    return primaryStepSize == other.primaryStepSize && secondaryStepSize == other.secondaryStepSize &&
+           multichannelBlendMode == other.multichannelBlendMode;
   }
-  NLOHMANN_DEFINE_TYPE_INTRUSIVE(PathTraceSettings_V1, primaryStepSize, secondaryStepSize)
+  NLOHMANN_DEFINE_TYPE_INTRUSIVE_WITH_DEFAULT(
+    PathTraceSettings_V1, primaryStepSize, secondaryStepSize, multichannelBlendMode)
 };
 struct TimelineSettings_V1
 {

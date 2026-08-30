@@ -78,6 +78,13 @@ def test_commands_are_forwarded_directly(monkeypatch):
     assert renderer._renderer.calls[-1] == (3, (1.0, 2.0, 3.0))
 
 
+def test_multichannel_blend_is_forwarded(monkeypatch):
+    module = load_api(monkeypatch)
+    renderer = module.AgaveRenderer()
+    renderer.set_multichannel_blend(1)
+    assert renderer._renderer.calls[-1] == (54, (1,))
+
+
 def test_load_metadata_is_returned_as_dict(monkeypatch):
     module = load_api(monkeypatch)
     renderer = module.AgaveRenderer()

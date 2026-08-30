@@ -275,6 +275,20 @@ QAppearanceSettingsWidget::QAppearanceSettingsWidget(QWidget* pParent,
     this->OnWoodcockTrackingChecked(is_checked);
   });
 
+  m_multichannelBlendComboBox.addItem(tr("Weighted"), static_cast<int>(MultichannelBlendMode::Weighted));
+  m_multichannelBlendComboBox.addItem(tr("Max"), static_cast<int>(MultichannelBlendMode::Max));
+  m_multichannelBlendComboBox.setCurrentIndex(m_multichannelBlendComboBox.findData(
+    static_cast<int>(rs->m_RenderSettings.m_MultichannelBlendMode)));
+  Controls::addFormRow(m_MainLayout,
+                       "Multichannel blend",
+                       &m_multichannelBlendComboBox,
+                       tr("Choose how enabled channels contribute at each path trace sample"),
+                       tr("Choose how enabled channels contribute at each path trace sample"));
+  QObject::connect(&m_multichannelBlendComboBox,
+                   QOverload<int>::of(&QComboBox::currentIndexChanged),
+                   this,
+                   &QAppearanceSettingsWidget::OnMultichannelBlendChanged);
+
   m_interpolateCheckBox.setChecked(true);
   Controls::addFormRow(m_MainLayout,
                        "Interpolate",
@@ -994,6 +1008,8 @@ QAppearanceSettingsWidget::OnRenderBegin()
                                         true);
   m_woodcockTrackingCheckBox.setChecked(m_qrendersettings->renderSettings()->m_RenderSettings.m_UseWoodcockTracking);
   m_interpolateCheckBox.setChecked(m_qrendersettings->renderSettings()->m_RenderSettings.m_InterpolatedVolumeSampling);
+  m_multichannelBlendComboBox.setCurrentIndex(m_multichannelBlendComboBox.findData(
+    static_cast<int>(m_qrendersettings->renderSettings()->m_RenderSettings.m_MultichannelBlendMode)));
 }
 
 void
@@ -1041,6 +1057,8 @@ QAppearanceSettingsWidget::OnTransferFunctionChanged()
   m_DensityScaleSlider.setValue(m_qrendersettings->GetDensityScale(), true);
   m_ShadingType.setCurrentIndex(m_qrendersettings->GetShadingType());
   m_GradientFactorSlider.setValue(m_qrendersettings->GetGradientFactor(), true);
+  m_multichannelBlendComboBox.setCurrentIndex(m_multichannelBlendComboBox.findData(
+    static_cast<int>(m_qrendersettings->renderSettings()->m_RenderSettings.m_MultichannelBlendMode)));
 }
 
 void
@@ -1115,6 +1133,16 @@ QAppearanceSettingsWidget::OnWoodcockTrackingChecked(bool isChecked)
   if (!m_scene)
     return;
   m_qrendersettings->renderSettings()->m_RenderSettings.m_UseWoodcockTracking = isChecked;
+  m_qrendersettings->renderSettings()->m_DirtyFlags.SetFlag(RenderParamsDirty);
+}
+
+void
+QAppearanceSettingsWidget::OnMultichannelBlendChanged(int index)
+{
+  if (!m_scene || index < 0)
+    return;
+  m_qrendersettings->renderSettings()->m_RenderSettings.m_MultichannelBlendMode =
+    static_cast<MultichannelBlendMode>(m_multichannelBlendComboBox.itemData(index).toInt());
   m_qrendersettings->renderSettings()->m_DirtyFlags.SetFlag(RenderParamsDirty);
 }
 
@@ -1302,6 +1330,8 @@ QAppearanceSettingsWidget::onNewImage(Scene* scene)
   m_StepSizeSecondaryRaySlider.setValue(m_qrendersettings->renderSettings()->m_RenderSettings.m_StepSizeFactorShadow);
   m_woodcockTrackingCheckBox.setChecked(m_qrendersettings->renderSettings()->m_RenderSettings.m_UseWoodcockTracking);
   m_interpolateCheckBox.setChecked(m_qrendersettings->renderSettings()->m_RenderSettings.m_InterpolatedVolumeSampling);
+  m_multichannelBlendComboBox.setCurrentIndex(m_multichannelBlendComboBox.findData(
+    static_cast<int>(m_qrendersettings->renderSettings()->m_RenderSettings.m_MultichannelBlendMode)));
 
   QColor cbg = QColor::fromRgbF(m_scene->m_material.m_backgroundColor[0],
                                 m_scene->m_material.m_backgroundColor[1],

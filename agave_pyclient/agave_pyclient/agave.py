@@ -1132,6 +1132,18 @@ class AgaveRenderer:
         # 53
         self.cb.add_command("SET_TIME_STAMP_FORMAT", format)
 
+    def set_multichannel_blend(self, mode: int):
+        """
+        Set how enabled channels are combined by the Vulkan path tracer.
+
+        Parameters
+        ----------
+        mode: int
+            0 to use the maximum channel contribution, 1 to use weighted blending.
+        """
+        # 54
+        self.cb.add_command("SET_MULTICHANNEL_BLEND", mode)
+
     def batch_render_turntable(
         self, number_of_frames=90, direction=1, output_name="frame", first_frame=0
     ):
