@@ -55,6 +55,10 @@ CacheSettingsWidget::CacheSettingsWidget(QWidget* parent, AgaveSettingsData* set
   layout->addRow(QString(), m_applyButton);
   layout->addRow(QString(), m_clearDiskButton);
   setLayout(layout);
+
+  // Populate the fields from the already-loaded settings; otherwise the spin
+  // boxes show their default 0 until something else triggers a refresh.
+  updateUiFromSettings();
 }
 
 void
