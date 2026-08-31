@@ -91,7 +91,7 @@ public:
   // The kind of backend this is.
   virtual BackendKind kind() const = 0;
 
-  // Two-part initialization.
+  // Two-part initialization when windowed.
   // We would like to initialize the renderlib graphics backend as early
   // as possible.  But some backends require the native window surface to
   // be available before they can select a suitable device that can
@@ -99,9 +99,7 @@ public:
   // window exists and before creating any renderers.
   //
   // A null surface is only valid for a headless backend; in windowed mode it
-  // is an error rather than an implicit switch to headless behavior. Backends
-  // where the toolkit owns presentation (OpenGL/Qt) are fully initialized by
-  // construction and keep this default implementation.
+  // is an error. 
   virtual bool initDeviceForWindow(IWindowSurface* surface = nullptr)
   {
     (void)surface;
