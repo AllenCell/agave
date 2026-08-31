@@ -24,7 +24,7 @@ isResizeResult(VkResult result)
 
 } // namespace
 
-Swapchain::Swapchain(ISwapchainSurface* surface)
+Swapchain::Swapchain(gfxApi::IWindowSurface* surface)
   : m_surface(surface)
 {
   gfxApi::Backend* backend = renderlib::graphicsBackend();

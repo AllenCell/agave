@@ -4,6 +4,7 @@
 
 #include "Backend.h"
 #include "Framebuffer.h"
+#include "gfxapi/WindowSurface.h"
 
 #include <vulkan/vulkan.h>
 
@@ -15,46 +16,13 @@ class ViewerWindow;
 
 namespace gfxvulkan {
 
-// Provides the platform-native window handle and live surface geometry that the
-// Vulkan swapchain needs. Implemented by the application/windowing layer (for
-// example a Qt QWindow wrapper in agave_app) so that gfxVulkan stays free of any
-// windowing-toolkit dependency.
-class ISwapchainSurface
-{
-public:
-  virtual ~ISwapchainSurface() = default;
-
-  // Platform-native window handle used to create the VkSurfaceKHR.
-  //   macOS:   NSView*
-  //   Windows: HWND
-  //   X11:     xcb_window_t (as a pointer-sized value)
-  virtual void* nativeHandle() const = 0;
-
-  // Platform-native display / connection handle. Optional: platforms that
-  // don't need one (macOS, Windows) can leave the default nullptr. Providing
-  // the same connection the rest of the app uses is preferred on Linux, since
-  // some Vulkan drivers keep per-connection state for presentation.
-  //   X11:     xcb_connection_t*
-  //   Wayland: wl_display*
-  virtual void* nativeDisplay() const { return nullptr; }
-
-  // True when the surface is visible and can be rendered to.
-  virtual bool isExposed() const = 0;
-
-  // Size of the surface in physical pixels (logical size times content scale).
-  virtual void pixelSize(uint32_t& width, uint32_t& height) const = 0;
-
-  // Ratio of physical pixels to logical points (e.g. 2.0 on a Retina display).
-  virtual double contentScale() const = 0;
-};
-
 // Vulkan swapchain bound to a native window surface. All Vulkan and platform
 // surface code lives here; the only window-system dependency is the abstract
-// ISwapchainSurface supplied by the caller.
+// IWindowSurface supplied by the caller.
 class Swapchain
 {
 public:
-  explicit Swapchain(ISwapchainSurface* surface);
+  explicit Swapchain(gfxApi::IWindowSurface* surface);
   ~Swapchain();
 
   bool render(ViewerWindow& viewerWindow);
@@ -78,7 +46,7 @@ private:
   VkPresentModeKHR choosePresentMode(const std::vector<VkPresentModeKHR>& presentModes) const;
   VkCompositeAlphaFlagBitsKHR chooseCompositeAlpha(VkCompositeAlphaFlagsKHR supportedCompositeAlpha) const;
 
-  ISwapchainSurface* m_surface = nullptr;
+  gfxApi::IWindowSurface* m_surface = nullptr;
   Backend* m_backend = nullptr;
 
   VkSurfaceKHR m_vkSurface = VK_NULL_HANDLE;

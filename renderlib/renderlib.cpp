@@ -75,6 +75,15 @@ createGraphicsBackend(gfxApi::BackendKind kind, const gfxApi::InitParams& params
         LOG_ERROR << "createGraphicsBackend: Vulkan backend initialization failed";
         return nullptr;
       }
+      // Constructing a Vulkan backend only creates the instance. Headless has
+      // no window surface to select a device against, so bring the device up
+      // now; windowed defers to Backend::initDeviceForWindow() once the view
+      // has a native window, because presentation support decides which
+      // physical device and queue family are usable.
+      if (params.headless && !backend->initDeviceHeadless()) {
+        LOG_ERROR << "createGraphicsBackend: Vulkan headless device initialization failed";
+        return nullptr;
+      }
       LOG_INFO << "createGraphicsBackend: Vulkan backend initialized successfully";
       return backend;
     }
