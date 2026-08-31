@@ -227,7 +227,10 @@ main(int argc, char* argv[])
 
     QCommandLineOption listDevicesOption(
       "list_devices",
-      QCoreApplication::translate("main", "Log the known graphics devices (only valid in --server mode)."));
+      QCoreApplication::translate(
+        "main",
+        "Log the known graphics devices and exit. The indices reported are the ones --gpu selects. With the OpenGL "
+        "backend this is only valid in --server mode."));
     parser.addOption(listDevicesOption);
 #if AGAVE_HAS_VULKAN
     const QString defaultGraphicsBackend = "vulkan";
@@ -240,10 +243,14 @@ main(int argc, char* argv[])
       QCoreApplication::translate("main", "backend"),
       defaultGraphicsBackend);
     parser.addOption(graphicsBackendOption);
-    QCommandLineOption selectGpuOption("gpu",
-                                       QCoreApplication::translate("main", "Select GPU/device by index."),
-                                       QCoreApplication::translate("main", "gpu"),
-                                       "0");
+    // No default value here on purpose: parser.isSet() then distinguishes "the
+    // user did not ask for a specific GPU" (auto-select) from "the user asked
+    // for index 0", which must be validated and never silently replaced.
+    QCommandLineOption selectGpuOption(
+      "gpu",
+      QCoreApplication::translate(
+        "main", "Select GPU/device by index, as listed by --list_devices. Defaults to automatic selection."),
+      QCoreApplication::translate("main", "gpu"));
     parser.addOption(selectGpuOption);
     QCommandLineOption serverConfigOption("config",
                                           QCoreApplication::translate("main", "Path to config file."),
@@ -258,7 +265,17 @@ main(int argc, char* argv[])
     bool hasPort = parser.isSet(serverPortOption);
     int port = parser.value(serverPortOption).toInt();
     bool listDevices = parser.isSet(listDevicesOption);
-    int selectedGpu = parser.value(selectGpuOption).toInt();
+    int selectedGpu = gfxApi::kAutoSelectGpu;
+    if (parser.isSet(selectGpuOption)) {
+      bool gpuIndexOk = false;
+      const int requestedGpu = parser.value(selectGpuOption).toInt(&gpuIndexOk);
+      if (!gpuIndexOk || requestedGpu < 0) {
+        LOG_ERROR << "Invalid --gpu value: " << parser.value(selectGpuOption).toStdString()
+                  << ". Expected a zero-based device index; run with --list_devices to see the valid indices.";
+        return 0;
+      }
+      selectedGpu = requestedGpu;
+    }
     gfxApi::BackendKind backendKind =
 #if AGAVE_HAS_VULKAN
       gfxApi::BackendKind::Vulkan;
@@ -322,7 +339,7 @@ main(int argc, char* argv[])
     }
 
     // Register the cache directory once for the lifetime of the process, after
-    // renderlib has successfully initialized. 
+    // renderlib has successfully initialized.
     // Note that caching stays inert until a CacheConfig enables it.
     CacheManager::initialize(getCacheDirectory());
 
