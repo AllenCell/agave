@@ -91,9 +91,11 @@ public:
   // The kind of backend this is.
   virtual BackendKind kind() const = 0;
 
-  // Some backends need the native window surface before they can choose a
-  // physical device and queue family, because the choice depends on which
-  // device can actually present to that surface. Call this once, after the
+  // Two-part initialization.
+  // We would like to initialize the renderlib graphics backend as early
+  // as possible.  But some backends require the native window surface to
+  // be available before they can select a suitable device that can
+  // actually present to that surface. Call this once, after the
   // window exists and before creating any renderers.
   //
   // A null surface is only valid for a headless backend; in windowed mode it
@@ -105,9 +107,6 @@ public:
     (void)surface;
     return true;
   }
-
-  // True once device-backed render resources can be created.
-  virtual bool isDeviceReady() const { return true; }
 };
 
 } // namespace gfxApi
