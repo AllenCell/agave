@@ -162,28 +162,73 @@ apiVersionToString(uint32_t version)
   return ss.str();
 }
 
-// Fallback for devices that cannot report VkPhysicalDeviceDriverProperties.
-// The spec mandates no encoding for driverVersion: each vendor packs it
-// differently, so decoding it like an API version prints nonsense for the two
-// exceptions below. Everyone else does follow the API version layout.
+/**
+ * Parses the raw driverVersion bitfield from VkPhysicalDeviceProperties
+ * into a vendor-specific formatted version string.
+ *
+ * @param vendorID The unique PCI/Khronos vendor identifier (properties.vendorID)
+ * @param driverVersion The raw encoded integer (properties.driverVersion)
+ * @return A human-readable version string matching the vendor platform's layout
+ */
 std::string
 driverVersionToString(uint32_t driverVersion, uint32_t vendorID)
 {
-  std::ostringstream ss;
+    std::stringstream ss;
 
-  if (vendorID == 0x10de) { // NVIDIA: 10 | 8 | 8 | 6 bits
-    ss << ((driverVersion >> 22) & 0x3ff) << "." << ((driverVersion >> 14) & 0x0ff) << "."
-       << ((driverVersion >> 6) & 0x0ff) << "." << (driverVersion & 0x03f);
+    // 1. NVIDIA (Vendor ID: 0x10DE)
+    if (vendorID == 0x10DE) {
+        uint32_t major    = (driverVersion >> 22) & 0x3FF;
+        uint32_t minor    = (driverVersion >> 14) & 0x0FF;
+        uint32_t subMinor = (driverVersion >> 6)  & 0x0FF;
+        uint32_t patch    = (driverVersion)       & 0x03F;
+        
+        ss << major << "." << minor << "." << subMinor << "." << patch;
+    }
+    // 2. INTEL (Vendor ID: 0x8086)
+    else if (vendorID == 0x8086) {
+        // Intel encodes differently depending on Windows vs Linux (Mesa)
+        // If the standard major mask results in 0, it indicates Windows WHQL encoding layout
+        if (VK_VERSION_MAJOR(driverVersion) == 0) {
+            uint32_t baselineBuild = (driverVersion >> 18) & 0x3FFF;
+            uint32_t finalBuild    = (driverVersion)       & 0x3FFFF;
+            ss << "101." << baselineBuild << "." << finalBuild; // e.g., 101.5445
+        } else {
+            // Standard Khronos format used by Intel open-source ANV / Mesa drivers
+            ss << VK_VERSION_MAJOR(driverVersion) << "."
+               << VK_VERSION_MINOR(driverVersion) << "."
+               << VK_VERSION_PATCH(driverVersion);
+        }
+    }
+    // 3. AMD (Vendor ID: 0x1002)
+    else if (vendorID == 0x1002) {
+        // AMD uses a modified layout: Major (10 bits), Minor (0/Unassigned), Patch (22 bits)
+        uint32_t major = (driverVersion >> 22) & 0x3FF;
+        uint32_t patch = (driverVersion)       & 0x3FFFFF; // 22 bits
+        
+        // Note: For Mesa RADV on Linux, it defaults back to standard Khronos format
+        if (VK_VERSION_MINOR(driverVersion) != 0) {
+            ss << VK_VERSION_MAJOR(driverVersion) << "."
+               << VK_VERSION_MINOR(driverVersion) << "."
+               << VK_VERSION_PATCH(driverVersion);
+        } else {
+            ss << major << "." << patch; // e.g., 2.0.94
+        }
+    }
+    // 4. APPLE / MOLTENVK (Vendor ID: 0x106B)
+    else if (vendorID == 0x106B) {
+        // MoltenVK maps directly to standard Khronos layout formatting
+        ss << VK_VERSION_MAJOR(driverVersion) << "."
+           << VK_VERSION_MINOR(driverVersion) << "."
+           << VK_VERSION_PATCH(driverVersion);
+    }
+    // 5. FALLBACK (Unknown or standard conformance driver layers)
+    else {
+        // Fall back to standard Khronos Core API Version layout macros
+        ss << VK_VERSION_MAJOR(driverVersion) << "."
+           << VK_VERSION_MINOR(driverVersion) << "."
+           << VK_VERSION_PATCH(driverVersion);
+    }
     return ss.str();
-  }
-#if defined(_WIN32)
-  if (vendorID == 0x8086) { // Intel, Windows driver only: 18 | 14 bits
-    ss << (driverVersion >> 14) << "." << (driverVersion & 0x3fff);
-    return ss.str();
-  }
-#endif
-
-  return apiVersionToString(driverVersion);
 }
 
 // VkPhysicalDeviceDriverProperties carries the driver's own name and version
@@ -347,6 +392,23 @@ describeCapabilities(const DeviceCapabilities& capabilities, bool requiresPresen
     }
   }
   return description;
+}
+
+// Multi-line dump of a device's name, versions, type, and capabilities. Shared
+// by --list_devices and the selected-device log so both read identically.
+void
+logDeviceInfo(uint32_t index, VkPhysicalDevice physicalDevice, const DeviceCapabilities& capabilities)
+{
+  VkPhysicalDeviceProperties properties = {};
+  vkGetPhysicalDeviceProperties(physicalDevice, &properties);
+
+  LOG_INFO << "Vulkan device " << index << ": " << properties.deviceName;
+  LOG_INFO << "  API version: " << apiVersionToString(properties.apiVersion);
+  LOG_INFO << "  Driver version: " << driverDescription(physicalDevice, properties);
+  LOG_INFO << "  Device type: " << deviceTypeToString(properties.deviceType);
+  LOG_INFO << "  Capabilities: "
+           << (capabilities.graphicsQueueFamilyIndex == UINT32_MAX ? "no graphics queue" : "graphics")
+           << (capabilities.hasSwapchainExtension ? ", swapchain" : ", no swapchain");
 }
 
 // Extra guidance for the windowed case, where "no device can present" usually
@@ -697,9 +759,8 @@ Backend::pickPhysicalDevice(VkSurfaceKHR presentationSurface)
   m_graphicsQueueFamilyIndex = requiresPresent ? capabilities[chosenIndex].graphicsPresentQueueFamilyIndex
                                                : capabilities[chosenIndex].graphicsQueueFamilyIndex;
 
-  LOG_INFO << "Selected Vulkan device " << chosenIndex << ": " << physicalDeviceName(m_physicalDevice)
-           << " (queue family " << m_graphicsQueueFamilyIndex
-           << (requiresPresent ? ", graphics+present)" : ", graphics)");
+  LOG_INFO << "Selected Vulkan device:";
+  logDeviceInfo(chosenIndex, m_physicalDevice, capabilities[chosenIndex]);
   return true;
 }
 
@@ -927,19 +988,10 @@ Backend::listDevices(int selectedGpu)
 
   LOG_INFO << deviceCount << " Vulkan device(s) found. These indices are what --gpu N selects.";
   for (uint32_t i = 0; i < deviceCount; ++i) {
-    VkPhysicalDeviceProperties properties = {};
-    vkGetPhysicalDeviceProperties(devices[i], &properties);
     // Query without a surface: presentation support depends on the actual
     // window surface, which does not exist during device listing.
     const DeviceCapabilities capabilities = inspectPhysicalDevice(devices[i], VK_NULL_HANDLE);
-
-    LOG_INFO << "Vulkan device " << i << ": " << properties.deviceName;
-    LOG_INFO << "  API version: " << apiVersionToString(properties.apiVersion);
-    LOG_INFO << "  Driver version: " << driverDescription(devices[i], properties);
-    LOG_INFO << "  Device type: " << deviceTypeToString(properties.deviceType);
-    LOG_INFO << "  Capabilities: "
-             << (capabilities.graphicsQueueFamilyIndex == UINT32_MAX ? "no graphics queue" : "graphics")
-             << (capabilities.hasSwapchainExtension ? ", swapchain" : ", no swapchain");
+    logDeviceInfo(i, devices[i], capabilities);
   }
 
   if (selectedGpu >= 0 && static_cast<uint32_t>(selectedGpu) >= deviceCount) {
