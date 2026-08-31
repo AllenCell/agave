@@ -1,6 +1,7 @@
 #define VK_USE_PLATFORM_XCB_KHR
 #define VK_USE_PLATFORM_XLIB_KHR
 
+#include "NativeSurface.h"
 #include "Swapchain.h"
 
 #if AGAVE_HAS_VULKAN && !defined(__APPLE__) && !defined(_WIN32)
@@ -16,7 +17,7 @@ namespace gfxvulkan {
 
 namespace {
 
-// Fallback xcb connection used only when the ISwapchainSurface didn't hand us
+// Fallback xcb connection used only when the IWindowSurface didn't hand us
 // one from the windowing toolkit. Sharing a single process-wide connection is
 // fine because it's only used for VkSurfaceKHR presentation; the OS reclaims
 // it on exit.
@@ -39,7 +40,7 @@ fallbackXcbConnection()
 }
 
 // Fallback xlib display used only when the xcb surface extension isn't
-// available and the ISwapchainSurface didn't hand us its own display. Held
+// available and the IWindowSurface didn't hand us its own display. Held
 // for the process lifetime for the same reason as the xcb fallback.
 Display*
 fallbackXlibDisplay()
@@ -56,10 +57,10 @@ fallbackXlibDisplay()
 }
 
 bool
-tryCreateXcbSurface(Backend* backend, ISwapchainSurface* surface, xcb_window_t window, VkSurfaceKHR& outSurface)
+tryCreateXcbSurface(VkInstance instance, gfxApi::IWindowSurface* surface, xcb_window_t window, VkSurfaceKHR& outSurface)
 {
   auto createXcbSurface =
-    reinterpret_cast<PFN_vkCreateXcbSurfaceKHR>(vkGetInstanceProcAddr(backend->instance(), "vkCreateXcbSurfaceKHR"));
+    reinterpret_cast<PFN_vkCreateXcbSurfaceKHR>(vkGetInstanceProcAddr(instance, "vkCreateXcbSurfaceKHR"));
   if (!createXcbSurface) {
     return false;
   }
@@ -82,7 +83,7 @@ tryCreateXcbSurface(Backend* backend, ISwapchainSurface* surface, xcb_window_t w
   createInfo.connection = connection;
   createInfo.window = window;
 
-  VkResult result = createXcbSurface(backend->instance(), &createInfo, nullptr, &outSurface);
+  VkResult result = createXcbSurface(instance, &createInfo, nullptr, &outSurface);
   if (result != VK_SUCCESS) {
     LOG_ERROR << "vkCreateXcbSurfaceKHR failed with VkResult " << result;
     outSurface = VK_NULL_HANDLE;
@@ -92,10 +93,10 @@ tryCreateXcbSurface(Backend* backend, ISwapchainSurface* surface, xcb_window_t w
 }
 
 bool
-tryCreateXlibSurface(Backend* backend, Window window, VkSurfaceKHR& outSurface)
+tryCreateXlibSurface(VkInstance instance, Window window, VkSurfaceKHR& outSurface)
 {
   auto createXlibSurface =
-    reinterpret_cast<PFN_vkCreateXlibSurfaceKHR>(vkGetInstanceProcAddr(backend->instance(), "vkCreateXlibSurfaceKHR"));
+    reinterpret_cast<PFN_vkCreateXlibSurfaceKHR>(vkGetInstanceProcAddr(instance, "vkCreateXlibSurfaceKHR"));
   if (!createXlibSurface) {
     return false;
   }
@@ -110,7 +111,7 @@ tryCreateXlibSurface(Backend* backend, Window window, VkSurfaceKHR& outSurface)
   createInfo.dpy = display;
   createInfo.window = window;
 
-  VkResult result = createXlibSurface(backend->instance(), &createInfo, nullptr, &outSurface);
+  VkResult result = createXlibSurface(instance, &createInfo, nullptr, &outSurface);
   if (result != VK_SUCCESS) {
     LOG_ERROR << "vkCreateXlibSurfaceKHR failed with VkResult " << result;
     outSurface = VK_NULL_HANDLE;
@@ -124,31 +125,43 @@ tryCreateXlibSurface(Backend* backend, Window window, VkSurfaceKHR& outSurface)
 bool
 Swapchain::createNativeSurface()
 {
-  if (!m_backend || !m_surface) {
+  if (!m_backend) {
     return false;
+  }
+
+  m_vkSurface = createNativeWindowSurface(m_backend->instance(), m_surface);
+  return m_vkSurface != VK_NULL_HANDLE;
+}
+
+VkSurfaceKHR
+createNativeWindowSurface(VkInstance instance, gfxApi::IWindowSurface* surface)
+{
+  if (instance == VK_NULL_HANDLE || !surface) {
+    return VK_NULL_HANDLE;
   }
 
   // Qt's QWidget::winId() returns the X11 window handle; the same numeric
   // value is valid as both xcb_window_t and Xlib Window.
-  const uintptr_t windowId = reinterpret_cast<uintptr_t>(m_surface->nativeHandle());
+  const uintptr_t windowId = reinterpret_cast<uintptr_t>(surface->nativeHandle());
   if (windowId == 0) {
     LOG_ERROR << "Unable to get an X11 window ID for the Vulkan window";
-    return false;
+    return VK_NULL_HANDLE;
   }
 
   // Prefer VK_KHR_xcb_surface (matches GLFW's preference: "VK_KHR_xcb_surface
   // is preferred due to some early ICDs exposing but not correctly
   // implementing VK_KHR_xlib_surface"). Fall back to VK_KHR_xlib_surface for
   // instances that only expose the xlib extension.
-  if (tryCreateXcbSurface(m_backend, m_surface, static_cast<xcb_window_t>(windowId), m_vkSurface)) {
-    return true;
+  VkSurfaceKHR vkSurface = VK_NULL_HANDLE;
+  if (tryCreateXcbSurface(instance, surface, static_cast<xcb_window_t>(windowId), vkSurface)) {
+    return vkSurface;
   }
-  if (tryCreateXlibSurface(m_backend, static_cast<Window>(windowId), m_vkSurface)) {
-    return true;
+  if (tryCreateXlibSurface(instance, static_cast<Window>(windowId), vkSurface)) {
+    return vkSurface;
   }
 
   LOG_ERROR << "Neither VK_KHR_xcb_surface nor VK_KHR_xlib_surface is available on the current Vulkan instance";
-  return false;
+  return VK_NULL_HANDLE;
 }
 
 void
