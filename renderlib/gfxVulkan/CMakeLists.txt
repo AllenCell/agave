@@ -12,6 +12,7 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/Framebuffer.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/GestureRenderer.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/GestureRenderer.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/NativeSurface.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RenderVk.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RenderVk.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RenderVkPT.cpp"
