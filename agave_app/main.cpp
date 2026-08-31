@@ -332,6 +332,10 @@ main(int argc, char* argv[])
     initParams.headless = isServer;
     initParams.selectedGpu = selectedGpu;
     initParams.windowedContext = bootstrapGLContext.get();
+#ifndef NDEBUG
+    // Enable graphics API validation/debug output in debug builds.
+    initParams.enableDebug = true;
+#endif
 
     if (0 == renderlib::initialize(initParams, listDevices)) {
       renderlib::cleanup();
