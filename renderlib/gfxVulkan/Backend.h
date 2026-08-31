@@ -29,8 +29,8 @@ public:
   void clearCurrentFramebuffer(const gfxApi::ClearColor& color) override;
   bool isHeadless() const override { return m_params.headless; }
   gfxApi::BackendKind kind() const override { return gfxApi::BackendKind::Vulkan; }
+
   bool initDeviceForWindow(gfxApi::IWindowSurface* surface = nullptr) override;
-  bool isDeviceReady() const override { return m_deviceReady; }
 
   // Headless counterpart to initDeviceForWindow: there is no surface to wait
   // for, so the owner brings the device up right after construction.

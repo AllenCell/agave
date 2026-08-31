@@ -149,16 +149,6 @@ VulkanView3D::sizeHint() const
   return QSize(800, 600);
 }
 
-VkInstance
-VulkanView3D::vkInstance() const
-{
-  gfxApi::Backend* backend = renderlib::graphicsBackend();
-  if (!backend || backend->kind() != gfxApi::BackendKind::Vulkan) {
-    return VK_NULL_HANDLE;
-  }
-  return static_cast<gfxvulkan::Backend*>(backend)->instance();
-}
-
 void
 VulkanView3D::initCameraFromImage(Scene* scene)
 {
