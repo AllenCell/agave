@@ -105,7 +105,7 @@ VulkanView3D::VulkanView3D(QCamera* cam, QRenderSettings* qrs, RenderSettings* r
     LOG_ERROR << msg;
     throw std::runtime_error(msg);
   }
-  // initDeviceForWindow has already logged which devices were rejected and why.
+
   if (!backend->initDeviceForWindow(m_surface.get())) {
     const auto msg = "Failed to initialize a graphics device that can present to the 3D view window";
     LOG_ERROR << msg;
