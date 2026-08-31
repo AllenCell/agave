@@ -48,6 +48,20 @@ toRenderWindowKind(renderlib::RendererType rendererType)
   }
 }
 
+const char*
+backendKindName(gfxApi::BackendKind kind)
+{
+  switch (kind) {
+    case gfxApi::BackendKind::OpenGL:
+      return "OpenGL";
+    case gfxApi::BackendKind::Vulkan:
+      return "Vulkan";
+    case gfxApi::BackendKind::WebGPU:
+      return "WebGPU";
+  }
+  return "Unknown";
+}
+
 } // namespace
 
 // Backend selection lives here, in renderlib, rather than in gfxapi: the
@@ -115,6 +129,10 @@ renderlib::initialize(const gfxApi::InitParams& initParams, bool listDevices)
   }
 
   LOG_INFO << "Renderlib startup";
+  LOG_INFO << "  backend: " << backendKindName(params.backendKind) << ", headless: " << params.headless
+           << ", selectedGpu: " << params.selectedGpu << ", enableDebug: " << params.enableDebug
+           << ", assetPath: " << params.assetPath;
+
 
   // --list-devices: enumerate the available GPUs and quit. This only needs the
   // backend's device enumeration, not a fully initialized backend.
