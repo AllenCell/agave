@@ -186,8 +186,6 @@ NB_MODULE(_native, m)
     .def(nb::init<const std::string&, const std::string&, int>(),
          nb::arg("mode") = "pathtrace",
          nb::arg("asset_path") = "",
-         // Auto-selects by default; an explicit index is used as given and
-         // validated rather than silently replaced.
          nb::arg("gpu") = gfxApi::kAutoSelectGpu)
     .def("execute", &execute)
     .def("load_array",
