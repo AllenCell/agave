@@ -28,7 +28,7 @@ containsName(const std::vector<std::string>& names, const char* name)
 }
 
 bool
-containsExtension(const std::vector<const char*>& names, const char* name)
+containsName(const std::vector<const char*>& names, const char* name)
 {
   return std::any_of(
     names.begin(), names.end(), [name](const char* current) { return std::strcmp(current, name) == 0; });
@@ -42,7 +42,7 @@ appendIfAvailable(std::vector<const char*>& enabledExtensions,
   if (!containsName(availableExtensions, extensionName)) {
     return;
   }
-  if (containsExtension(enabledExtensions, extensionName)) {
+  if (containsName(enabledExtensions, extensionName)) {
     return;
   }
   enabledExtensions.push_back(extensionName);
@@ -466,10 +466,9 @@ Backend::initDeviceForWindow(gfxApi::IWindowSurface* surface)
     LOG_ERROR << "Cannot initialize a Vulkan window device from an invalid backend";
     return false;
   }
-  // A headless backend has no window to select against; the surface, if any,
-  // is irrelevant. This is the only case where a missing surface is benign.
   if (m_params.headless) {
-    return initDeviceHeadless();
+    LOG_ERROR << "initDeviceForWindow called on a headless Vulkan backend; use initDeviceHeadless";
+    return false;
   }
   // A null surface must never be read as "headless". In windowed mode it means
   // the caller created renderers before the window existed, which is exactly
@@ -523,14 +522,14 @@ Backend::createInstance()
 
   VkInstanceCreateFlags instanceFlags = 0;
   if (containsName(availableExtensions, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) &&
-      !containsExtension(enabledExtensions, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) {
+      !containsName(enabledExtensions, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) {
     enabledExtensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
     instanceFlags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
   }
 
   VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo = {};
   if (m_params.enableDebug && containsName(availableExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME) &&
-      !containsExtension(enabledExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
+      !containsName(enabledExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
     enabledExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     debugCreateInfo = debugMessengerCreateInfo();
   }
