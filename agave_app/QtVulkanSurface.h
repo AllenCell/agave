@@ -2,7 +2,7 @@
 
 #if AGAVE_HAS_VULKAN
 
-#include "renderlib/gfxVulkan/Swapchain.h"
+#include "renderlib/gfxapi/WindowSurface.h"
 
 #include <cstdint>
 
@@ -17,7 +17,7 @@ class QWidget;
 // widget own the native surface keeps it laid out by Qt exactly like any other
 // widget, avoiding the geometry offsets that come with embedding a separate
 // QWindow via QWidget::createWindowContainer.
-class QtVulkanSurface : public gfxvulkan::ISwapchainSurface
+class QtVulkanSurface : public gfxApi::IWindowSurface
 {
 public:
   explicit QtVulkanSurface(QWidget* widget);

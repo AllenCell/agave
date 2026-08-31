@@ -1,6 +1,7 @@
 #include "renderlib/PythonRenderer.h"
 #include "renderlib/ImageXYZC.h"
 #include "renderlib/VolumeDimensions.h"
+#include "renderlib/gfxapi/Backend.h"
 #include "renderlib/io/ConvertChannelData.h"
 #include "renderlib/io/FileReader.h"
 
@@ -185,7 +186,9 @@ NB_MODULE(_native, m)
     .def(nb::init<const std::string&, const std::string&, int>(),
          nb::arg("mode") = "pathtrace",
          nb::arg("asset_path") = "",
-         nb::arg("gpu") = 0)
+         // Auto-selects by default; an explicit index is used as given and
+         // validated rather than silently replaced.
+         nb::arg("gpu") = gfxApi::kAutoSelectGpu)
     .def("execute", &execute)
     .def("load_array",
          &loadArray,

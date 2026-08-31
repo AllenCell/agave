@@ -7,6 +7,7 @@
 #include "ViewerState.h"
 
 #include "renderlib/AppScene.h"
+#include "renderlib/Logging.h"
 #include "renderlib/MoveTool.h"
 #include "renderlib/RenderSettings.h"
 #include "renderlib/RotateTool.h"
@@ -20,6 +21,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 
 #include <QApplication>
 #include <QEvent>
@@ -72,7 +74,6 @@ VulkanView3D::VulkanView3D(QCamera* cam, QRenderSettings* qrs, RenderSettings* r
   : QWidget(parent)
   , m_qcamera(cam)
   , m_qrendersettings(qrs)
-  , m_viewerWindow(std::make_unique<ViewerWindow>(rs))
 {
   // Render directly into this widget's own native surface. Qt lays out a native
   // widget exactly like any other, so the Vulkan content aligns with its place
@@ -89,7 +90,29 @@ VulkanView3D::VulkanView3D(QCamera* cam, QRenderSettings* qrs, RenderSettings* r
   setMinimumSize(256, 256);
   setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
+  // Force Qt to realize the native window now. The backend has to build a real
+  // VkSurfaceKHR from it before it can tell which physical device and queue
+  // family can present here.
+  (void)winId();
   m_surface = std::make_unique<QtVulkanSurface>(this);
+
+  // Surface-aware device selection has to happen before ViewerWindow, which
+  // immediately creates the renderers and gesture renderer -- and those need a
+  // selected physical device, logical device, queues, and command pool.
+  gfxApi::Backend* backend = renderlib::graphicsBackend();
+  if (!backend) {
+    const auto msg = "Cannot create a Vulkan view without an initialized graphics backend";
+    LOG_ERROR << msg;
+    throw std::runtime_error(msg);
+  }
+  // initDeviceForWindow has already logged which devices were rejected and why.
+  if (!backend->initDeviceForWindow(m_surface.get())) {
+    const auto msg = "Failed to initialize a graphics device that can present to the 3D view window";
+    LOG_ERROR << msg;
+    throw std::runtime_error(msg);
+  }
+
+  m_viewerWindow = std::make_unique<ViewerWindow>(rs);
   m_swapchain = std::make_unique<gfxvulkan::Swapchain>(m_surface.get());
 
   m_viewerWindow->gesture.input.setDoubleClickTime(static_cast<double>(QApplication::doubleClickInterval()) / 1000.0);
