@@ -1,6 +1,6 @@
 # Installation Instructions
 
-You can access the [latest installer release here](https://github.com/allen-cell-animated/agave/tags).
+You can access the [latest installer release here](https://github.com/AllenCell/agave/tags).
 
 ## Windows
 
