@@ -38,7 +38,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/allen-cell-animated/agave"
+Homepage = "https://github.com/AllenCell/agave"
 
 [project.optional-dependencies]
 test = [
