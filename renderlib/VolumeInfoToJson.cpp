@@ -4,7 +4,7 @@
 #include "VolumeDimensions.h"
 
 nlohmann::json
-buildVolumeInfoJson(const std::shared_ptr<ImageXYZC>& image, const VolumeDimensions& dims, const std::string& name)
+volumeInfoToJson(const std::shared_ptr<ImageXYZC>& image, const VolumeDimensions& dims, const std::string& name)
 {
   nlohmann::json j;
   j["name"] = name;
