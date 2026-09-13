@@ -104,6 +104,98 @@ find_package(CURL REQUIRED)
 
 find_package(OpenGL)
 
+option(AGAVE_ENABLE_VULKAN "Build the Vulkan graphics backend when the Vulkan SDK is available." ON)
+set(AGAVE_HAS_VULKAN OFF)
+set(AGAVE_VULKAN_RUNTIME_LIBRARY "")
+if(AGAVE_ENABLE_VULKAN)
+  set(AGAVE_VULKAN_SDK_ROOT "$ENV{VULKAN_SDK}" CACHE PATH "Path to the Vulkan SDK platform directory")
+  if(NOT AGAVE_VULKAN_SDK_ROOT)
+    # No VULKAN_SDK env var and no cached value: look for a locally-installed
+    # SDK in the platform's default install root and pick the highest version.
+    if(WIN32)
+      set(_agave_vulkan_search_glob "C:/VulkanSDK/*")
+      set(_agave_vulkan_platform_subdir "")
+    elseif(APPLE)
+      set(_agave_vulkan_search_glob "$ENV{HOME}/VulkanSDK/*")
+      set(_agave_vulkan_platform_subdir "macOS")
+    else()
+      set(_agave_vulkan_search_glob "$ENV{HOME}/VulkanSDK/*")
+      set(_agave_vulkan_platform_subdir "x86_64")
+    endif()
+    file(GLOB _agave_vulkan_candidates LIST_DIRECTORIES true "${_agave_vulkan_search_glob}")
+    list(SORT _agave_vulkan_candidates)
+    list(REVERSE _agave_vulkan_candidates)
+    foreach(_agave_vulkan_candidate IN LISTS _agave_vulkan_candidates)
+      if(_agave_vulkan_platform_subdir)
+        set(_agave_vulkan_candidate "${_agave_vulkan_candidate}/${_agave_vulkan_platform_subdir}")
+      endif()
+      if(IS_DIRECTORY "${_agave_vulkan_candidate}" AND EXISTS "${_agave_vulkan_candidate}/include/vulkan/vulkan.h")
+        set(AGAVE_VULKAN_SDK_ROOT "${_agave_vulkan_candidate}" CACHE PATH "Path to the Vulkan SDK platform directory" FORCE)
+        break()
+      endif()
+    endforeach()
+    unset(_agave_vulkan_search_glob)
+    unset(_agave_vulkan_platform_subdir)
+    unset(_agave_vulkan_candidates)
+    unset(_agave_vulkan_candidate)
+  endif()
+  if(AGAVE_VULKAN_SDK_ROOT)
+    set(ENV{VULKAN_SDK} "${AGAVE_VULKAN_SDK_ROOT}")
+    list(INSERT CMAKE_PREFIX_PATH 0 "${AGAVE_VULKAN_SDK_ROOT}")
+    if(EXISTS "${AGAVE_VULKAN_SDK_ROOT}/include/vulkan/vulkan.h")
+      set(Vulkan_INCLUDE_DIR "${AGAVE_VULKAN_SDK_ROOT}/include" CACHE PATH "Vulkan SDK include directory" FORCE)
+    endif()
+    if(EXISTS "${AGAVE_VULKAN_SDK_ROOT}/bin/glslc")
+      set(Vulkan_GLSLC_EXECUTABLE "${AGAVE_VULKAN_SDK_ROOT}/bin/glslc" CACHE FILEPATH "Vulkan glslc executable" FORCE)
+    endif()
+    if(EXISTS "${AGAVE_VULKAN_SDK_ROOT}/bin/glslangValidator")
+      set(Vulkan_GLSLANG_VALIDATOR_EXECUTABLE
+          "${AGAVE_VULKAN_SDK_ROOT}/bin/glslangValidator"
+          CACHE FILEPATH
+          "Vulkan glslangValidator executable"
+          FORCE)
+    endif()
+    if(EXISTS "${AGAVE_VULKAN_SDK_ROOT}/lib/libshaderc_combined.a")
+      set(Vulkan_shaderc_combined_LIBRARY
+          "${AGAVE_VULKAN_SDK_ROOT}/lib/libshaderc_combined.a"
+          CACHE FILEPATH
+          "Vulkan shaderc_combined library"
+          FORCE)
+    endif()
+    if(WIN32 AND EXISTS "${AGAVE_VULKAN_SDK_ROOT}/Lib/vulkan-1.lib")
+      set(Vulkan_LIBRARY "${AGAVE_VULKAN_SDK_ROOT}/Lib/vulkan-1.lib" CACHE FILEPATH "Vulkan loader library" FORCE)
+    elseif(APPLE AND EXISTS "${AGAVE_VULKAN_SDK_ROOT}/lib/libvulkan.dylib")
+      set(Vulkan_LIBRARY "${AGAVE_VULKAN_SDK_ROOT}/lib/libvulkan.dylib" CACHE FILEPATH "Vulkan loader library" FORCE)
+    elseif(EXISTS "${AGAVE_VULKAN_SDK_ROOT}/lib/libvulkan.so")
+      set(Vulkan_LIBRARY "${AGAVE_VULKAN_SDK_ROOT}/lib/libvulkan.so" CACHE FILEPATH "Vulkan loader library" FORCE)
+    endif()
+  endif()
+  find_package(Vulkan COMPONENTS glslc shaderc_combined QUIET)
+  if(Vulkan_FOUND AND Vulkan_shaderc_combined_FOUND)
+    set(AGAVE_HAS_VULKAN ON)
+    set(AGAVE_VULKAN_RUNTIME_LIBRARY "${Vulkan_LIBRARY}")
+    if(APPLE)
+      find_library(AGAVE_VULKAN_KOSMICKRISP_LIBRARY
+        NAMES vulkan_kosmickrisp
+        PATHS
+          "${AGAVE_VULKAN_SDK_ROOT}/lib"
+          "$ENV{VULKAN_SDK}/lib"
+          "${Vulkan_LIBRARY_DIR}"
+        NO_DEFAULT_PATH
+      )
+      if(AGAVE_VULKAN_KOSMICKRISP_LIBRARY)
+        set(AGAVE_VULKAN_RUNTIME_LIBRARY "${AGAVE_VULKAN_KOSMICKRISP_LIBRARY}")
+        message(STATUS "Using macOS Vulkan runtime: ${AGAVE_VULKAN_RUNTIME_LIBRARY}")
+      else()
+        message(WARNING "libvulkan_kosmickrisp.dylib was not found; falling back to ${Vulkan_LIBRARY}")
+      endif()
+    endif()
+    message(STATUS "Vulkan backend enabled: SDK ${Vulkan_VERSION}")
+  else()
+    message(WARNING "AGAVE_ENABLE_VULKAN is ON, but Vulkan SDK with shaderc_combined was not found. Vulkan backend disabled.")
+  endif()
+endif()
+
 # normally CMAKE_INSTALL_PREFIX is meant to be outside of the build tree
 if("${CMAKE_BUILD_TYPE}" STREQUAL "")
   set(CMAKE_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/install)

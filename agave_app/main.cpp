@@ -90,8 +90,7 @@ preloadFiles(const QStringList& preloadlist)
       loadSpec.scene = 0;
       loadSpec.time = 0;
 
-      auto img = FileReader::loadAndCache(loadSpec);
-      renderlib::imageAllocGPU(img);
+      FileReader::loadAndCache(loadSpec);
     } else {
       LOG_INFO << "Could not load " << s.toStdString();
     }
@@ -227,13 +226,24 @@ main(int argc, char* argv[])
     parser.addOption(loadOption);
 
     QCommandLineOption listDevicesOption(
-      "list_devices", QCoreApplication::translate("main", "Log the known EGL devices (only valid in --server mode)."));
+      "list_devices",
+      QCoreApplication::translate("main", "Log the known graphics devices (only valid in --server mode)."));
     parser.addOption(listDevicesOption);
-    QCommandLineOption selectGpuOption(
-      "gpu",
-      QCoreApplication::translate("main", "Select EGL device by index (only valid in --server mode)."),
-      QCoreApplication::translate("main", "gpu"),
-      "0");
+#if AGAVE_HAS_VULKAN
+    const QString defaultGraphicsBackend = "vulkan";
+#else
+    const QString defaultGraphicsBackend = "opengl";
+#endif
+    QCommandLineOption graphicsBackendOption(
+      "graphics_backend",
+      QCoreApplication::translate("main", "Graphics backend to use: opengl or vulkan."),
+      QCoreApplication::translate("main", "backend"),
+      defaultGraphicsBackend);
+    parser.addOption(graphicsBackendOption);
+    QCommandLineOption selectGpuOption("gpu",
+                                       QCoreApplication::translate("main", "Select GPU/device by index."),
+                                       QCoreApplication::translate("main", "gpu"),
+                                       "0");
     parser.addOption(selectGpuOption);
     QCommandLineOption serverConfigOption("config",
                                           QCoreApplication::translate("main", "Path to config file."),
@@ -249,6 +259,21 @@ main(int argc, char* argv[])
     int port = parser.value(serverPortOption).toInt();
     bool listDevices = parser.isSet(listDevicesOption);
     int selectedGpu = parser.value(selectGpuOption).toInt();
+    gfxApi::BackendKind backendKind =
+#if AGAVE_HAS_VULKAN
+      gfxApi::BackendKind::Vulkan;
+#else
+      gfxApi::BackendKind::OpenGL;
+#endif
+    const QString backendString = parser.value(graphicsBackendOption).toLower();
+    if (backendString == "vulkan") {
+      backendKind = gfxApi::BackendKind::Vulkan;
+    } else if (backendString == "opengl") {
+      backendKind = gfxApi::BackendKind::OpenGL;
+    } else {
+      LOG_ERROR << "Unknown graphics backend: " << backendString.toStdString();
+      return 0;
+    }
     QString fileInput = parser.value(loadOption);
     std::string fileToLoad;
     static const QString kAgaveUrlPrefix("agave://");
@@ -273,7 +298,8 @@ main(int argc, char* argv[])
     LOG_INFO << "Assets path: " << assetsPath.toStdString();
 
     std::unique_ptr<QtGLContext> bootstrapGLContext;
-    const bool needsWindowedGLContext = !isServer || !renderlib::supportsHeadlessRendering();
+    const bool needsWindowedGLContext =
+      backendKind == gfxApi::BackendKind::OpenGL && (!isServer || !renderlib::supportsHeadlessRendering());
     if (needsWindowedGLContext) {
       bootstrapGLContext = std::make_unique<QtGLContext>();
       if (!bootstrapGLContext->create()) {
@@ -284,6 +310,7 @@ main(int argc, char* argv[])
     }
 
     gfxApi::InitParams initParams;
+    initParams.backendKind = backendKind;
     initParams.assetPath = assetsPath.toStdString();
     initParams.headless = isServer;
     initParams.selectedGpu = selectedGpu;
@@ -329,13 +356,17 @@ main(int argc, char* argv[])
 
       qInstallMessageHandler(customMessageHandler);
 
-      agaveGui* w = new agaveGui();
-      a.setGUI(w);
+      auto w = std::make_unique<agaveGui>();
+      a.setGUI(w.get());
       w->show();
       if (!fileToLoad.empty()) {
         w->open(fileToLoad);
       }
       result = a.exec();
+      a.setGUI(nullptr);
+      // Destroy the views, swapchain, and renderers while the graphics backend
+      // and its Vulkan instance/device are still alive.
+      w.reset();
     }
     renderlib::cleanup();
   } catch (const std::exception& exc) {

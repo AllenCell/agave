@@ -7,10 +7,22 @@
 
 #include <algorithm>
 #include <chrono>
+#include <iomanip>
 #include <sstream>
 #include <string>
 
 #define MAX_NO_DURATIONS 30
+
+// Format a millisecond duration as a fixed-point string rounded to the nearest
+// 1/100th of a millisecond. Shared by the OpenGL and Vulkan render paths so
+// their Performance statistics are formatted identically.
+inline std::string
+formatDurationMs(double milliseconds)
+{
+  std::ostringstream ss;
+  ss << std::fixed << std::setprecision(2) << milliseconds;
+  return ss.str();
+}
 
 class Timing
 {
@@ -76,13 +88,7 @@ public:
     m_NoDurations = std::min<int>(MAX_NO_DURATIONS, m_NoDurations + 1);
   }
 
-  std::string filteredDurationAsString(int decimalPlaces = 2)
-  {
-    std::ostringstream ss;
-    ss.precision(decimalPlaces);
-    ss << m_FilteredDuration;
-    return ss.str();
-  }
+  std::string filteredDurationAsString() { return formatDurationMs(m_FilteredDuration); }
 
   std::string m_Name;
   float m_Durations[MAX_NO_DURATIONS];

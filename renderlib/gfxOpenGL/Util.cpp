@@ -475,6 +475,51 @@ GLTimer::GLTimer()
   StartTimer();
 }
 
+#if defined(__APPLE__)
+
+GLTimer::~GLTimer() {}
+
+void
+GLTimer::StartTimer()
+{
+  // Ensure previously submitted GPU work is complete before we start timing.
+  glFinish();
+  m_cpuStart = std::chrono::high_resolution_clock::now();
+
+  m_Started = true;
+}
+
+float
+GLTimer::StopTimer()
+{
+  if (!m_Started)
+    return 0.0f;
+
+  // Flush and wait for the GPU so the elapsed CPU time reflects GPU work.
+  glFinish();
+  const auto end = std::chrono::high_resolution_clock::now();
+
+  m_Started = false;
+
+  return std::chrono::duration<float, std::milli>(end - m_cpuStart).count();
+}
+
+float
+GLTimer::ElapsedTime()
+{
+  if (!m_Started)
+    return 0.0f;
+
+  glFinish();
+  const auto end = std::chrono::high_resolution_clock::now();
+
+  m_Started = false;
+
+  return std::chrono::duration<float, std::milli>(end - m_cpuStart).count();
+}
+
+#else
+
 GLTimer::~GLTimer()
 {
   glDeleteQueries(1, &m_EventStart);
@@ -549,6 +594,8 @@ GLTimer::eventElapsedTime(float* result, GLuint startEvent, GLuint stopEvent)
 
   *result = (float)((double)(stopTime - startTime) / 1000000.0);
 }
+
+#endif
 
 GLShader::GLShader(GLenum shaderType)
 {
