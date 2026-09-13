@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <stdexcept>
 
 // return file extension as lowercase
 std::string
@@ -103,7 +104,7 @@ FileReader::loadAndCache(const LoadSpec& loadSpec, std::shared_ptr<IFileReader> 
 }
 
 std::shared_ptr<ImageXYZC>
-FileReader::loadFromArray_4D(uint8_t* dataArray,
+FileReader::loadFromArray_4D(std::unique_ptr<uint8_t[]> dataArray,
                              std::vector<uint32_t> shape,
                              const std::string& name,
                              std::vector<char> dims,
@@ -112,39 +113,66 @@ FileReader::loadFromArray_4D(uint8_t* dataArray,
                              std::string spatialUnits,
                              bool addToCache)
 {
-  // check cache first of all.
   LoadSpec cacheSpec;
   cacheSpec.filepath = name;
-  auto cached = CacheManager::instance().findImage(cacheSpec);
-  if (cached) {
-    return cached;
+  if (addToCache) {
+    auto cached = CacheManager::instance().findImage(cacheSpec);
+    if (cached) {
+      return cached;
+    }
   }
 
   // assume data is in CZYX order:
   static const int XDIM = 3, YDIM = 2, ZDIM = 1, CDIM = 0;
 
-  size_t ndim = shape.size();
-  assert(ndim == 4);
+  if (!dataArray) {
+    throw std::invalid_argument("Array data must not be null");
+  }
+  if (shape.size() != 4 || (!dims.empty() && dims != std::vector<char>{ 'C', 'Z', 'Y', 'X' })) {
+    throw std::invalid_argument("Array data must use CZYX dimension order");
+  }
+  for (uint32_t extent : shape) {
+    if (extent == 0) {
+      throw std::invalid_argument("Array dimensions must be nonzero");
+    }
+  }
 
   uint32_t bpp = 16;
-  uint32_t sizeT = 1;
   uint32_t sizeX = shape[XDIM];
   uint32_t sizeY = shape[YDIM];
   uint32_t sizeZ = shape[ZDIM];
   uint32_t sizeC = shape[CDIM];
-  assert(physicalSizes.size() == 3);
+  if (physicalSizes.size() != 3 || physicalSizes[0] <= 0.0f || physicalSizes[1] <= 0.0f ||
+      physicalSizes[2] <= 0.0f) {
+    throw std::invalid_argument("Physical voxel sizes must contain three positive values");
+  }
   float physicalSizeX = physicalSizes[0];
   float physicalSizeY = physicalSizes[1];
   float physicalSizeZ = physicalSizes[2];
 
-  // product of all shape elements must equal number of elements in dataArray
-  // dims must either be empty or must be of same length as shape, and end in (Y, X), and start with CZ or ZC or Z ?
+  if (channelNames.empty()) {
+    channelNames.reserve(sizeC);
+    for (uint32_t channel = 0; channel < sizeC; ++channel) {
+      channelNames.push_back("Channel " + std::to_string(channel));
+    }
+  } else if (channelNames.size() != sizeC) {
+    throw std::invalid_argument("Channel name count must match the array channel count");
+  }
 
   auto startTime = std::chrono::high_resolution_clock::now();
 
-  // note that im will take ownership of dataArray
-  ImageXYZC* im = new ImageXYZC(
-    sizeX, sizeY, sizeZ, sizeC, uint32_t(bpp), dataArray, physicalSizeX, physicalSizeY, physicalSizeZ, spatialUnits);
+  // Keep ownership until construction succeeds, then transfer it to ImageXYZC.
+  ImageXYZC* im = new ImageXYZC(sizeX,
+                                sizeY,
+                                sizeZ,
+                                sizeC,
+                                uint32_t(bpp),
+                                dataArray.get(),
+                                physicalSizeX,
+                                physicalSizeY,
+                                physicalSizeZ,
+                                spatialUnits);
+  dataArray.release();
 
   auto endTime = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> elapsed = endTime - startTime;

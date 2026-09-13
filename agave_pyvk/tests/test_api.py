@@ -20,6 +20,20 @@ class FakePythonRenderer:
             return (1, 1, bytes((0, 0, 255, 255)))
         return None
 
+    def load_array(self, data, name, voxel_size, spatial_units, channel_names):
+        self.calls.append(
+            ("load_array", (data, name, voxel_size, spatial_units, channel_names))
+        )
+        return json.dumps(
+            {
+                "name": name,
+                "x": data.shape[-1],
+                "y": data.shape[-2],
+                "z": data.shape[-3],
+                "c": data.shape[0] if data.ndim == 4 else 1,
+            }
+        )
+
     def close(self):
         self.closed = True
 
@@ -51,7 +65,10 @@ def test_public_api_matches_pyclient():
     repository = Path(__file__).resolve().parents[2]
     client = repository / "agave_pyclient" / "agave_pyclient" / "agave.py"
     pyvk = repository / "agave_pyvk" / "agave_pyvk" / "agave.py"
-    assert public_methods(pyvk) == public_methods(client)
+    pyclient_methods = public_methods(client)
+    pyvk_methods = public_methods(pyvk)
+    assert pyclient_methods.issubset(pyvk_methods)
+    assert pyvk_methods - pyclient_methods == {"load_array"}
 
 
 def test_commands_are_forwarded_directly(monkeypatch):
@@ -68,3 +85,41 @@ def test_load_metadata_is_returned_as_dict(monkeypatch):
         "commandId": 44,
         "x": 10,
     }
+
+
+def test_load_array_forwards_contiguous_data_and_metadata(monkeypatch):
+    import numpy as np
+
+    module = load_api(monkeypatch)
+    renderer = module.AgaveRenderer()
+    data = np.arange(24, dtype=np.uint16).reshape(2, 3, 4)[:, :, ::-1]
+
+    result = renderer.load_array(
+        data,
+        name="cells",
+        voxel_size=(0.5, 0.6, 0.7),
+        spatial_units="um",
+        channel_names=["DNA"],
+    )
+
+    _, args = renderer._renderer.calls[-1]
+    forwarded, name, voxel_size, units, channel_names = args
+    assert forwarded.flags.c_contiguous
+    assert np.array_equal(forwarded, data)
+    assert (name, voxel_size, units, channel_names) == (
+        "cells",
+        [0.5, 0.6, 0.7],
+        "um",
+        ["DNA"],
+    )
+    assert result == {"name": "cells", "x": 4, "y": 3, "z": 2, "c": 1}
+
+
+def test_load_array_rejects_unsupported_dtype_before_native_call(monkeypatch):
+    import numpy as np
+    import pytest
+
+    module = load_api(monkeypatch)
+    renderer = module.AgaveRenderer()
+    with pytest.raises(TypeError, match="dtype"):
+        renderer.load_array(np.zeros((2, 3, 4), dtype=np.int32))

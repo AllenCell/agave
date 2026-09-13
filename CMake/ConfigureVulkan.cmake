@@ -57,6 +57,8 @@ if(AGAVE_VULKAN_SDK_ROOT)
     set(Vulkan_LIBRARY "${AGAVE_VULKAN_SDK_ROOT}/lib/libvulkan.dylib" CACHE FILEPATH "Vulkan loader library" FORCE)
   elseif(EXISTS "${AGAVE_VULKAN_SDK_ROOT}/lib/libvulkan.so")
     set(Vulkan_LIBRARY "${AGAVE_VULKAN_SDK_ROOT}/lib/libvulkan.so" CACHE FILEPATH "Vulkan loader library" FORCE)
+  elseif(EXISTS "${AGAVE_VULKAN_SDK_ROOT}/lib/VulkanLoader/lib/libvulkan.so")
+    set(Vulkan_LIBRARY "${AGAVE_VULKAN_SDK_ROOT}/lib/VulkanLoader/lib/libvulkan.so" CACHE FILEPATH "Vulkan loader library" FORCE)
   endif()
 endif()
 
