@@ -732,7 +732,7 @@ LoadDataCommand::execute(ExecutionContext* c)
   c->m_renderSettings->m_DirtyFlags.SetFlag(TransferFunctionDirty);
 
   // fire back some json immediately...
-  nlohmann::json j = buildVolumeInfoJson(image, dims, m_data.m_path);
+  nlohmann::json j = volumeInfoToJson(image, dims, m_data.m_path);
   // transport envelope field: the webclient routes responses on this
   j["commandId"] = (int)LoadDataCommand::m_ID;
 

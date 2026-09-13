@@ -22,4 +22,4 @@ struct VolumeDimensions;
 // `image` is the loaded volume, `dims` the source metadata, and `name` the
 // file path or array name it came from.
 nlohmann::json
-buildVolumeInfoJson(const std::shared_ptr<ImageXYZC>& image, const VolumeDimensions& dims, const std::string& name);
+volumeInfoToJson(const std::shared_ptr<ImageXYZC>& image, const VolumeDimensions& dims, const std::string& name);
