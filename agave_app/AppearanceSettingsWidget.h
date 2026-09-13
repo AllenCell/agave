@@ -61,6 +61,7 @@ public:
   void OnTimeStampFormatChanged(int index);
   void OnInterpolateChecked(bool isChecked);
   void OnWoodcockTrackingChecked(bool isChecked);
+  void OnMultichannelBlendChanged(int index);
   void OnDiffuseColorChanged(int i, const QColor& color);
   void OnSpecularColorChanged(int i, const QColor& color);
   void OnEmissiveColorChanged(int i, const QColor& color);
@@ -103,6 +104,7 @@ private:
   QNumericSlider m_StepSizeSecondaryRaySlider;
   QCheckBox m_woodcockTrackingCheckBox;
   QCheckBox m_interpolateCheckBox;
+  QComboBox m_multichannelBlendComboBox;
   QColorPushButton m_backgroundColorButton;
 
   QRenderSettings* m_qrendersettings;

@@ -163,6 +163,7 @@ stateToPythonScript(const Serialize::ViewerState& s)
   ss << obj << SetRenderIterationsCommand({ s.capture.samples }).toPythonString() << std::endl;
   ss << obj << SetPrimaryRayStepSizeCommand({ s.pathTracer.primaryStepSize }).toPythonString() << std::endl;
   ss << obj << SetSecondaryRayStepSizeCommand({ s.pathTracer.secondaryStepSize }).toPythonString() << std::endl;
+  ss << obj << SetMultichannelBlendCommand({ s.pathTracer.multichannelBlendMode }).toPythonString() << std::endl;
   ss << obj << SetInterpolationCommand({ s.interpolate }).toPythonString() << std::endl;
   ss << obj << SetVoxelScaleCommand({ s.scale[0], s.scale[1], s.scale[2] }).toPythonString() << std::endl;
   ss << obj

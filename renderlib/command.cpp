@@ -430,6 +430,15 @@ SetSecondaryRayStepSizeCommand::execute(ExecutionContext* c)
   c->m_renderSettings->m_DirtyFlags.SetFlag(RenderParamsDirty);
 }
 void
+SetMultichannelBlendCommand::execute(ExecutionContext* c)
+{
+  LOG_DEBUG << "SetMultichannelBlend " << m_data.m_mode;
+  c->m_renderSettings->m_RenderSettings.m_MultichannelBlendMode =
+    m_data.m_mode == static_cast<int32_t>(MultichannelBlendMode::Weighted) ? MultichannelBlendMode::Weighted
+                                                                           : MultichannelBlendMode::Max;
+  c->m_renderSettings->m_DirtyFlags.SetFlag(RenderParamsDirty);
+}
+void
 SetBackgroundColorCommand::execute(ExecutionContext* c)
 {
   LOG_DEBUG << "SetBackgroundColor " << m_data.m_r << ", " << m_data.m_g << ", " << m_data.m_b;
@@ -1566,6 +1575,22 @@ SetSecondaryRayStepSizeCommand::write(WriteableStream* o) const
   return bytesWritten;
 }
 
+SetMultichannelBlendCommand*
+SetMultichannelBlendCommand::parse(ParseableStream* c)
+{
+  SetMultichannelBlendCommandD data;
+  data.m_mode = c->parseInt32();
+  return new SetMultichannelBlendCommand(data);
+}
+size_t
+SetMultichannelBlendCommand::write(WriteableStream* o) const
+{
+  size_t bytesWritten = 0;
+  bytesWritten += o->writeInt32(m_ID);
+  bytesWritten += o->writeInt32(m_data.m_mode);
+  return bytesWritten;
+}
+
 SetBackgroundColorCommand*
 SetBackgroundColorCommand::parse(ParseableStream* c)
 {
@@ -2259,6 +2284,13 @@ SetSecondaryRayStepSizeCommand::toPythonString() const
   ss << PythonName() << "(";
   ss << m_data.m_stepSize;
   ss << ")";
+  return ss.str();
+}
+std::string
+SetMultichannelBlendCommand::toPythonString() const
+{
+  std::ostringstream ss;
+  ss << PythonName() << "(" << m_data.m_mode << ")";
   return ss.str();
 }
 std::string

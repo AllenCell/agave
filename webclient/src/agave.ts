@@ -793,6 +793,16 @@ export class AgaveClient {
     this.cb.addCommand("SET_TIME_STAMP_FORMAT", format);
   }
 
+  /**
+   * Set how enabled channels are combined by the Vulkan path tracer.
+   *
+   * @param mode 0 for maximum channel contribution, 1 for weighted blending
+   */
+  setMultichannelBlend(mode: number) {
+    // 54
+    this.cb.addCommand("SET_MULTICHANNEL_BLEND", mode);
+  }
+
   // send all data in our current command buffer to the server
   flushCommandBuffer() {
     if (this.cb.length() > 0 && this.socket) {

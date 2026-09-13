@@ -1,5 +1,11 @@
 #pragma once
 
+enum class MultichannelBlendMode
+{
+  Max = 0,
+  Weighted = 1
+};
+
 class DenoiseParams
 {
 public:
@@ -58,6 +64,7 @@ struct PathTraceRenderSettings
   bool m_ShowLightsBackground;
   bool m_InterpolatedVolumeSampling;
   bool m_UseWoodcockTracking;
+  MultichannelBlendMode m_MultichannelBlendMode;
 
   PathTraceRenderSettings()
     : m_DensityScale(8.5f)
@@ -69,6 +76,7 @@ struct PathTraceRenderSettings
     , m_ShowLightsBackground(false)
     , m_InterpolatedVolumeSampling(true)
     , m_UseWoodcockTracking(true)
+    , m_MultichannelBlendMode(MultichannelBlendMode::Max)
   {
   }
 };

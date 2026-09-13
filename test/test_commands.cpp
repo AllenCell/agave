@@ -343,6 +343,13 @@ TEST_CASE("Commands can write and read from binary", "[command]")
     REQUIRE(cmd->toPythonString() == "set_secondary_ray_step_size(2.25)");
     REQUIRE(cmd->m_data.m_stepSize == data.m_stepSize);
   }
+  SECTION("SetMultichannelBlendCommand")
+  {
+    SetMultichannelBlendCommandD data = { 1 };
+    auto cmd = testcodec<SetMultichannelBlendCommand, SetMultichannelBlendCommandD>(data);
+    REQUIRE(cmd->toPythonString() == "set_multichannel_blend(1)");
+    REQUIRE(cmd->m_data.m_mode == data.m_mode);
+  }
   SECTION("SetBackgroundColorCommand")
   {
     SetBackgroundColorCommandD data = { 0.25, 0.5, 0.333 };
