@@ -31,7 +31,6 @@ target_sources(agave_test PRIVATE
 
 target_link_libraries(agave_test PRIVATE
   renderlib
-  Qt6::Core Qt6::Gui
   Catch2WithMain
 )
 

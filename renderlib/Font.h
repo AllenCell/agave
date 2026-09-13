@@ -6,11 +6,11 @@
 #include <string>
 #include <vector>
 
-class Font
+class AgaveFont
 {
 public:
-  Font();
-  ~Font();
+  AgaveFont();
+  ~AgaveFont();
 
   bool isLoaded() { return m_w > 0 && m_h > 0 && !m_textureData.empty(); }
   void load(const char* filename);

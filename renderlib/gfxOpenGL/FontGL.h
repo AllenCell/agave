@@ -12,7 +12,7 @@ public:
   FontGL();
   ~FontGL();
 
-  void load(const Font& font);
+  void load(const AgaveFont& font);
   void unload();
 
   GLuint getTextureID() const { return m_texID; }
