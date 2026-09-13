@@ -19,6 +19,8 @@ target_sources(renderlib PRIVATE
 "${CMAKE_CURRENT_SOURCE_DIR}/FileReaderImageSequence.h"
 "${CMAKE_CURRENT_SOURCE_DIR}/FileReaderTIFF.cpp"
 "${CMAKE_CURRENT_SOURCE_DIR}/FileReaderTIFF.h"
+"${CMAKE_CURRENT_SOURCE_DIR}/FileReaderTestVolume.cpp"
+"${CMAKE_CURRENT_SOURCE_DIR}/FileReaderTestVolume.h"
 "${CMAKE_CURRENT_SOURCE_DIR}/FileReaderZarr.cpp"
 "${CMAKE_CURRENT_SOURCE_DIR}/FileReaderZarr.h"
 "${CMAKE_CURRENT_SOURCE_DIR}/LoadRequest.cpp"
