@@ -1,6 +1,7 @@
 #include "FileReaderImageSequence.h"
 
 #include "FileReaderTIFF.h"
+#include "Logging.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -32,12 +33,19 @@ FileReaderImageSequence::FileReaderImageSequence(const std::string& filepath)
 FileReaderImageSequence::~FileReaderImageSequence() {}
 
 std::shared_ptr<ImageXYZC>
-FileReaderImageSequence::loadFromFile(const LoadSpec& loadSpec)
+FileReaderImageSequence::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progress)
 {
+  if (loadSpec.time >= m_sequence.size()) {
+    LOG_ERROR << "Time " << loadSpec.time << " exceeds image sequence length " << m_sequence.size();
+    return {};
+  }
   LoadSpec sequenceSpec = loadSpec;
   sequenceSpec.filepath = m_sequence[loadSpec.time];
   sequenceSpec.time = 0;
-  return m_tiffReader->loadFromFile(sequenceSpec);
+  // Forward the blocking call directly rather than going through loadFromFile,
+  // so we stay on the worker thread we are already on and the TIFF reader sees
+  // the same cancellation state.
+  return m_tiffReader->loadVolumeBlocking(sequenceSpec, progress);
 }
 
 VolumeDimensions

@@ -5,6 +5,7 @@
 #include "renderlib/IFileReader.h"
 #include "renderlib/ImageXYZC.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -373,6 +374,9 @@ TEST_CASE("CacheManager disk tier round-trips images and respects the disk cap",
     auto img = makeImageWithPattern(4, 4, 4, 1);
     auto spec = makeSpec("disk_roundtrip");
     cache.storeImage(spec, img);
+    // Disk writes are asynchronous now, so wait for the write to land before
+    // asserting anything about the disk tier.
+    cache.flushDiskWrites();
 
     // Drop RAM cache; disk cache survives.
     cache.clearMemoryCache();
@@ -403,6 +407,7 @@ TEST_CASE("CacheManager disk tier round-trips images and respects the disk cap",
 
     auto spec = makeSpec("too_big_for_disk");
     cache.storeImage(spec, makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
 
     // No entry subdirectory should have been created.
     REQUIRE(countSubdirs(tmp.path()) == 0);
@@ -418,12 +423,17 @@ TEST_CASE("CacheManager disk tier round-trips images and respects the disk cap",
     // Cap large enough for two entries' raw byte estimate but not three.
     cache.setConfig(diskConfig(oneImage * 4, oneImage * 2));
 
+    // Flush after each store: writes are asynchronous, and this section depends
+    // on them completing in order so the lastAccess timestamps rank correctly.
     cache.storeImage(makeSpec("disk_a"), makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
     // Sleep briefly so lastAccess timestamps are distinct on fast disks.
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
     cache.storeImage(makeSpec("disk_b"), makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
     cache.storeImage(makeSpec("disk_c"), makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
 
     // Drop RAM so finds have to go through the disk tier.
     cache.clearMemoryCache();
@@ -443,6 +453,7 @@ TEST_CASE("CacheManager disk tier round-trips images and respects the disk cap",
 
     cache.storeImage(makeSpec("clear_a"), makeImage(4, 4, 4, 1));
     cache.storeImage(makeSpec("clear_b"), makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
     REQUIRE(countSubdirs(tmp.path()) >= 2);
 
     cache.clearDiskCache();
@@ -456,6 +467,7 @@ TEST_CASE("CacheManager disk tier round-trips images and respects the disk cap",
     cache.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
 
     cache.storeImage(makeSpec("guarded_a"), makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
     int subdirsBefore = countSubdirs(tmp.path());
     REQUIRE(subdirsBefore >= 1);
 
@@ -474,6 +486,7 @@ TEST_CASE("CacheManager disk tier round-trips images and respects the disk cap",
   {
     cache.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
     cache.storeImage(makeSpec("persistent"), makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
 
     // Simulate a session restart: a brand-new CacheManager rooted at the same
     // directory must rebuild its disk index on first use and serve the
@@ -675,4 +688,441 @@ TEST_CASE("CacheManager normalizes equivalent filepaths to the same key", "[cach
     REQUIRE(cache.findImage(lookup) != nullptr);
   }
 #endif
+}
+
+TEST_CASE("CacheManager reports tier usage", "[cacheManager]")
+{
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  CacheManager cache;
+
+  SECTION("Empty cache reports zero used and the configured limit")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 4));
+
+    auto usage = cache.getUsage();
+    REQUIRE(usage.ramBytesUsed == 0);
+    REQUIRE(usage.ramBytesLimit == oneImage * 4);
+    REQUIRE(usage.ramEntryCount == 0);
+    REQUIRE(cache.getRamBytesUsed() == 0);
+    REQUIRE(cache.getRamBytesAvailable() == oneImage * 4);
+  }
+
+  SECTION("Usage tracks stored images")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 4));
+
+    cache.storeImage(makeSpec("a"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+
+    auto usage = cache.getUsage();
+    REQUIRE(usage.ramEntryCount == 2);
+    REQUIRE(usage.ramBytesUsed == oneImage * 2);
+    REQUIRE(cache.getRamBytesUsed() == oneImage * 2);
+    REQUIRE(cache.getRamBytesAvailable() == oneImage * 2);
+  }
+
+  SECTION("Available bytes reach zero at the limit rather than going negative")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 2));
+
+    cache.storeImage(makeSpec("a"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+    REQUIRE(cache.getRamBytesAvailable() == 0);
+
+    // Eviction keeps us at the limit, so available stays clamped at zero rather
+    // than underflowing -- prefetch throttling depends on this.
+    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
+    REQUIRE(cache.getRamBytesUsed() <= oneImage * 2);
+    REQUIRE(cache.getRamBytesAvailable() == 0);
+  }
+
+  SECTION("Clearing memory returns usage to zero")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 4));
+    cache.storeImage(makeSpec("a"), makeImage(4, 4, 4, 1));
+    REQUIRE(cache.getRamBytesUsed() > 0);
+
+    cache.clearMemoryCache();
+    auto usage = cache.getUsage();
+    REQUIRE(usage.ramBytesUsed == 0);
+    REQUIRE(usage.ramEntryCount == 0);
+  }
+
+  SECTION("Disk limit reads as zero when the disk tier is disabled")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 4));
+    REQUIRE(cache.getUsage().diskBytesLimit == 0);
+  }
+}
+
+namespace {
+
+class RecordingEvictionObserver : public CacheManager::IEvictionObserver
+{
+public:
+  void onEvictedFromMemory(const CacheKey& key) override { evicted.push_back(key.filepath); }
+  void onEvictedFromDisk(const std::string& diskCacheId) override { evictedFromDisk.push_back(diskCacheId); }
+  std::vector<std::string> evicted;
+  std::vector<std::string> evictedFromDisk;
+};
+
+} // namespace
+
+TEST_CASE("CacheManager pinning protects entries from eviction", "[cacheManager]")
+{
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  CacheManager cache;
+
+  SECTION("A pinned entry survives pressure that would otherwise evict it")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 2));
+
+    auto specA = makeSpec("a");
+    cache.storeImage(specA, makeImage(4, 4, 4, 1));
+    cache.pin(specA);
+    REQUIRE(cache.isPinned(specA));
+
+    // "a" is now least-recently-used, so without the pin it would be the first
+    // thing dropped when "c" needs room.
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
+
+    REQUIRE(cache.findImage(specA) != nullptr);
+    REQUIRE(cache.findImage(makeSpec("b")) == nullptr);
+  }
+
+  SECTION("Unpinning makes an entry evictable again")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 2));
+
+    auto specA = makeSpec("a");
+    cache.storeImage(specA, makeImage(4, 4, 4, 1));
+    cache.pin(specA);
+    cache.unpin(specA);
+    REQUIRE_FALSE(cache.isPinned(specA));
+
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
+
+    REQUIRE(cache.findImage(specA) == nullptr);
+  }
+
+  SECTION("Pins are refcounted")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 2));
+
+    auto specA = makeSpec("a");
+    cache.storeImage(specA, makeImage(4, 4, 4, 1));
+    cache.pin(specA);
+    cache.pin(specA);
+    cache.unpin(specA);
+    // Still pinned: one pin outstanding.
+    REQUIRE(cache.isPinned(specA));
+
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
+    REQUIRE(cache.findImage(specA) != nullptr);
+
+    cache.unpin(specA);
+    REQUIRE_FALSE(cache.isPinned(specA));
+  }
+
+  SECTION("Pinning a key that is not resident yet still protects it once stored")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 2));
+
+    auto specA = makeSpec("a");
+    cache.pin(specA);
+    cache.storeImage(specA, makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
+
+    REQUIRE(cache.findImage(specA) != nullptr);
+  }
+
+  SECTION("The tier may exceed its limit when everything resident is pinned")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 2));
+
+    auto specA = makeSpec("a");
+    auto specB = makeSpec("b");
+    cache.storeImage(specA, makeImage(4, 4, 4, 1));
+    cache.storeImage(specB, makeImage(4, 4, 4, 1));
+    cache.pin(specA);
+    cache.pin(specB);
+
+    // Nothing is evictable, so we overshoot rather than dropping data in use.
+    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
+
+    REQUIRE(cache.findImage(specA) != nullptr);
+    REQUIRE(cache.findImage(specB) != nullptr);
+    REQUIRE(cache.getRamBytesUsed() > oneImage * 2);
+  }
+}
+
+TEST_CASE("CacheManager notifies eviction observers", "[cacheManager]")
+{
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  CacheManager cache;
+  RecordingEvictionObserver observer;
+  cache.addEvictionObserver(&observer);
+
+  SECTION("Eviction under pressure notifies with the evicted key")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 2));
+
+    cache.storeImage(makeSpec("a"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+    REQUIRE(observer.evicted.empty());
+
+    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
+    REQUIRE(observer.evicted.size() == 1);
+    REQUIRE(observer.evicted[0].find("a") != std::string::npos);
+  }
+
+  SECTION("clearMemoryCache notifies for every dropped entry")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 4));
+
+    cache.storeImage(makeSpec("a"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+    cache.clearMemoryCache();
+
+    REQUIRE(observer.evicted.size() == 2);
+  }
+
+  SECTION("A removed observer stops receiving notifications")
+  {
+    cache.setConfig(ramOnlyConfig(oneImage * 2));
+    cache.removeEvictionObserver(&observer);
+
+    cache.storeImage(makeSpec("a"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
+    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
+
+    REQUIRE(observer.evicted.empty());
+  }
+}
+
+TEST_CASE("CacheManager notifies disk eviction observers", "[cacheManager][disk]")
+{
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  TempCacheDir tmp;
+  CacheManager cache(tmp.str());
+  RecordingEvictionObserver observer;
+  cache.addEvictionObserver(&observer);
+
+  SECTION("clearDiskCache notifies for every dropped disk entry")
+  {
+    cache.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
+
+    const LoadSpec specA = makeSpec("clear_notify_a");
+    const LoadSpec specB = makeSpec("clear_notify_b");
+    const std::string idA = cache.diskCacheIdFor(specA);
+    const std::string idB = cache.diskCacheIdFor(specB);
+
+    cache.storeImage(specA, makeImage(4, 4, 4, 1));
+    cache.storeImage(specB, makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
+
+    cache.clearDiskCache();
+
+    REQUIRE(observer.evictedFromDisk.size() == 2);
+    CHECK(std::find(observer.evictedFromDisk.begin(), observer.evictedFromDisk.end(), idA) !=
+          observer.evictedFromDisk.end());
+    CHECK(std::find(observer.evictedFromDisk.begin(), observer.evictedFromDisk.end(), idB) !=
+          observer.evictedFromDisk.end());
+  }
+
+  SECTION("Disabling the disk tier notifies for every active disk entry")
+  {
+    cache.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
+
+    const LoadSpec spec = makeSpec("disable_disk_notify");
+    const std::string id = cache.diskCacheIdFor(spec);
+    cache.storeImage(spec, makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
+
+    cache.setConfig(ramOnlyConfig(oneImage * 4));
+
+    REQUIRE(observer.evictedFromDisk.size() == 1);
+    CHECK(observer.evictedFromDisk[0] == id);
+    CHECK_FALSE(cache.containsOnDisk(spec));
+  }
+
+  SECTION("Disabling the whole cache notifies both memory and disk observers")
+  {
+    cache.setConfig(diskConfig(oneImage * 4, 1ULL * 1024 * 1024));
+
+    const LoadSpec spec = makeSpec("disable_all_notify");
+    const std::string id = cache.diskCacheIdFor(spec);
+    cache.storeImage(spec, makeImage(4, 4, 4, 1));
+    cache.flushDiskWrites();
+
+    CacheConfig disabled;
+    cache.setConfig(disabled);
+
+    REQUIRE(observer.evicted.size() == 1);
+    REQUIRE(observer.evictedFromDisk.size() == 1);
+    CHECK(observer.evicted[0].find("disable_all_notify") != std::string::npos);
+    CHECK(observer.evictedFromDisk[0] == id);
+  }
+}
+
+TEST_CASE("CacheManager writes to disk asynchronously", "[cache][disk]")
+{
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  TempCacheDir tmp;
+  CacheManager cache(tmp.str());
+  cache.setConfig(diskConfig(oneImage * 8, 1ULL * 1024 * 1024));
+
+  SECTION("The image is in memory immediately, without waiting for the disk write")
+  {
+    auto spec = makeSpec("async_write");
+    cache.storeImage(spec, makeImage(4, 4, 4, 1));
+
+    // Available from RAM straight away. Previously storeToDisk ran inline and
+    // before the memory store, so every prefetched time step paid a full-volume
+    // disk write before the frame could be used.
+    REQUIRE(cache.containsInMemory(spec));
+
+    cache.flushDiskWrites();
+    REQUIRE(cache.pendingDiskWrites() == 0);
+
+    // And it did eventually reach the disk tier.
+    cache.clearMemoryCache();
+    REQUIRE(cache.findImage(spec) != nullptr);
+    REQUIRE(cache.getStats().diskHits == 1);
+  }
+
+  SECTION("Flushing an idle cache returns immediately")
+  {
+    REQUIRE(cache.pendingDiskWrites() == 0);
+    cache.flushDiskWrites();
+    REQUIRE(cache.pendingDiskWrites() == 0);
+  }
+
+  SECTION("A burst of stores blocks the producer rather than dropping writes")
+  {
+    // Far more stores than the queue depth. The queue stays bounded by
+    // back-pressure -- the producer waits for a slot -- so no write is ever
+    // abandoned. Dropping used to be allowed here, but a dropped write loses the
+    // frame from disk permanently: RAM eviction never writes on the way out, so
+    // there is no second chance.
+    for (int i = 0; i < 40; ++i) {
+      REQUIRE(cache.storeImage(makeSpec("burst_" + std::to_string(i)), makeImage(4, 4, 4, 1)));
+      REQUIRE(cache.pendingDiskWrites() <= 3); // kMaxQueuedDiskWrites + one in progress
+    }
+    cache.flushDiskWrites();
+    REQUIRE(cache.pendingDiskWrites() == 0);
+    REQUIRE(cache.droppedDiskWrites() == 0);
+    // Every one of them actually landed.
+    for (int i = 0; i < 40; ++i) {
+      REQUIRE(cache.containsOnDisk(makeSpec("burst_" + std::to_string(i))));
+    }
+  }
+}
+
+TEST_CASE("CacheManager with the disk tier off never starts a writer thread", "[cache]")
+{
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  CacheManager cache;
+  cache.setConfig(ramOnlyConfig(oneImage * 4));
+
+  cache.storeImage(makeSpec("ram_only"), makeImage(4, 4, 4, 1));
+  REQUIRE(cache.pendingDiskWrites() == 0);
+  REQUIRE(cache.droppedDiskWrites() == 0);
+  // Destruction must not hang waiting on a thread that was never needed.
+  SUCCEED("ram-only cache stored without a disk writer");
+}
+
+TEST_CASE("CacheManager never drops disk writes under sustained pressure", "[cache][disk]")
+{
+  // Regression gate for widening the memory window. The queue used to drop its
+  // oldest entry when full, so a frame could end up recorded as neither in
+  // memory nor on disk -- and prefetch would re-fetch it forever.
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  TempCacheDir tmp;
+  CacheManager cache(tmp.str());
+  // RAM deliberately tiny so eviction races the writes; disk roomy so nothing
+  // is refused for lack of space.
+  cache.setConfig(diskConfig(oneImage * 2, 1ULL * 1024 * 1024));
+
+  const int kStores = 64;
+  for (int i = 0; i < kStores; ++i) {
+    REQUIRE(cache.storeImage(makeSpec("pressure_" + std::to_string(i)), makeImage(4, 4, 4, 1)));
+  }
+  cache.flushDiskWrites();
+
+  CHECK(cache.droppedDiskWrites() == 0);
+  CHECK(cache.pendingDiskBytes() == 0);
+  for (int i = 0; i < kStores; ++i) {
+    CHECK(cache.containsOnDisk(makeSpec("pressure_" + std::to_string(i))));
+  }
+}
+
+TEST_CASE("CacheManager counts queued writes against the disk budget", "[cache][disk]")
+{
+  // On-disk bytes PLUS bytes for writes still in flight must never exceed the
+  // cap. Without the reservation, evictDiskIfNeeded only ever sees the entry it
+  // is about to write and the tier overshoots by the rest of the backlog.
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  const std::uint64_t diskCap = oneImage * 8;
+  TempCacheDir tmp;
+  CacheManager cache(tmp.str());
+  cache.setConfig(diskConfig(oneImage * 2, diskCap));
+
+  for (int i = 0; i < 40; ++i) {
+    cache.storeImage(makeSpec("budget_" + std::to_string(i)), makeImage(4, 4, 4, 1));
+    CHECK(cache.getUsage().diskBytesUsed + cache.pendingDiskBytes() <= diskCap);
+  }
+  cache.flushDiskWrites();
+  CHECK(cache.getUsage().diskBytesUsed <= diskCap);
+}
+
+TEST_CASE("CacheManager reports a queued write as present on disk", "[cache][disk]")
+{
+  // This is what removes the eviction-timing race: a frame dropped from RAM
+  // before its write lands must still probe as disk-present, or it gets recorded
+  // as being in neither tier and prefetch pulls it straight back.
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  TempCacheDir tmp;
+  CacheManager cache(tmp.str());
+  cache.setConfig(diskConfig(oneImage * 64, 1ULL * 1024 * 1024));
+
+  // These images are tiny, so the writer may drain faster than we can observe.
+  // Store until a write is genuinely still pending, then probe that one -- that
+  // is the case the pending-aware probe exists for.
+  bool observedPending = false;
+  for (int i = 0; i < 200 && !observedPending; ++i) {
+    auto spec = makeSpec("queued_" + std::to_string(i));
+    REQUIRE(cache.storeImage(spec, makeImage(4, 4, 4, 1)));
+    if (cache.pendingDiskWrites() > 0) {
+      observedPending = true;
+      // Deliberately BEFORE flushDiskWrites: not yet on the filesystem.
+      CHECK(cache.containsOnDisk(spec));
+    }
+  }
+  REQUIRE(observedPending);
+
+  // And it is still reported present once the queue drains.
+  cache.flushDiskWrites();
+  CHECK(cache.containsOnDisk(makeSpec("queued_0")));
+}
+
+TEST_CASE("CacheManager refuses a disk write that cannot fit", "[cache][disk]")
+{
+  // A disk cap smaller than a single image: nothing can ever fit, so the write
+  // must be refused up front rather than reported as cached.
+  const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
+  TempCacheDir tmp;
+  CacheManager cache(tmp.str());
+  cache.setConfig(diskConfig(oneImage * 64, oneImage / 2));
+
+  auto spec = makeSpec("too_big_for_disk");
+  CHECK_FALSE(cache.storeImage(spec, makeImage(4, 4, 4, 1)));
+  cache.flushDiskWrites();
+  CHECK_FALSE(cache.containsOnDisk(spec));
+  // The memory tier is independent of a disk refusal.
+  CHECK(cache.containsInMemory(spec));
 }

@@ -56,6 +56,22 @@ struct ExecutionContext
   Scene* m_appScene;
   CCamera* m_camera;
   std::string m_message;
+
+  // Reader for the currently loaded file, kept so that stepping through time
+  // does not reopen the file and re-parse its metadata for every time step.
+  // The readers memoize per instance -- zarr its multiscale dims, czi its
+  // subblock directory and metadata XML -- so a fresh reader per time step threw
+  // all of that away, which is what SetTimeCommand used to do.
+  //
+  // Returns a reader for `spec`, reusing the cached one when it is for the same
+  // file. Never null unless the format is unsupported.
+  std::shared_ptr<IFileReader> readerFor(const LoadSpec& spec);
+  void setReader(const LoadSpec& spec, std::shared_ptr<IFileReader> reader);
+
+private:
+  std::shared_ptr<IFileReader> m_reader;
+  std::string m_readerPath;
+  bool m_readerIsImageSequence = false;
 };
 
 class Command

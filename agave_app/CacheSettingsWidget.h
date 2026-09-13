@@ -1,6 +1,6 @@
 #pragma once
 
-#include "CacheSettings.h"
+#include "AgaveSettings.h"
 
 #include <QCheckBox>
 #include <QLabel>
@@ -13,10 +13,10 @@ class CacheSettingsWidget : public QWidget
   Q_OBJECT
 
 public:
-  explicit CacheSettingsWidget(QWidget* parent = nullptr);
+  explicit CacheSettingsWidget(QWidget* parent = nullptr, AgaveSettingsData* settings = nullptr);
 
-  void setSettings(const CacheSettingsData& data);
-  CacheSettingsData getSettings() const;
+  void updateUiFromSettings();
+  void writeToSettings();
 
   QPushButton* applyButton() const { return m_applyButton; }
   QPushButton* clearDiskButton() const { return m_clearDiskButton; }
@@ -29,4 +29,9 @@ private:
   QLabel* m_cacheDirLabel = nullptr;
   QPushButton* m_applyButton = nullptr;
   QPushButton* m_clearDiskButton = nullptr;
+
+  QCheckBox* m_prefetchEnabled = nullptr;
+
+  AgaveSettingsData* m_settings = nullptr;
+  bool m_refreshingSettings = false;
 };

@@ -3,7 +3,6 @@
 #include "AppScene.h"
 #include "Fuse.h"
 #include "ImageXYZC.h"
-#include "Logging.h"
 #include "VulkanUtil.h"
 #include "gfxVulkan/Backend.h"
 #include "gfxVulkan/Device.h"
@@ -36,12 +35,20 @@ VolumeTextureVk::~VolumeTextureVk()
 bool
 VolumeTextureVk::upload(const Scene& scene, VolumeTextureMode mode, bool linearFiltering)
 {
-  release();
-  m_mode = mode;
-
   if (!scene.m_volume) {
+    release();
     return false;
   }
+
+  m_mode = mode;
+  // Deliberately NOT release() here. Releasing destroyed the image, view,
+  // sampler and staging buffer on every upload, so stepping through a time
+  // series recreated all of them per frame even though the shape never changes.
+  // ensureVolumeImage recreates only when the format or extent actually differs.
+  //
+  // m_gpuBytes is recounted by the upload below; release() used to be what reset
+  // it, so it has to be cleared explicitly now or it would accumulate.
+  m_gpuBytes = 0;
 
   switch (mode) {
     case VolumeTextureMode::RawRgba16:
@@ -57,6 +64,16 @@ VolumeTextureVk::release()
 {
   m_transferTexture.reset();
   m_volumeTexture.reset();
+
+  if (m_staging && m_stagingMapped) {
+    vkUnmapMemory(m_backend.logicalDevice(), m_staging->memory());
+  }
+  m_stagingMapped = nullptr;
+  m_stagingCapacity = 0;
+  m_staging.reset();
+
+  m_volumeFormat = VK_FORMAT_UNDEFINED;
+  m_volumeExtent = glm::ivec3(0);
 
   m_dimensions = glm::ivec3(0);
   m_lutMin = glm::vec4(0.0f);
@@ -89,14 +106,21 @@ VolumeTextureVk::createSampler(bool linearFiltering, VkSamplerAddressMode addres
 }
 
 bool
-VolumeTextureVk::uploadVolumeBytes(const void* data,
-                                   size_t byteCount,
-                                   VkFormat format,
-                                   uint32_t width,
-                                   uint32_t height,
-                                   uint32_t depth,
-                                   bool linearFiltering)
+VolumeTextureVk::ensureStagingBuffer(size_t byteCount)
 {
+  if (m_staging && m_stagingCapacity >= byteCount && m_stagingMapped) {
+    return true;
+  }
+
+  // Grown, never shrunk: a time series re-uploads the same size every frame, so
+  // reallocating would just churn.
+  if (m_staging && m_stagingMapped) {
+    vkUnmapMemory(m_backend.logicalDevice(), m_staging->memory());
+    m_stagingMapped = nullptr;
+  }
+  m_staging.reset();
+  m_stagingCapacity = 0;
+
   auto staging =
     m_backend.device().createBuffer(static_cast<VkDeviceSize>(byteCount),
                                     VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -110,8 +134,33 @@ VolumeTextureVk::uploadVolumeBytes(const void* data,
       VK_SUCCESS) {
     return false;
   }
-  std::memcpy(mapped, data, byteCount);
-  vkUnmapMemory(m_backend.logicalDevice(), staging->memory());
+
+  m_staging = std::move(*staging);
+  m_stagingCapacity = byteCount;
+  // Left mapped for the lifetime of the buffer. HOST_COHERENT memory needs no
+  // explicit flush, so there is nothing to do per upload.
+  m_stagingMapped = mapped;
+  return true;
+}
+
+bool
+VolumeTextureVk::ensureVolumeImage(VkFormat format,
+                                   uint32_t width,
+                                   uint32_t height,
+                                   uint32_t depth,
+                                   bool linearFiltering)
+{
+  const glm::ivec3 extent(static_cast<int>(width), static_cast<int>(height), static_cast<int>(depth));
+  if (m_volumeTexture.valid() && m_volumeFormat == format && m_volumeExtent == extent) {
+    // Same shape as last time, which is the normal case when stepping through a
+    // time series. Only the sampler might need to change.
+    if (m_linearFiltering != linearFiltering) {
+      if (!setLinearFiltering(linearFiltering)) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   auto image = m_backend.device().createImage(
     width, height, depth, 1, format, VK_IMAGE_TYPE_3D, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
@@ -132,19 +181,55 @@ VolumeTextureVk::uploadVolumeBytes(const void* data,
     return false;
   }
 
-  transitionImageLayout(m_backend,
-                        image->get(),
-                        VK_IMAGE_ASPECT_COLOR_BIT,
-                        VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-  copyBufferToImage(m_backend, staging->get(), image->get(), width, height, depth);
-  transitionImageLayout(m_backend,
-                        image->get(),
+  m_volumeTexture = resources::SampledImage(std::move(*image), std::move(*view), std::move(*sampler));
+  m_volumeFormat = format;
+  m_volumeExtent = extent;
+  m_linearFiltering = linearFiltering;
+  return true;
+}
+
+bool
+VolumeTextureVk::uploadVolumeFrom(const std::function<void(void* mapped)>& fill,
+                                  size_t byteCount,
+                                  VkFormat format,
+                                  uint32_t width,
+                                  uint32_t height,
+                                  uint32_t depth,
+                                  bool linearFiltering)
+{
+  if (!ensureStagingBuffer(byteCount)) {
+    return false;
+  }
+
+  // The producer writes its voxels straight into mapped staging memory. No
+  // intermediate vector, and no memcpy from one to the other.
+  fill(m_stagingMapped);
+
+  const bool imageExisted =
+    m_volumeTexture.valid() && m_volumeFormat == format &&
+    m_volumeExtent == glm::ivec3(static_cast<int>(width), static_cast<int>(height), static_cast<int>(depth));
+  if (!ensureVolumeImage(format, width, height, depth, linearFiltering)) {
+    return false;
+  }
+
+  // One command buffer, one submit. Previously each of these three steps
+  // submitted separately and waited for the queue to go idle, so a single
+  // upload cost three full pipeline stalls.
+  //
+  // A reused image is in SHADER_READ_ONLY_OPTIMAL from the previous frame; a
+  // freshly created one is UNDEFINED.
+  const VkImageLayout oldLayout = imageExisted ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
+  VkCommandBuffer commandBuffer = m_backend.beginSingleTimeCommands();
+  transitionImageLayout(
+    commandBuffer, m_volumeTexture.image(), VK_IMAGE_ASPECT_COLOR_BIT, oldLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  copyBufferToImage(commandBuffer, m_staging->get(), m_volumeTexture.image(), width, height, depth);
+  transitionImageLayout(commandBuffer,
+                        m_volumeTexture.image(),
                         VK_IMAGE_ASPECT_COLOR_BIT,
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  m_backend.endSingleTimeCommands(commandBuffer);
 
-  m_volumeTexture = resources::SampledImage(std::move(*image), std::move(*view), std::move(*sampler));
   m_dimensions = glm::ivec3(static_cast<int>(width), static_cast<int>(height), static_cast<int>(depth));
   m_gpuBytes += byteCount;
   m_linearFiltering = linearFiltering;
@@ -268,8 +353,9 @@ VolumeTextureVk::setLinearFiltering(bool linearFiltering)
     return false;
   }
 
-  // Safe to replace immediately: endSingleTimeCommands() waits for queue idle
-  // after every submission, and descriptor sets are re-written each frame.
+  // Safe to replace immediately: endSingleTimeCommands() waits for the sampler
+  // replacement submission to finish, and descriptor sets are re-written each
+  // frame.
   m_volumeTexture.replaceSampler(std::move(*newSampler));
   m_linearFiltering = linearFiltering;
   return true;
@@ -389,19 +475,12 @@ VolumeTextureVk::uploadFused(const Scene& scene, bool linearFiltering)
     }
   }
 
+  // Fuse still writes tightly packed rgb, so the rgb->rgba expansion remains a
+  // separate pass, but it now writes into staging rather than into a second
+  // vector that would then be copied again.
   std::vector<uint8_t> rgb(voxelCount * 3);
   uint8_t* rgbPtr = rgb.data();
   Fuse::fuse(img, colors, scene.m_material, &rgbPtr, nullptr);
-
-  std::vector<uint8_t> rgba(voxelCount * 4);
-  parallel_for(voxelCount, [&rgb, &rgba](size_t s, size_t e) {
-    for (size_t i = s; i < e; ++i) {
-      rgba[i * 4 + 0] = rgb[i * 3 + 0];
-      rgba[i * 4 + 1] = rgb[i * 3 + 1];
-      rgba[i * 4 + 2] = rgb[i * 3 + 2];
-      rgba[i * 4 + 3] = 255;
-    }
-  });
 
   std::array<uint8_t, kTransferSize * kTransferLayers * 4> transfer = {};
   for (uint32_t layer = 0; layer < kTransferLayers; ++layer) {
@@ -414,13 +493,25 @@ VolumeTextureVk::uploadFused(const Scene& scene, bool linearFiltering)
     }
   }
 
-  return uploadVolumeBytes(rgba.data(),
-                           rgba.size(),
-                           VK_FORMAT_R8G8B8A8_UNORM,
-                           static_cast<uint32_t>(img->sizeX()),
-                           static_cast<uint32_t>(img->sizeY()),
-                           static_cast<uint32_t>(img->sizeZ()),
-                           linearFiltering) &&
+  auto fill = [voxelCount, &rgb](void* mapped) {
+    uint8_t* rgba = static_cast<uint8_t*>(mapped);
+    parallel_for(voxelCount, [&rgb, rgba](size_t s, size_t e) {
+      for (size_t i = s; i < e; ++i) {
+        rgba[i * 4 + 0] = rgb[i * 3 + 0];
+        rgba[i * 4 + 1] = rgb[i * 3 + 1];
+        rgba[i * 4 + 2] = rgb[i * 3 + 2];
+        rgba[i * 4 + 3] = 255;
+      }
+    });
+  };
+
+  return uploadVolumeFrom(fill,
+                          voxelCount * 4,
+                          VK_FORMAT_R8G8B8A8_UNORM,
+                          static_cast<uint32_t>(img->sizeX()),
+                          static_cast<uint32_t>(img->sizeY()),
+                          static_cast<uint32_t>(img->sizeZ()),
+                          linearFiltering) &&
          uploadTransferBytes(transfer.data(), transfer.size());
 }
 
@@ -431,26 +522,30 @@ VolumeTextureVk::uploadRaw(const Scene& scene, bool linearFiltering)
   const size_t voxelCount = img->sizeX() * img->sizeY() * img->sizeZ();
   const std::array<uint32_t, 4> channels = activeChannels(scene);
 
-  std::vector<uint16_t> rgba16(voxelCount * 4);
-  parallel_for(voxelCount, [&rgba16, &img, &channels](size_t s, size_t e) {
-    for (size_t i = s; i < e; ++i) {
-      rgba16[i * 4 + 0] = img->channel(channels[0])->m_ptr[i];
-      rgba16[i * 4 + 1] = img->channel(channels[1])->m_ptr[i];
-      rgba16[i * 4 + 2] = img->channel(channels[2])->m_ptr[i];
-      rgba16[i * 4 + 3] = img->channel(channels[3])->m_ptr[i];
-    }
-  });
-
   std::array<uint8_t, kTransferSize * kTransferLayers * 4> transfer = {};
   buildRawTransferBytes(scene, channels, transfer);
 
-  return uploadVolumeBytes(rgba16.data(),
-                           rgba16.size() * sizeof(uint16_t),
-                           VK_FORMAT_R16G16B16A16_UNORM,
-                           static_cast<uint32_t>(img->sizeX()),
-                           static_cast<uint32_t>(img->sizeY()),
-                           static_cast<uint32_t>(img->sizeZ()),
-                           linearFiltering) &&
+  // Interleave directly into staging: one pass over the volume, no intermediate
+  // vector and no copy from it into the staging buffer.
+  auto fill = [voxelCount, img, &channels](void* mapped) {
+    uint16_t* rgba16 = static_cast<uint16_t*>(mapped);
+    parallel_for(voxelCount, [rgba16, img, &channels](size_t s, size_t e) {
+      for (size_t i = s; i < e; ++i) {
+        rgba16[i * 4 + 0] = img->channel(channels[0])->m_ptr[i];
+        rgba16[i * 4 + 1] = img->channel(channels[1])->m_ptr[i];
+        rgba16[i * 4 + 2] = img->channel(channels[2])->m_ptr[i];
+        rgba16[i * 4 + 3] = img->channel(channels[3])->m_ptr[i];
+      }
+    });
+  };
+
+  return uploadVolumeFrom(fill,
+                          voxelCount * 4 * sizeof(uint16_t),
+                          VK_FORMAT_R16G16B16A16_UNORM,
+                          static_cast<uint32_t>(img->sizeX()),
+                          static_cast<uint32_t>(img->sizeY()),
+                          static_cast<uint32_t>(img->sizeZ()),
+                          linearFiltering) &&
          uploadTransferBytes(transfer.data(), transfer.size());
 }
 

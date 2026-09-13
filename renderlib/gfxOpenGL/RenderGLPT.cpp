@@ -3,6 +3,7 @@
 #include "gfxOpenGL/Backend.h"
 #include "glm.h"
 
+#include "CacheStatusReport.h"
 #include "ImageXYZC.h"
 #include "Logging.h"
 #include "gfxOpenGL/FSQ.h"
@@ -387,6 +388,8 @@ RenderGLPT::doRender(const CCamera& camera)
   m_status->SetStatisticChanged("Performance", "De-noise Image", m_timingDenoise.filteredDurationAsString(), "ms.");
 
   m_status->SetStatisticChanged("Performance", "No. Iterations", std::to_string(m_renderSettings->GetNoIterations()));
+
+  reportCacheStatistics(m_status.get());
 
   // restore prior framebuffer
   glBindFramebuffer(GL_FRAMEBUFFER, drawFboId);

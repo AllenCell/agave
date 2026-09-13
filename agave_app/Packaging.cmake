@@ -16,6 +16,11 @@ install(TARGETS agaveapp
 )
 
 if(WIN32)
+  install(CODE [[
+    if(POLICY CMP0207)
+      cmake_policy(SET CMP0207 NEW)
+    endif()
+  ]])
   install(TARGETS agaveapp
     RUNTIME_DEPENDENCIES
     DIRECTORIES "$<TARGET_FILE_DIR:agaveapp>" "$<TARGET_FILE_DIR:Qt6::Core>"

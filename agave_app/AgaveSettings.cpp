@@ -1,4 +1,4 @@
-#include "CacheSettings.h"
+#include "AgaveSettings.h"
 
 #include "renderlib/CacheManager.h"
 #include "renderlib/Logging.h"
@@ -9,6 +9,8 @@
 #include <QStandardPaths>
 
 #include <nlohmann/json.hpp>
+
+#include <algorithm>
 
 namespace {
 
@@ -50,19 +52,38 @@ toRenderlibConfig(const CacheSettingsData& data)
   return config;
 }
 
+const nlohmann::json*
+objectIfPresent(const nlohmann::json& parent, const char* key)
+{
+  auto it = parent.find(key);
+  if (it != parent.end() && it->is_object()) {
+    return &(*it);
+  }
+  return nullptr;
+}
+
+template<typename T>
+void
+readIfPresent(const nlohmann::json& object, const char* key, T& value)
+{
+  if (object.contains(key)) {
+    value = object[key].get<T>();
+  }
+}
+
 } // namespace
 
-CacheSettings::CacheSettings() = default;
+AgaveSettings::AgaveSettings() = default;
 
-CacheSettingsData
-CacheSettings::defaultSettings() const
+AgaveSettingsData
+AgaveSettings::defaultSettings() const
 {
-  // Tunable defaults come from CacheSettingsData's in-class initializers.
+  // Tunable defaults come from the settings structs' in-class initializers.
   return {};
 }
 
 std::string
-CacheSettings::configPath() const
+AgaveSettings::configPath() const
 {
   QString baseDir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
   if (baseDir.isEmpty()) {
@@ -72,52 +93,70 @@ CacheSettings::configPath() const
     baseDir = QDir::currentPath();
   }
   QDir().mkpath(baseDir);
-  return QDir(baseDir).filePath("cache_settings.json").toStdString();
+  return QDir(baseDir).filePath("agave_settings.json").toStdString();
 }
 
-CacheSettingsData
-CacheSettings::load()
+void
+AgaveSettings::load()
 {
-  CacheSettingsData data = defaultSettings();
+  AgaveSettingsData data = defaultSettings();
   QString path = QString::fromStdString(configPath());
   QFile file(path);
   if (!file.exists()) {
-    return data;
+    m_data = data;
+    return;
   }
   if (!file.open(QIODevice::ReadOnly)) {
-    return data;
+    m_data = data;
+    return;
   }
 
   QByteArray raw = file.readAll();
   try {
     nlohmann::json doc = nlohmann::json::parse(raw.toStdString());
-    if (doc.contains("enabled")) {
-      data.enabled = doc["enabled"].get<bool>();
+    if (const nlohmann::json* cache = objectIfPresent(doc, "cache")) {
+      readIfPresent(*cache, "enabled", data.cache.enabled);
+      readIfPresent(*cache, "enableDisk", data.cache.enableDisk);
+      readIfPresent(*cache, "maxRamBytes", data.cache.maxRamBytes);
+      readIfPresent(*cache, "maxDiskBytes", data.cache.maxDiskBytes);
     }
-    if (doc.contains("enableDisk")) {
-      data.enableDisk = doc["enableDisk"].get<bool>();
-    }
-    if (doc.contains("maxRamBytes")) {
-      data.maxRamBytes = doc["maxRamBytes"].get<std::uint64_t>();
-    }
-    if (doc.contains("maxDiskBytes")) {
-      data.maxDiskBytes = doc["maxDiskBytes"].get<std::uint64_t>();
+
+    if (const nlohmann::json* timeSeries = objectIfPresent(doc, "timeSeries")) {
+      readIfPresent(*timeSeries, "prefetchEnabled", data.timeSeries.prefetchEnabled);
+
+      if (const nlohmann::json* playback = objectIfPresent(*timeSeries, "playback")) {
+        readIfPresent(*playback, "fps", data.timeSeries.playback.fps);
+        readIfPresent(*playback, "loop", data.timeSeries.playback.loop);
+        readIfPresent(*playback, "dropFrames", data.timeSeries.playback.dropFrames);
+      }
     }
   } catch (...) {
-    return defaultSettings();
+    m_data = defaultSettings();
+    return;
   }
 
-  return data;
+  m_data = data;
 }
 
 bool
-CacheSettings::save(const CacheSettingsData& data) const
+AgaveSettings::save() const
 {
   nlohmann::json doc;
-  doc["enabled"] = data.enabled;
-  doc["enableDisk"] = data.enableDisk;
-  doc["maxRamBytes"] = data.maxRamBytes;
-  doc["maxDiskBytes"] = data.maxDiskBytes;
+  doc["cache"] = {
+    { "enabled", m_data.cache.enabled },
+    { "enableDisk", m_data.cache.enableDisk },
+    { "maxRamBytes", m_data.cache.maxRamBytes },
+    { "maxDiskBytes", m_data.cache.maxDiskBytes },
+  };
+  doc["timeSeries"] = {
+    { "prefetchEnabled", m_data.timeSeries.prefetchEnabled },
+    { "playback",
+      {
+        { "fps", m_data.timeSeries.playback.fps },
+        { "loop", m_data.timeSeries.playback.loop },
+        { "dropFrames", m_data.timeSeries.playback.dropFrames },
+      } },
+  };
 
   QString path = QString::fromStdString(configPath());
   QFile file(path);
@@ -130,13 +169,13 @@ CacheSettings::save(const CacheSettingsData& data) const
 }
 
 void
-CacheSettings::applyToRenderlib(const CacheSettingsData& data) const
+AgaveSettings::applyCacheToRenderlib() const
 {
   // The cache directory (and its writability) is settled once at startup in
   // CacheManager::initialize(); if it wasn't writable the manager left its root
   // unset, so a disk-enabled config here is simply honored as RAM-only. We only
   // push the runtime tunables.
-  ::CacheConfig config = toRenderlibConfig(data);
+  ::CacheConfig config = toRenderlibConfig(m_data.cache);
   LOG_INFO << "Cache config: enabled=" << (config.enabled ? 1 : 0) << " ram_bytes=" << config.maxRamBytes
            << " disk_enabled=" << (config.enableDisk ? 1 : 0) << " disk_bytes=" << config.maxDiskBytes
            << " cache_dir=" << CacheManager::instance().getCacheDirectory();
