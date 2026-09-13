@@ -967,7 +967,7 @@ class AgaveRenderer:
         flushes the command buffer to the server, waits for the JSON text
         frame the server sends back, and returns the parsed dictionary.
 
-        The returned dict is built by ``buildVolumeInfoJson`` in
+        The returned dict is built by ``volumeInfoToJson`` in
         ``renderlib/VolumeInfoToJson.cpp``, shared with every other volume
         loading path, and contains at least the following keys:
 

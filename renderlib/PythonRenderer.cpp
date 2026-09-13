@@ -232,7 +232,7 @@ PythonRenderer::loadVolume(std::shared_ptr<ImageXYZC> image,
   m_renderSettings->m_DirtyFlags.SetFlag(VolumeDataDirty);
   m_renderSettings->m_DirtyFlags.SetFlag(TransferFunctionDirty);
 
-  return buildVolumeInfoJson(image, dimensions, name).dump();
+  return volumeInfoToJson(image, dimensions, name).dump();
 }
 
 PythonRendererResult
