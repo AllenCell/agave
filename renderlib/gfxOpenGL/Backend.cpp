@@ -161,6 +161,10 @@ initEGLDisplay(int selectedGpu)
       }
 #endif
     }
+    if (selectedGpu == gfxApi::kAutoSelectGpu) {
+      // No specific GPU was requested; let EGL pick.
+      return getEGLDefaultDisplay();
+    }
     if (selectedGpu >= numberDevices || selectedGpu < 0) {
       LOG_WARNING << "Invalid GPU " << selectedGpu << " requested. Using default gpu.";
       return getEGLDefaultDisplay();

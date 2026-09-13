@@ -798,11 +798,17 @@ AGAVE supports the following command line options:
 
 ``--list_devices``
 
-  Only valid in server mode on Linux.  AGAVE will dump a list of possible GPU devices and then exit.
+  AGAVE will dump a list of possible GPU devices and then exit. The indices reported here are what ``--gpu`` refers to. With the OpenGL backend this is only valid in server mode on Linux.
 
 ``--gpu number``
 
-  Only valid in server mode on Linux. Selects a device to use from the list provided by list_devices. The device is specified as a zero-based index into the list.
+  Selects a device to use from the list provided by list_devices. The device is specified as a zero-based index into the list. If this option is omitted, AGAVE automatically selects the best compatible device.
+
+  When a device is named explicitly, AGAVE uses exactly that device or fails with an error; it never falls back to a different one. In windowed mode the named device must also be able to present to the application window, which is not true of every GPU on multi-GPU Linux machines. If it cannot, try another index, ``--graphics_backend opengl``, or ``QT_QPA_PLATFORM=xcb``.
+
+``--graphics_backend name``
+
+  Selects the rendering backend: ``vulkan`` (default where available) or ``opengl``.
 
 ``-platform offscreen``
 
