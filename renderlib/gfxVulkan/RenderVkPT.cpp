@@ -126,7 +126,9 @@ struct alignas(16) PtVolumeUniforms
   glm::vec3 gPosToUVW;
   int g_nChannels;
   int gShadingType;
-  float _padShade[3];
+  int gUseWoodcockTracking;
+  float gExtinctionMajorant;
+  float _padShade;
   glm::vec3 gGradientDeltaX;
   float _pgx;
   glm::vec3 gGradientDeltaY;
@@ -156,6 +158,10 @@ struct alignas(16) PtVolumeUniforms
 static_assert(offsetof(PtVolumeUniforms, gLights) == 112, "PtVolumeUniforms.gLights offset");
 static_assert(offsetof(PtVolumeUniforms, gClippedAaBbMin) == 496, "PtVolumeUniforms.gClippedAaBbMin offset");
 static_assert(offsetof(PtVolumeUniforms, gPosToUVW) == 544, "PtVolumeUniforms.gPosToUVW offset");
+static_assert(offsetof(PtVolumeUniforms, gUseWoodcockTracking) == 564,
+              "PtVolumeUniforms.gUseWoodcockTracking offset");
+static_assert(offsetof(PtVolumeUniforms, gExtinctionMajorant) == 568,
+              "PtVolumeUniforms.gExtinctionMajorant offset");
 static_assert(offsetof(PtVolumeUniforms, gGradientDeltaX) == 576, "PtVolumeUniforms.gGradientDeltaX offset");
 static_assert(offsetof(PtVolumeUniforms, g_intensityMax) == 640, "PtVolumeUniforms.g_intensityMax offset");
 static_assert(offsetof(PtVolumeUniforms, g_opacity) == 720, "PtVolumeUniforms.g_opacity offset");
@@ -1188,6 +1194,7 @@ RenderVkPT::updatePtVolumeUniforms(const CCamera& camera, int sampleCounter)
   u.gStepSizeShadow = rs.m_StepSizeFactorShadow * rs.m_GradientDelta;
   u.gPosToUVW = m_scene->m_boundingBox.GetInverseExtent() * glm::vec3(m_scene->m_volume->getVolumeAxesFlipped());
   u.gShadingType = rs.m_ShadingType;
+  u.gUseWoodcockTracking = rs.m_UseWoodcockTracking ? 1 : 0;
 
   const float gradientDelta = 1.0f * rs.m_GradientDelta;
   u.gGradientDeltaX = glm::vec3(gradientDelta, 0.0f, 0.0f);
@@ -1201,6 +1208,7 @@ RenderVkPT::updatePtVolumeUniforms(const CCamera& camera, int sampleCounter)
   glm::vec4 intensityMax(1.0f), intensityMin(0.0f), lutMax(1.0f), lutMin(0.0f), labels(0.0f);
   const int NC = m_scene->m_volume->sizeC();
   int activeChannel = 0;
+  float maxOpacity = 0.0f;
   for (int i = 0; i < NC && activeChannel < 4; ++i) {
     if (!m_scene->m_material.m_enabled[i]) {
       continue;
@@ -1235,10 +1243,12 @@ RenderVkPT::updatePtVolumeUniforms(const CCamera& camera, int sampleCounter)
     u.g_tf_nNodes[activeChannel] = static_cast<uint32_t>(nTfPoints);
     for (int j = 0; j < nTfPoints; ++j) {
       u.g_tf[activeChannel * kMaxNoTfNodes + j] = glm::vec4(tf[j].first, tf[j].second, 0.0f, 0.0f);
+      maxOpacity = std::max(maxOpacity, std::max(m_scene->m_material.m_opacity[i] * tf[j].second, 0.0f));
     }
     ++activeChannel;
   }
   u.g_nChannels = activeChannel;
+  u.gExtinctionMajorant = rs.m_DensityScale * maxOpacity;
   u.g_intensityMax = intensityMax;
   u.g_intensityMin = intensityMin;
   u.g_lutMax = lutMax;

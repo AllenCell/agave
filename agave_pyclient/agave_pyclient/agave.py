@@ -782,7 +782,7 @@ class AgaveRenderer:
         channel: int
             Which channel index, 0 based.
         opacity: float
-            A multiplier between 0 and 1. Default is 1
+            A multiplier between 0 and 100. Default is 1
         """
         # 33
         self.cb.add_command("MAT_OPACITY", channel, opacity)
