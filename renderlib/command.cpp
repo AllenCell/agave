@@ -7,6 +7,7 @@
 #include "RenderSettings.h"
 #include "StringUtil.h"
 #include "VolumeDimensions.h"
+#include "VolumeInfoToJson.h"
 #include "io/ApplyTimeStepToScene.h"
 
 #include "json/json.hpp"
@@ -731,47 +732,9 @@ LoadDataCommand::execute(ExecutionContext* c)
   c->m_renderSettings->m_DirtyFlags.SetFlag(TransferFunctionDirty);
 
   // fire back some json immediately...
-  nlohmann::json j;
+  nlohmann::json j = buildVolumeInfoJson(image, dims, m_data.m_path);
+  // transport envelope field: the webclient routes responses on this
   j["commandId"] = (int)LoadDataCommand::m_ID;
-  j["x"] = (int)image->sizeX();
-  j["y"] = (int)image->sizeY();
-  j["z"] = (int)image->sizeZ();
-  j["c"] = (int)image->sizeC();
-  j["t"] = (int)dims.sizeT;
-  j["pixel_size_x"] = image->physicalSizeX();
-  j["pixel_size_y"] = image->physicalSizeY();
-  j["pixel_size_z"] = image->physicalSizeZ();
-  // Full VolumeDimensions metadata for the loaded image.
-  nlohmann::json vd;
-  vd["size_x"] = (int)dims.sizeX;
-  vd["size_y"] = (int)dims.sizeY;
-  vd["size_z"] = (int)dims.sizeZ;
-  vd["size_c"] = (int)dims.sizeC;
-  vd["size_t"] = (int)dims.sizeT;
-  vd["physical_size_x"] = dims.physicalSizeX;
-  vd["physical_size_y"] = dims.physicalSizeY;
-  vd["physical_size_z"] = dims.physicalSizeZ;
-  vd["spatial_units"] = dims.spatialUnits;
-  vd["time_unit"] = dims.timeUnit;
-  vd["time_units"] = dims.timeUnits;
-  vd["bits_per_pixel"] = (int)dims.bitsPerPixel;
-  vd["sample_format"] = (int)dims.sampleFormat;
-  vd["dimension_order"] = dims.dimensionOrder;
-  vd["channel_names"] = dims.channelNames;
-  j["volume_dimensions"] = vd;
-  std::vector<std::string> channelNames;
-  for (uint32_t i = 0; i < image->sizeC(); ++i) {
-    channelNames.push_back((image->channel(i)->m_name));
-  }
-  j["channel_names"] = channelNames;
-  std::vector<uint16_t> channelMinIntensity;
-  std::vector<uint16_t> channelMaxIntensity;
-  for (uint32_t i = 0; i < image->sizeC(); ++i) {
-    channelMinIntensity.push_back(image->channel(i)->m_histogram.getDataMin());
-    channelMaxIntensity.push_back(image->channel(i)->m_histogram.getDataMax());
-  }
-  j["channel_min_intensity"] = channelMinIntensity;
-  j["channel_max_intensity"] = channelMaxIntensity;
 
   c->m_message = j.dump();
 }

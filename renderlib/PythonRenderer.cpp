@@ -9,6 +9,7 @@
 #include "SceneView.h"
 #include "TimeStampTool.h"
 #include "VolumeDimensions.h"
+#include "VolumeInfoToJson.h"
 #include "gfxapi/Backend.h"
 #include "gfxapi/Framebuffer.h"
 #include "gfxapi/IGestureRenderer.h"
@@ -21,8 +22,6 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
-
-#include <nlohmann/json.hpp>
 
 namespace {
 
@@ -233,30 +232,7 @@ PythonRenderer::loadVolume(std::shared_ptr<ImageXYZC> image,
   m_renderSettings->m_DirtyFlags.SetFlag(VolumeDataDirty);
   m_renderSettings->m_DirtyFlags.SetFlag(TransferFunctionDirty);
 
-  nlohmann::json result;
-  result["name"] = name;
-  result["x"] = image->sizeX();
-  result["y"] = image->sizeY();
-  result["z"] = image->sizeZ();
-  result["c"] = image->sizeC();
-  result["t"] = 1;
-  result["pixel_size_x"] = image->physicalSizeX();
-  result["pixel_size_y"] = image->physicalSizeY();
-  result["pixel_size_z"] = image->physicalSizeZ();
-  result["spatial_units"] = image->spatialUnits();
-  result["channel_names"] = dimensions.channelNames;
-
-  std::vector<uint16_t> channelMins;
-  std::vector<uint16_t> channelMaxes;
-  channelMins.reserve(image->sizeC());
-  channelMaxes.reserve(image->sizeC());
-  for (uint32_t channel = 0; channel < image->sizeC(); ++channel) {
-    channelMins.push_back(image->channel(channel)->m_histogram.getDataMin());
-    channelMaxes.push_back(image->channel(channel)->m_histogram.getDataMax());
-  }
-  result["channel_min_intensity"] = channelMins;
-  result["channel_max_intensity"] = channelMaxes;
-  return result.dump();
+  return buildVolumeInfoJson(image, dimensions, name).dump();
 }
 
 PythonRendererResult
