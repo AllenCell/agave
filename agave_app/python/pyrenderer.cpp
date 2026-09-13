@@ -1,22 +1,36 @@
 #include "pyrenderer.h"
 
+#include "renderlib/AppScene.h"
 #include "renderlib/BoundingBoxTool.h"
 #include "renderlib/CCamera.h"
 #include "renderlib/Logging.h"
 #include "renderlib/RenderSettings.h"
 #include "renderlib/ScaleBarTool.h"
 #include "renderlib/TimeStampTool.h"
-#include "renderlib/graphics/RenderGLPT.h"
+#include "renderlib/gfxOpenGL/Backend.h"
 #include "renderlib/io/FileReader.h"
 #include "renderlib/renderlib.h"
 
-#include <QApplication>
-#include <QElapsedTimer>
-#include <QMessageBox>
-#include <QOpenGLFramebufferObjectFormat>
+namespace {
+
+gfxApi::ClearColor
+backgroundClearColor(const Scene* scene)
+{
+  if (!scene) {
+    return {};
+  }
+
+  return { scene->m_material.m_backgroundColor[0],
+           scene->m_material.m_backgroundColor[1],
+           scene->m_material.m_backgroundColor[2],
+           0.0f };
+}
+
+} // namespace
 
 OffscreenRenderer::OffscreenRenderer()
-  : m_fbo(nullptr)
+  : m_rglContext(static_cast<gfxopengl::Backend&>(*renderlib::graphicsBackend()))
+  , m_fbo(nullptr)
   , m_width(0)
   , m_height(0)
 {
@@ -26,11 +40,7 @@ OffscreenRenderer::OffscreenRenderer()
 
 OffscreenRenderer::~OffscreenRenderer()
 {
-#if HAS_EGL
-  this->m_glContext->makeCurrent();
-#else
-  this->m_glContext->makeCurrent(this->m_surface);
-#endif
+  m_rglContext.makeCurrent();
   m_myVolumeData.m_renderer->cleanUpResources();
   shutDown();
 }
@@ -49,9 +59,11 @@ OffscreenRenderer::myVolumeInit()
   m_myVolumeData.m_scene->initLights();
 
   // TODO allow for all renderer types (e.g. RendererGL also)
-  m_myVolumeData.m_renderer = new RenderGLPT(m_myVolumeData.m_renderSettings);
+  m_myVolumeData.m_renderer =
+    renderlib::createRenderer(renderlib::RendererType_Pathtrace, m_myVolumeData.m_renderSettings);
   m_myVolumeData.m_renderer->initialize(m_width, m_height);
   m_myVolumeData.m_renderer->setScene(m_myVolumeData.m_scene);
+  m_myVolumeData.m_gestureRenderer = renderlib::graphicsBackend()->createGestureRenderer();
 
   // execution context for commands to run
   m_ec.m_renderSettings = m_myVolumeData.m_renderSettings;
@@ -67,42 +79,21 @@ OffscreenRenderer::init()
 {
   LOG_DEBUG << "INIT RENDERER";
 
-#if HAS_EGL
-  this->m_glContext = new HeadlessGLContext();
-  this->m_glContext->makeCurrent();
-#else
-  this->m_glContext = renderlib::createOpenGLContext();
-
-  this->m_surface = new QOffscreenSurface();
-  this->m_surface->setFormat(this->m_glContext->format());
-  this->m_surface->create();
-
-  this->m_glContext->makeCurrent(m_surface);
-#endif
+  m_rglContext.init();
 
   this->resizeGL(1024, 1024);
-
-  int MaxSamples = 0;
-  glGetIntegerv(GL_MAX_SAMPLES, &MaxSamples);
-  LOG_INFO << "max samples" << MaxSamples;
-
-  glEnable(GL_MULTISAMPLE);
 
   reset();
 
   myVolumeInit();
 
-  this->m_glContext->doneCurrent();
+  m_rglContext.doneCurrent();
 }
 
 QImage
 OffscreenRenderer::render()
 {
-#if HAS_EGL
-  this->m_glContext->makeCurrent();
-#else
-  this->m_glContext->makeCurrent(this->m_surface);
-#endif
+  m_rglContext.makeCurrent();
 
   // DRAW
   m_myVolumeData.m_camera->Update();
@@ -133,22 +124,22 @@ OffscreenRenderer::render()
   timestamp.draw(sceneView, m_myVolumeData.m_gesture);
 
   m_fbo->bind();
-  clearFramebuffer(sceneView.scene);
-  m_myVolumeData.m_gestureRenderer.drawUnderlay(sceneView, nullptr, m_myVolumeData.m_gesture.graphics);
+  m_fbo->clear(backgroundClearColor(sceneView.scene));
+  m_myVolumeData.m_gestureRenderer->drawUnderlay(sceneView, m_myVolumeData.m_gesture.graphics);
   m_fbo->release();
 
   // main scene rendering
-  m_myVolumeData.m_renderer->renderTo(sceneView.camera, m_fbo);
+  m_myVolumeData.m_renderer->renderTo(sceneView.camera, m_fbo.get());
 
   m_fbo->bind();
-  m_myVolumeData.m_gestureRenderer.draw(sceneView, nullptr, m_myVolumeData.m_gesture.graphics);
+  m_myVolumeData.m_gestureRenderer->draw(sceneView, m_myVolumeData.m_gesture.graphics);
   m_fbo->release();
 
   std::unique_ptr<uint8_t> bytes(new uint8_t[vw * vh * 4]);
   m_fbo->toImage(bytes.get());
   QImage img = QImage(bytes.get(), vw, vh, QImage::Format_RGB32).copy().mirrored();
 
-  this->m_glContext->doneCurrent();
+  m_rglContext.doneCurrent();
   return img;
 }
 
@@ -159,19 +150,15 @@ OffscreenRenderer::resizeGL(int width, int height)
     return;
   }
 
-#if HAS_EGL
-  this->m_glContext->makeCurrent();
-#else
-  this->m_glContext->makeCurrent(this->m_surface);
-#endif
+  m_rglContext.makeCurrent();
 
   // RESIZE THE RENDER INTERFACE
   if (m_myVolumeData.m_renderer) {
     m_myVolumeData.m_renderer->resize(width, height);
   }
 
-  delete this->m_fbo;
-  this->m_fbo = new GLFramebufferObject(width, height, GL_RGBA8);
+  this->m_fbo = renderlib::graphicsBackend()->createFramebuffer(
+    { static_cast<uint32_t>(width), static_cast<uint32_t>(height), gfxApi::FramebufferColorFormat::Rgba8, true });
 
   glViewport(0, 0, width, height);
 
@@ -182,11 +169,7 @@ OffscreenRenderer::resizeGL(int width, int height)
 void
 OffscreenRenderer::reset(int from)
 {
-#if HAS_EGL
-  this->m_glContext->makeCurrent();
-#else
-  this->m_glContext->makeCurrent(this->m_surface);
-#endif
+  m_rglContext.makeCurrent();
 
   glClearColor(0.0, 0.0, 0.0, 1.0);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -197,12 +180,9 @@ OffscreenRenderer::reset(int from)
 void
 OffscreenRenderer::shutDown()
 {
-#if HAS_EGL
-  this->m_glContext->makeCurrent();
-#else
-  this->m_glContext->makeCurrent(this->m_surface);
-#endif
-  delete this->m_fbo;
+  m_rglContext.makeCurrent();
+  this->m_fbo.reset();
+  m_myVolumeData.m_gestureRenderer.reset();
 
   delete m_myVolumeData.m_renderSettings;
   delete m_myVolumeData.m_camera;
@@ -213,14 +193,8 @@ OffscreenRenderer::shutDown()
   m_myVolumeData.m_renderSettings = nullptr;
   m_myVolumeData.m_renderer = nullptr;
 
-  m_glContext->doneCurrent();
-  delete m_glContext;
-
-#if HAS_EGL
-#else
-  // schedule this to be deleted only after we're done cleaning up
-  m_surface->deleteLater();
-#endif
+  m_rglContext.doneCurrent();
+  m_rglContext.destroy();
 }
 
 // RenderInterface

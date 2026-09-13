@@ -6,7 +6,7 @@
 #include "renderlib/RenderSettings.h"
 #include "renderlib/ViewerWindow.h"
 #include "renderlib/command.h"
-#include "renderlib/graphics/IRenderWindow.h"
+#include "renderlib/gfxapi/IRenderWindow.h"
 
 #include <QApplication>
 #include <QButtonGroup>
@@ -235,7 +235,7 @@ RenderDialog::RenderDialog(ViewerWindow* borrowedRenderer,
                            const RenderSettings& renderSettings,
                            const Scene& scene,
                            const CCamera& ccamera,
-                           QOpenGLContext* glContext,
+                           QtGLContext* glContext,
                            const LoadSpec& loadSpec,
                            CaptureSettings* captureSettings,
                            int viewportWidth,
@@ -741,6 +741,12 @@ RenderDialog::render()
 
     updateUIStartRendering();
 
+    if (!m_glContext->isValid() && !m_glContext->create()) {
+      LOG_ERROR << "RenderDialog: failed to prepare the Qt GL context";
+      updateUIStopRendering(false);
+      return;
+    }
+
     if (!m_renderThread) {
 
       m_renderThread = new Renderer("Render dialog render thread ", this, m_mutex);
@@ -953,6 +959,9 @@ RenderDialog::endRenderThread()
     m_renderThread->wakeUp();
     // we need to ensure that the render thread is not trying to make calls back into this thread
     m_renderThread->wait();
+    if (m_glContext) {
+      m_glContext->moveToThread(qApp->thread());
+    }
   }
 }
 

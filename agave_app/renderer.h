@@ -1,12 +1,11 @@
 #ifndef RENDERER_H
 #define RENDERER_H
 
-#include "glad/glad.h"
-
 #include "renderlib/command.h"
 #include "renderlib/gesture/gesture.h"
-#include "renderlib/graphics/gl/Util.h"
-#include "renderlib/graphics/GestureGraphicsGL.h"
+#include "renderlib/gfxapi/Framebuffer.h"
+#include "renderlib/gfxapi/IGLContext.h"
+#include "renderlib/gfxapi/IGestureRenderer.h"
 #include "renderlib/io/FileReader.h"
 #include "renderlib/renderlib.h"
 #include "renderrequest.h"
@@ -15,7 +14,6 @@
 #include <QList>
 #include <QMutex>
 #include <QObject>
-#include <QOpenGLContext>
 #include <QStandardPaths>
 #include <QThread>
 #include <QWaitCondition>
@@ -25,9 +23,15 @@
 class commandBuffer;
 class CCamera;
 class ImageXYZC;
-class IRenderWindow;
 class RenderSettings;
 class Scene;
+
+namespace gfxApi {
+class IGLContext;
+class IRenderWindow;
+}
+
+class QtGLContext;
 
 // serialized so permanent?
 enum eRenderDurationType
@@ -81,6 +85,12 @@ struct CaptureSettings
   }
 };
 
+// Renderer runs on a dedicated QThread and drives offscreen GL rendering.
+// It is used in two scenarios:
+//   - RenderDialog: interactive offline render within the GUI application.
+//   - Stream server: headless server mode, no windowed GL context.
+// The other rendering entry point is GLView3D, which uses Qt's QOpenGLWidget
+// and never passes through this class (Qt manages that context implicitly).
 class Renderer
   : public QThread
   , public RendererCommandInterface
@@ -91,14 +101,37 @@ public:
   Renderer(const QString& id, QObject* parent, QMutex& mutex);
   ~Renderer() override;
 
-  void configure(IRenderWindow* renderer,
+  // Configure a render session before starting the render thread.
+  //
+  // GL context ownership depends on the glContext argument and backend mode:
+  //
+  //   glContext provided (RenderDialog, Qt windowed):
+  //     The caller (agaveGui) owns a QtGLContext that wraps GLView3D's
+  //     QOpenGLContext. Renderer borrows it for the render session; the
+  //     underlying QOpenGLContext is owned by the QOpenGLWidget for the
+  //     lifetime of the application. The context is moved to this render
+  //     thread when rendering starts and moved back to the main thread
+  //     when the session ends. m_ownedGLContext is unused.
+  //
+  //   glContext == nullptr, non-headless (stream server, Qt windowed):
+  //     Renderer creates and owns m_ownedGLContext — a fresh QtGLContext
+  //     with its own QOpenGLContext and offscreen surface. Lives for the
+  //     lifetime of this Renderer.
+  //
+  //   glContext == nullptr, headless (EGL stream server):
+  //     The backend creates a HeadlessGLContext inside createRendererContext().
+  //     m_renderContext owns it; m_ownedGLContext is unused. Lives for the
+  //     lifetime of this Renderer.
+  //
+  // In all cases m_renderContext holds the IGLContext used on the render thread.
+  void configure(gfxApi::IRenderWindow* renderer,
                  const RenderSettings& renderSettings,
                  const Scene& scene,
                  const CCamera& camera,
                  const LoadSpec& loadSpec,
                  // rendererMode ignored if renderer is non-null
                  renderlib::RendererType rendererMode = renderlib::RendererType_Pathtrace,
-                 QOpenGLContext* glContext = nullptr,
+                 gfxApi::IGLContext* glContext = nullptr,
                  const CaptureSettings* captureSettings = nullptr);
 
   void run() override;
@@ -140,9 +173,12 @@ protected:
 private:
   QMutex* m_openGLMutex;
 
-  RendererGLContext m_rglContext;
+  // Active GL context on the render thread (see configure() comment above).
+  std::unique_ptr<gfxApi::IGLContext> m_renderContext;
+  // Owned QtGLContext created when no external context is provided (non-headless only).
+  std::unique_ptr<QtGLContext> m_ownedGLContext;
 
-  GLFramebufferObject* m_fbo;
+  std::unique_ptr<gfxApi::Framebuffer> m_fbo;
 
   std::atomic<bool> m_streamMode;
 
@@ -159,12 +195,12 @@ private:
     bool ownRenderer;
     RenderSettings* m_renderSettings;
     CaptureSettings* m_captureSettings;
-    IRenderWindow* m_renderer;
+    gfxApi::IRenderWindow* m_renderer;
     Scene* m_scene;
     CCamera* m_camera;
     LoadSpec m_loadSpec;
     Gesture m_gesture;
-    GestureRendererGL m_gestureRenderer;
+    std::unique_ptr<gfxApi::IGestureRenderer> m_gestureRenderer;
 
     myVolumeData()
       : m_camera(nullptr)

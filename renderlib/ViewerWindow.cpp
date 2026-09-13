@@ -5,24 +5,38 @@
 #include "AppScene.h"
 #include "AxisHelperTool.h"
 #include "BoundingBoxTool.h"
-#include "IRenderWindow.h"
 #include "Light.h"
+#include "Logging.h"
 #include "MoveTool.h"
 #include "RenderSettings.h"
 #include "RotateTool.h"
 #include "ScaleBarTool.h"
 #include "SceneLight.h"
 #include "TimeStampTool.h"
-#include "graphics/RenderGL.h"
-#include "graphics/RenderGLPT.h"
-#include "graphics/GestureGraphicsGL.h"
-#include "graphics/gl/Util.h"
+#include "gfxapi/Backend.h"
 #include "renderlib.h"
+
+namespace {
+
+gfxApi::ClearColor
+backgroundClearColor(const Scene* scene)
+{
+  if (!scene) {
+    return {};
+  }
+
+  return { scene->m_material.m_backgroundColor[0],
+           scene->m_material.m_backgroundColor[1],
+           scene->m_material.m_backgroundColor[2],
+           0.0f };
+}
+
+} // namespace
 
 ViewerWindow::ViewerWindow(RenderSettings* rs)
   : m_renderSettings(rs)
-  , m_renderer(new RenderGLPT(rs))
-  , m_gestureRenderer(new GestureRendererGL())
+  , m_renderer(renderlib::graphicsBackend()->createRenderWindow(gfxApi::RenderWindowKind::PathTrace, rs))
+  , m_gestureRenderer(renderlib::graphicsBackend()->createGestureRenderer())
 {
   gesture.input.reset();
 
@@ -208,8 +222,7 @@ ViewerWindow::update(const SceneView::Viewport& viewport, const Clock& clock, Ge
   if (gesture.input.clickEnded() || gesture.input.isDragging()) {
     pickedAnything = gesture.graphics.m_retainedSelectionCode != Gesture::Graphics::k_noSelectionCode;
   } else {
-    pickedAnything =
-      m_gestureRenderer->pick(m_selection, gesture.input, viewport, gesture.graphics.m_retainedSelectionCode);
+    pickedAnything = m_gestureRenderer->pick(gesture.input, viewport, gesture.graphics.m_retainedSelectionCode);
   }
 
   if (pickedAnything) {
@@ -282,8 +295,8 @@ ViewerWindow::redraw()
     m_increments = 0;
   }
 
-  glm::ivec2 oldpickbuffersize = m_selection.resolution;
-  bool ok = m_selection.update(glm::ivec2(width(), height()));
+  bool selectionBufferResized = !m_gestureRenderer->selectionBufferMatches(width(), height());
+  bool ok = m_gestureRenderer->updateSelectionBuffer(width(), height());
   if (!ok) {
     LOG_ERROR << "Failed to update selection buffer";
   }
@@ -297,8 +310,7 @@ ViewerWindow::redraw()
   // renderer size may have been directly manipulated by e.g. the renderdialog
   uint32_t oldrendererwidth, oldrendererheight;
   m_renderer->getSize(oldrendererwidth, oldrendererheight);
-  if (width() != oldpickbuffersize.x || height() != oldpickbuffersize.y || width() != oldrendererwidth ||
-      height() != oldrendererheight) {
+  if (selectionBufferResized || width() != oldrendererwidth || height() != oldrendererheight) {
     m_renderer->resize(width(), height());
     m_CCamera.m_Film.m_Resolution.SetResX(width());
     m_CCamera.m_Film.m_Resolution.SetResY(height());
@@ -313,16 +325,16 @@ ViewerWindow::redraw()
   update(sceneView.viewport, m_clock, gesture);
 
   // ready to start drawing; clear our main framebuffer
-  clearFramebuffer(sceneView.scene);
+  renderlib::graphicsBackend()->clearCurrentFramebuffer(backgroundClearColor(sceneView.scene));
 
   // render and then clear out draw commands from gesture graphics
-  m_gestureRenderer->drawUnderlay(sceneView, &m_selection, gesture.graphics);
+  m_gestureRenderer->drawUnderlay(sceneView, gesture.graphics);
 
   // main scene rendering; need to blend/composite on top of overlay previously drawn
   m_renderer->render(sceneView.camera);
 
   // render and then clear out draw commands from gesture graphics
-  m_gestureRenderer->draw(sceneView, &m_selection, gesture.graphics);
+  m_gestureRenderer->draw(sceneView, gesture.graphics);
 
   // Make sure we consumed any unused input event before we poll new events.
   // (in the case of Qt we are not explicitly polling but using signals/slots.)
@@ -342,17 +354,20 @@ ViewerWindow::setRenderer(int rendererType)
   switch (rendererType) {
     case 1:
       LOG_DEBUG << "Set OpenGL pathtrace Renderer";
-      m_renderer = std::make_unique<RenderGLPT>(m_renderSettings);
+      m_renderer =
+        renderlib::graphicsBackend()->createRenderWindow(gfxApi::RenderWindowKind::PathTrace, m_renderSettings);
       m_renderSettings->m_DirtyFlags.SetFlag(TransferFunctionDirty);
       break;
     case 2:
       LOG_DEBUG << "Set OpenGL pathtrace Renderer";
-      m_renderer = std::make_unique<RenderGLPT>(m_renderSettings);
+      m_renderer =
+        renderlib::graphicsBackend()->createRenderWindow(gfxApi::RenderWindowKind::PathTrace, m_renderSettings);
       m_renderSettings->m_DirtyFlags.SetFlag(TransferFunctionDirty);
       break;
     default:
       LOG_DEBUG << "Set OpenGL single pass Renderer";
-      m_renderer = std::make_unique<RenderGL>(m_renderSettings);
+      m_renderer =
+        renderlib::graphicsBackend()->createRenderWindow(gfxApi::RenderWindowKind::RaymarchBlended, m_renderSettings);
   };
   m_rendererType = rendererType;
 

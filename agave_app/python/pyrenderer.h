@@ -2,24 +2,17 @@
 #define OFFSCREEN_RENDERER_H
 #pragma once
 
-#include "glad/glad.h"
-
 #include "RenderInterface.h"
 #include "command.h"
 #include "renderlib/gesture/gesture.h"
-#include "renderlib/graphics/IRenderWindow.h"
-#include "renderlib/graphics/GestureGraphicsGL.h"
-#include "renderlib/graphics/gl/Util.h"
+#include "renderlib/gfxOpenGL/Backend.h"
+#include "renderlib/gfxOpenGL/RendererGLContext.h"
+#include "renderlib/gfxapi/Framebuffer.h"
+#include "renderlib/gfxapi/IGestureRenderer.h"
+#include "renderlib/gfxapi/IRenderWindow.h"
 #include "renderlib/renderlib.h"
 
-#include <QList>
-#include <QObject>
-
-#include <QOffscreenSurface>
-#include <QOpenGLContext>
-#include <QOpenGLFramebufferObject>
-#include <QOpenGLTexture>
-#include <QThread>
+#include <QImage>
 
 #include <memory>
 #include <string>
@@ -121,14 +114,11 @@ protected:
   void shutDown();
 
 private:
-#if HAS_EGL
-  HeadlessGLContext* m_glContext;
-#else
-  QOpenGLContext* m_glContext;
-  QOffscreenSurface* m_surface;
-#endif
+  // GL context for this offscreen renderer (EGL headless or Qt offscreen,
+  // chosen by the backend at runtime).
+  gfxopengl::RendererGLContext m_rglContext;
 
-  GLFramebufferObject* m_fbo;
+  std::unique_ptr<gfxApi::Framebuffer> m_fbo;
 
   int32_t m_width, m_height;
 
@@ -137,11 +127,11 @@ private:
   struct myVolumeData
   {
     RenderSettings* m_renderSettings;
-    IRenderWindow* m_renderer;
+    gfxApi::IRenderWindow* m_renderer;
     Scene* m_scene;
     CCamera* m_camera;
     Gesture m_gesture;
-    GestureRendererGL m_gestureRenderer;
+    std::unique_ptr<gfxApi::IGestureRenderer> m_gestureRenderer;
 
     myVolumeData()
       : m_camera(nullptr)
