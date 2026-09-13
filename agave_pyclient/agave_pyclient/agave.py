@@ -967,17 +967,27 @@ class AgaveRenderer:
         flushes the command buffer to the server, waits for the JSON text
         frame the server sends back, and returns the parsed dictionary.
 
-        The returned dict contains at least the following keys (see
-        ``LoadDataCommand::execute`` in ``renderlib/command.cpp``):
+        The returned dict is built by ``buildVolumeInfoJson`` in
+        ``renderlib/VolumeInfoToJson.cpp``, shared with every other volume
+        loading path, and contains at least the following keys:
 
         - ``commandId``           : int, id of the LOAD_DATA command
+        - ``name``                : str, the file path the volume came from
         - ``x``, ``y``, ``z``, ``c``, ``t`` : int, image extents
         - ``pixel_size_x/y/z``    : float, physical voxel size
+        - ``spatial_units``       : str
         - ``channel_names``       : list[str]
         - ``channel_min_intensity``: list[int], one value per channel
         - ``channel_max_intensity``: list[int], one value per channel
         - ``volume_dimensions``   : nested dict mirroring the C++
           ``VolumeDimensions`` struct
+
+        The top-level fields describe the volume that was actually loaded,
+        after any ``channels``, ``region``, or ``multiresolution_level``
+        subsetting. ``volume_dimensions`` describes the source file as the
+        reader reported it, so it may be larger. ``commandId`` is a transport
+        field and is the only key not also returned by the in-process
+        ``agave_pyvk`` loaders.
 
         Note: any other commands queued in the buffer prior to calling
         this method will be flushed at the same time.
