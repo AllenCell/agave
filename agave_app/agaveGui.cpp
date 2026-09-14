@@ -563,17 +563,17 @@ agaveGui::onSupportForumAction()
 void
 agaveGui::onDocumentationAction()
 {
-  QDesktopServices::openUrl(QUrl("https://allen-cell-animated.github.io/agave"));
+  QDesktopServices::openUrl(QUrl("https://allencell.github.io/agave"));
 }
 void
 agaveGui::onReportBugAction()
 {
-  QDesktopServices::openUrl(QUrl("https://github.com/allen-cell-animated/agave/issues"));
+  QDesktopServices::openUrl(QUrl("https://github.com/AllenCell/agave/issues"));
 }
 void
 agaveGui::onSourceCodeAction()
 {
-  QDesktopServices::openUrl(QUrl("https://github.com/allen-cell-animated/agave"));
+  QDesktopServices::openUrl(QUrl("https://github.com/AllenCell/agave"));
 }
 void
 agaveGui::onCitationAction()
