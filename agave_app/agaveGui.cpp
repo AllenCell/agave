@@ -248,7 +248,7 @@ agaveGui::createActions()
   connect(m_dumpJsonAction, SIGNAL(triggered()), this, SLOT(saveJson()));
 
   m_dumpPythonAction = new QAction(tr("&Save to Python script"), this);
-  m_dumpPythonAction->setStatusTip(tr("Save a Python script usable with agave_pyclient"));
+  m_dumpPythonAction->setStatusTip(tr("Save a Python script usable with agave_pyvk"));
   connect(m_dumpPythonAction, SIGNAL(triggered()), this, SLOT(savePython()));
 
   m_testMeshAction = new QAction(tr("&Open mesh..."), this);
@@ -1407,8 +1407,7 @@ agaveGui::appToViewerState()
 
   v.pathTracer.primaryStepSize = m_renderSettings.m_RenderSettings.m_StepSizeFactor;
   v.pathTracer.secondaryStepSize = m_renderSettings.m_RenderSettings.m_StepSizeFactorShadow;
-  v.pathTracer.multichannelBlendMode =
-    static_cast<int32_t>(m_renderSettings.m_RenderSettings.m_MultichannelBlendMode);
+  v.pathTracer.multichannelBlendMode = static_cast<int32_t>(m_renderSettings.m_RenderSettings.m_MultichannelBlendMode);
 
   if (m_appScene.m_volume) {
     for (size_t i = 0; i < m_appScene.m_volume->sizeC(); ++i) {
