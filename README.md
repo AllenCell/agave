@@ -25,6 +25,17 @@ or searches the platform's usual Vulkan SDK installation directory.
 
 You may also refer to the github actions workflows for reference building AGAVE.
 
+### Activate your Python environment first
+
+Before configuring CMake, activate the Python virtual environment you want
+`agave_pyvk` installed into. CMake locates the interpreter from your `PATH`
+and records it in the build tree; the ABI-specific `agave_py2` module
+(`_native.<abi>.so`) is compiled against **that** interpreter. Later
+`cmake --build` invocations never re-detect Python, so building with a
+different env active will silently produce a wrong-ABI extension. If you
+switch envs, reconfigure explicitly (see
+[`agave_pyvk/README.md`](agave_pyvk/README.md)).
+
 ### Windows
 
 Make sure you are in an environment where vsvarsall has been run, e.g. a "VS2026 x64 Native Tools Command Prompt"
@@ -121,10 +132,10 @@ If cmake fails please refer to the Dockerfile or the github actions workflows fo
 
 ### Iterative standalone Python development
 
-The platform commands above create a persistent `build` directory. CMake uses
-the active Python interpreter and C++ compiler environment, and its default
-build compiles the shared static renderlib, the desktop application,
-and the ABI-specific `agave_py2` native module:
+With your target Python environment activated, the platform commands above
+create a persistent `build` directory. CMake records that interpreter, and
+its default build compiles the shared static renderlib, the desktop
+application, and the ABI-specific `agave_py2` native module:
 
 ```console
 cmake --build .
@@ -141,6 +152,10 @@ The CMake build stages the native module and its runtime dependencies directly
 in the Python package. The editable install performs only normal Python
 packaging; it does not invoke CMake or rebuild renderlib. Python source changes
 are visible immediately.
+
+If you later need to build the Python module for a _different_ interpreter
+without rebuilding the rest of the tree, see the retargeting recipe in
+[`agave_pyvk/README.md`](agave_pyvk/README.md).
 
 Optional: To save a little time in building the Python module only, use the same
 platform-specific CMake configure command with these options:
