@@ -45,10 +45,6 @@ class ArityError(AnimationError):
     """A value has the wrong number of components for its channel."""
 
 
-class OverlapError(AnimationError):
-    """Two drivers cover the same channel at the same time."""
-
-
 class MissingInitialError(AnimationError):
     """A driven channel has no declared initial value."""
 
@@ -101,10 +97,22 @@ def lerp(a: Value, b: Value, u: float) -> Value:
 
 
 class Driver(ABC):
-    """Produces values for one or more channels over an inclusive frame span."""
+    """Produces values for one or more channels over an inclusive frame span.
+
+    A driver also reports a weight at each frame. Where several drivers cover
+    the same channel at the same frame, the channel's value is their weighted
+    mean, ``sum(w * v) / sum(w)``. The default weight is 1.0, so equally
+    weighted drivers simply average; a weight that varies over time crossfades.
+    """
 
     start: int
     end: int
+    _weight: Union[float, Callable[[int], float]] = 1.0
+
+    def weight(self, frame: int) -> float:
+        """This driver's blending weight at ``frame``. Defaults to 1.0."""
+        w = self._weight
+        return float(w(frame)) if callable(w) else float(w)
 
     @abstractmethod
     def writes(self) -> Tuple[str, ...]:
@@ -129,7 +137,13 @@ class Keyframes(Driver):
     pair of points.
     """
 
-    def __init__(self, channel: str, points: Sequence[Point], ease: Ease = linear):
+    def __init__(
+        self,
+        channel: str,
+        points: Sequence[Point],
+        ease: Ease = linear,
+        weight: Union[float, Callable[[int], float]] = 1.0,
+    ):
         if len(points) < 2:
             raise ValueError(
                 f"channel {channel!r}: a Keyframes driver needs at least two points"
@@ -137,6 +151,7 @@ class Keyframes(Driver):
 
         self.channel = channel
         self.ease = ease
+        self._weight = weight
         self.points = [(int(f), as_value(v)) for f, v in points]
 
         frames = [f for f, _ in self.points]
@@ -195,34 +210,55 @@ class Channel:
         self.drivers: list = []
 
     def freeze(self) -> None:
-        """Sort the drivers and reject any that overlap.
-
-        Adjacent drivers may share a boundary frame -- that is how abutting
-        segments hand over without duplicating a frame -- so only a strict
-        overlap is an error.
-        """
+        """Order the drivers by span. Overlap is allowed; it blends."""
         self.drivers.sort(key=lambda d: (d.start, d.end))
-        for prev, nxt in zip(self.drivers, self.drivers[1:]):
-            if nxt.start < prev.end:
-                raise OverlapError(
-                    f"channel {self.name!r}: drivers overlap, "
-                    f"[{prev.start}, {prev.end}] and [{nxt.start}, {nxt.end}]"
+
+    def blend(self, frame: int) -> Union[Value, None]:
+        """Weighted mean of every driver covering ``frame``.
+
+        ``None`` when nothing is driving this channel there -- either no driver
+        covers the frame, or the covering drivers' weights sum to zero.
+        """
+        total = 0.0
+        accumulated = None
+
+        for driver in self.drivers:
+            if not (driver.start <= frame <= driver.end):
+                continue
+            weight = driver.weight(frame)
+            if weight == 0.0:
+                continue
+
+            value = driver.evaluate(frame)[self.name]
+            if accumulated is None:
+                accumulated = [0.0] * len(value)
+            elif len(value) != len(accumulated):
+                raise ArityError(
+                    f"channel {self.name!r}: drivers disagree on arity at frame "
+                    f"{frame}, got {len(accumulated)} and {len(value)}"
                 )
+            for i, component in enumerate(value):
+                accumulated[i] += component * weight
+            total += weight
+
+        if accumulated is None or total == 0.0:
+            return None
+        return tuple(component / total for component in accumulated)
 
     def sample(self, frame: int) -> Value:
-        covering = None
-        preceding = None
-        for driver in self.drivers:
-            if driver.start <= frame <= driver.end:
-                covering = driver  # later driver wins a shared boundary frame
-            elif driver.end < frame:
-                preceding = driver
+        value = self.blend(frame)
 
-        if covering is not None:
-            value = covering.evaluate(frame)[self.name]
-        elif preceding is not None:
-            value = preceding.evaluate(preceding.end)[self.name]
-        else:
+        if value is None:
+            # Nothing is driving the channel here, so hold the last value it was
+            # actually driven to. Walk driver ends backwards and take the most
+            # recent one that blends to something: a zero-weight driver is
+            # skipped entirely, so it must not shadow an earlier real value.
+            ended = sorted({d.end for d in self.drivers if d.end < frame}, reverse=True)
+            for end in ended:
+                value = self.blend(end)
+                if value is not None:
+                    break
+        if value is None:
             value = self.initial
 
         if len(value) != self.spec.arity:

@@ -22,7 +22,6 @@ from agave_pyvk.animation import (
     ArityError,
     Keyframes,
     MissingInitialError,
-    OverlapError,
     Segment,
     Timeline,
     UnknownChannelError,
@@ -347,13 +346,6 @@ class TestTimelineValidation:
         with pytest.raises(ArityError, match="camera.eye"):
             tl.sample(0)
 
-    def test_rejects_overlapping_drivers_on_one_channel(self):
-        tl = Timeline(fps=24, initial={"camera.exposure": (0.0,)})
-        tl.then(kf_segment("camera.exposure", 0.0, 1.0, frames=48))
-        tl.at(frames=24).then(kf_segment("camera.exposure", 1.0, 0.0, frames=48))
-        with pytest.raises(OverlapError, match="camera.exposure"):
-            tl.sample(0)
-
     def test_allows_drivers_that_only_touch_at_a_boundary_frame(self):
         tl = Timeline(fps=24, initial={"camera.exposure": (0.0,)})
         tl.then(
@@ -662,3 +654,114 @@ class TestExampleAnimation:
     def test_ends_on_the_state_it_started_from(self):
         _, tl = self.timeline()
         assert tl.sample(384) == pytest.approx(tl.sample(0))
+
+
+class TestWeightedBlending:
+    """Overlapping drivers blend as sum(w*v) / sum(w)."""
+
+    def flat(self, channel, value, start, end, **kw):
+        return Keyframes(channel, [(start, value), (end, value)], **kw)
+
+    def test_a_driver_weighs_one_by_default(self):
+        assert self.flat("x", 0.0, 0, 10).weight(5) == 1.0
+
+    def test_overlapping_drivers_are_allowed(self):
+        tl = Timeline(fps=24, initial={"camera.exposure": (0.0,)})
+        tl.add(self.flat("camera.exposure", 0.0, 0, 10))
+        tl.add(self.flat("camera.exposure", 1.0, 5, 15))
+        assert tl.sample(7) is not None
+
+    def test_two_equally_weighted_drivers_average(self):
+        tl = Timeline(fps=24, initial={"camera.exposure": (0.0,)})
+        tl.add(self.flat("camera.exposure", 0.0, 0, 10))
+        tl.add(self.flat("camera.exposure", 1.0, 0, 10))
+        assert tl.sample(5) == {"camera.exposure": (0.5,)}
+
+    def test_weights_bias_the_blend(self):
+        tl = Timeline(fps=24, initial={"camera.exposure": (0.0,)})
+        tl.add(self.flat("camera.exposure", 0.0, 0, 10, weight=3.0))
+        tl.add(self.flat("camera.exposure", 1.0, 0, 10, weight=1.0))
+        assert tl.sample(5) == pytest.approx({"camera.exposure": (0.25,)})
+
+    def test_a_zero_weight_driver_does_not_contribute(self):
+        tl = Timeline(fps=24, initial={"camera.exposure": (0.0,)})
+        tl.add(self.flat("camera.exposure", 7.0, 0, 10, weight=1.0))
+        tl.add(self.flat("camera.exposure", 1.0, 0, 10, weight=0.0))
+        assert tl.sample(5) == {"camera.exposure": (7.0,)}
+
+    def test_weight_may_vary_over_time_to_crossfade(self):
+        tl = Timeline(fps=24, initial={"camera.exposure": (0.0,)})
+        tl.add(self.flat("camera.exposure", 0.0, 0, 10, weight=lambda f: 1.0 - f / 10))
+        tl.add(self.flat("camera.exposure", 1.0, 0, 10, weight=lambda f: f / 10))
+        assert tl.sample(0) == pytest.approx({"camera.exposure": (0.0,)})
+        assert tl.sample(5) == pytest.approx({"camera.exposure": (0.5,)})
+        assert tl.sample(10) == pytest.approx({"camera.exposure": (1.0,)})
+
+    def test_blends_each_component_of_a_vector_channel(self):
+        tl = Timeline(fps=24, initial={"camera.eye": (0.0, 0.0, 0.0)})
+        tl.add(self.flat("camera.eye", (0.0, 0.0, 0.0), 0, 10))
+        tl.add(self.flat("camera.eye", (2.0, 4.0, 6.0), 0, 10))
+        assert tl.sample(5) == {"camera.eye": (1.0, 2.0, 3.0)}
+
+    def test_only_drivers_covering_the_frame_take_part(self):
+        tl = Timeline(fps=24, initial={"camera.exposure": (0.0,)})
+        tl.add(self.flat("camera.exposure", 0.0, 0, 10))
+        tl.add(self.flat("camera.exposure", 1.0, 20, 30))
+        assert tl.sample(5) == {"camera.exposure": (0.0,)}
+        assert tl.sample(25) == {"camera.exposure": (1.0,)}
+
+    def test_total_weight_of_zero_holds_the_last_blended_value(self):
+        tl = Timeline(fps=24, initial={"camera.exposure": (9.0,)})
+        tl.add(self.flat("camera.exposure", 3.0, 0, 10))
+        tl.add(self.flat("camera.exposure", 5.0, 10, 20, weight=0.0))
+        assert tl.sample(15) == {"camera.exposure": (3.0,)}
+
+    def test_total_weight_of_zero_before_any_driver_uses_the_initial(self):
+        tl = Timeline(fps=24, initial={"camera.exposure": (9.0,)})
+        tl.add(self.flat("camera.exposure", 5.0, 0, 10, weight=0.0))
+        assert tl.sample(5) == {"camera.exposure": (9.0,)}
+
+    def test_a_multi_channel_driver_weighs_both_of_its_channels(self):
+        tl = Timeline(
+            fps=24,
+            initial={"camera.eye": (0.0, 0.0, 1.0), "camera.up": (0.0, 1.0, 0.0)},
+        )
+        orbit = CameraOrbit(
+            (0.0, 0.0, 1.0), (0.0, 0.0, 0.0), (0.0, 1.0, 0.0), 90, 90, 0, 10
+        )
+        tl.add(orbit)
+        tl.add(self.flat("camera.eye", (0.0, 0.0, 1.0), 0, 10))
+        tl.add(self.flat("camera.up", (0.0, 1.0, 0.0), 0, 10))
+        # orbit at 90 deg puts the eye at (1,0,0); blended 50/50 with (0,0,1)
+        assert tl.sample(5)["camera.eye"] == pytest.approx((0.5, 0.0, 0.5), abs=1e-12)
+
+    def test_abutting_segments_still_agree_at_their_shared_frame(self):
+        """The boundary value is now a blend of two equal values, not a tie-break."""
+        tl = Timeline(fps=24, initial={"camera.exposure": (0.0,)})
+        tl.then(
+            kf_segment("camera.exposure", 0.0, 45.0, frames=48),
+            kf_segment("camera.exposure", 45.0, 0.0, frames=48),
+        )
+        assert tl.sample(48) == pytest.approx({"camera.exposure": (45.0,)})
+
+    def test_segment_helpers_accept_a_weight(self):
+        tl = Timeline(fps=24, initial={"camera.exposure": (0.0,)})
+        tl.together(
+            ramp("camera.exposure", 0.0, 0.0, frames=10, weight=3.0),
+            ramp("camera.exposure", 1.0, 1.0, frames=10, weight=1.0),
+        )
+        assert tl.sample(5) == pytest.approx({"camera.exposure": (0.25,)})
+
+    def test_a_zero_weight_driver_does_not_shadow_the_held_value(self):
+        """Skipped entirely means it cannot win the hold lookup either."""
+        tl = Timeline(fps=24, initial={"camera.exposure": (9.0,)})
+        tl.add(self.flat("camera.exposure", 3.0, 0, 10))
+        tl.add(self.flat("camera.exposure", 5.0, 10, 20, weight=0.0))
+        assert tl.sample(25) == {"camera.exposure": (3.0,)}
+
+    def test_holds_past_several_zero_weight_drivers(self):
+        tl = Timeline(fps=24, initial={"camera.exposure": (9.0,)})
+        tl.add(self.flat("camera.exposure", 3.0, 0, 10))
+        tl.add(self.flat("camera.exposure", 5.0, 10, 20, weight=0.0))
+        tl.add(self.flat("camera.exposure", 7.0, 20, 30, weight=0.0))
+        assert tl.sample(35) == {"camera.exposure": (3.0,)}
