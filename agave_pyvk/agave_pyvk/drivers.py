@@ -11,7 +11,7 @@ The vector helpers below are deliberately local rather than reused from
 """
 
 import math
-from typing import Dict, Sequence, Tuple
+from typing import Callable, Dict, Sequence, Tuple, Union
 
 from .animation import (
     Driver,
@@ -99,6 +99,7 @@ class CameraOrbit(Driver):
         start: int,
         end: int,
         ease: Ease = linear,
+        weight: Union[float, Callable[[int], float]] = 1.0,
     ):
         self.eye = tuple(float(x) for x in eye)
         self.target = tuple(float(x) for x in target)
@@ -107,6 +108,7 @@ class CameraOrbit(Driver):
         self.deg0 = float(deg0)
         self.deg1 = float(deg1)
         self.ease = ease
+        self._weight = weight
         self.start = int(start)
         self.end = int(end)
 
@@ -126,18 +128,29 @@ class CameraOrbit(Driver):
 # --- segment helpers --------------------------------------------------------
 
 
-def ramp(channel: str, v0, v1, *, secs=None, frames=None, ease: Ease = linear):
+def ramp(
+    channel: str, v0, v1, *, secs=None, frames=None, ease: Ease = linear, weight=1.0
+):
     """Interpolate one channel from ``v0`` to ``v1``. Scalars are promoted."""
     start_value, end_value = as_value(v0), as_value(v1)
     return Segment(
         secs,
         frames,
-        lambda s, e: Keyframes(channel, [(s, start_value), (e, end_value)], ease=ease),
+        lambda s, e: Keyframes(
+            channel, [(s, start_value), (e, end_value)], ease=ease, weight=weight
+        ),
     )
 
 
 def travel_clip_plane(
-    normal: Vec3, d0: float, d1: float, *, secs=None, frames=None, ease: Ease = linear
+    normal: Vec3,
+    d0: float,
+    d1: float,
+    *,
+    secs=None,
+    frames=None,
+    ease: Ease = linear,
+    weight=1.0,
 ):
     """Slide the clip plane along a fixed normal, from distance d0 to d1."""
     unit = normalize(normal)
@@ -148,6 +161,7 @@ def travel_clip_plane(
         secs=secs,
         frames=frames,
         ease=ease,
+        weight=weight,
     )
 
 
@@ -161,12 +175,15 @@ def pivot_camera(
     secs=None,
     frames=None,
     ease: Ease = linear,
+    weight=1.0,
 ):
     """Swing the camera about its vertical view axis, from deg0 to deg1."""
     return Segment(
         secs,
         frames,
-        lambda s, e: CameraOrbit(eye, target, up, deg0, deg1, s, e, ease=ease),
+        lambda s, e: CameraOrbit(
+            eye, target, up, deg0, deg1, s, e, ease=ease, weight=weight
+        ),
     )
 
 
