@@ -29,14 +29,24 @@ def _check_native_abi() -> None:
         return  # let the normal import machinery raise ModuleNotFoundError
 
     def _tag(path: Path) -> str:
-        # "_native.cpython-314-darwin.so" -> "cpython-314"
+        # For example:
+        # "_native.cpython-312-x86_64-linux-gnu.so"
+        # -> "cpython-312-x86_64-linux-gnu"
         name = path.name[: -len(ext_suffix)]
-        parts = name.split(".", 1)
-        if len(parts) < 2:
-            return ""
-        return parts[1].rsplit("-", 1)[0] if "-" in parts[1] else parts[1]
+        prefix = "_native."
 
-    if any(_tag(p) == current_tag for p in candidates):
+        if not name.startswith(prefix):
+            return ""
+
+        return name[len(prefix):]
+
+    current_tag = sys.implementation.cache_tag
+
+    def is_compatible(path: Path) -> bool:
+        tag = _tag(path)
+        return tag == current_tag or tag.startswith(f"{current_tag}-")
+
+    if any(is_compatible(path) for path in candidates):
         return
 
     found = ", ".join(sorted({_tag(p) or p.name for p in candidates}))
