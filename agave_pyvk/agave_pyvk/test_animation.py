@@ -1,15 +1,16 @@
 # AGAVE Python animation (standalone, headless Vulkan)
 #
-# 384 frames @ 24 fps = 16 seconds:
-#   frames   0- 47 (2 s) : camera pivots 45 deg, nothing else changes
-#   frames  48- 95 (2 s) : camera pivots back to the original view
-#   frames  96-191 (4 s) : clip plane slides into the volume, camera still
-#   frames 192-239 (2 s) : membrane channel fades to 0 opacity, plane held
-#   frames 240-335 (4 s) : clip plane walks back to its original position
-#   frames 336-383 (2 s) : membrane channel fades back in, plane parked
+# A 16 s shot declared on an animation Timeline, at 24 fps:
 #
-# Frame 0 is the scene exactly as test.py left it: the clip plane starts parked
-# at the far edge of the displayed data, so it clips nothing.
+#   0- 2 s : camera pivots 45 deg, nothing else changes
+#   2- 4 s : camera pivots back to the original view
+#   4- 8 s : clip plane slides into the volume, camera still
+#   8-10 s : membrane channel fades to 0 opacity, plane held
+#  10-14 s : clip plane walks back to its original position
+#  14-16 s : membrane channel fades back in, plane parked
+#
+# Frames 0 and 384 are both the untouched scene: the clip plane is parked at the
+# far edge of the displayed data, where it clips nothing.
 #
 #   pip install agave_pyvk
 #   python test_animation.py
@@ -18,12 +19,12 @@
 #   ffmpeg -framerate 24 -i frames/frame_%04d.png -c:v libx264 -pix_fmt yuv420p out.mp4
 
 import itertools
-import math
 from pathlib import Path
 
-from PIL import Image
-
 import agave_pyvk as agave
+from agave_pyvk import channels
+from agave_pyvk.animation import Timeline, ease_in_out
+from agave_pyvk.drivers import pivot_camera, ramp, travel_clip_plane
 
 AGAVE_PATH = "/Users/danielt/src/AllenCell/agave/build/agave.app/Contents/MacOS/agave"
 DATA_URL = (
@@ -35,18 +36,9 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "frames"
 OUTPUT_PREFIX = "frame"
 
 FPS = 24
-PIVOT_FRAMES = 2 * FPS  # 48, run twice: out and back
-CLIP_IN_FRAMES = 4 * FPS  # 96
-FADE_OUT_FRAMES = 2 * FPS  # 48
-CLIP_OUT_FRAMES = 4 * FPS  # 96
-FADE_IN_FRAMES = 2 * FPS  # 48
-TOTAL_FRAMES = (
-    2 * PIVOT_FRAMES
-    + CLIP_IN_FRAMES
-    + FADE_OUT_FRAMES
-    + CLIP_OUT_FRAMES
-    + FADE_IN_FRAMES
-)  # 384
+PIVOT_SECS = 2
+CLIP_SECS = 4
+FADE_SECS = 2
 
 # Channel assignments. Source channels [2, 3] are loaded, landing as scene channels
 # 0 and 1: CAAX/488 (the membrane marker) and H2B/640 (the DNA marker). The script
@@ -104,63 +96,6 @@ VOXEL_SCALE = (0.32, 0.32, 0.5)
 CLIP_REGION = (0.305882, 0.719453, 0.184314, 0.717647, 0.0, 0.311475)
 
 
-def lerp(a, b, u):
-    return a + (b - a) * u
-
-
-def sub(a, b):
-    return tuple(x - y for x, y in zip(a, b))
-
-
-def add(a, b):
-    return tuple(x + y for x, y in zip(a, b))
-
-
-def scale(a, k):
-    return tuple(x * k for x in a)
-
-
-def dot(a, b):
-    return sum(x * y for x, y in zip(a, b))
-
-
-def cross(a, b):
-    return (
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    )
-
-
-def normalize(a):
-    return scale(a, 1.0 / math.sqrt(dot(a, a)))
-
-
-def rotate_about_axis(v, axis, degrees):
-    """Rodrigues rotation of v about a unit axis, right-hand rule."""
-    a = math.radians(degrees)
-    c, s = math.cos(a), math.sin(a)
-    return add(
-        add(scale(v, c), scale(cross(axis, v), s)),
-        scale(axis, dot(axis, v) * (1.0 - c)),
-    )
-
-
-def vertical_view_axis():
-    """The camera's up direction with any look-direction component removed."""
-    forward = normalize(sub(CAMERA_TARGET, CAMERA_EYE))
-    up = CAMERA_UP
-    return normalize(sub(up, scale(forward, dot(up, forward))))
-
-
-def set_camera_swing(r, degrees):
-    """Swing the camera `degrees` about its own vertical axis, target unchanged."""
-    axis = vertical_view_axis()
-    offset = rotate_about_axis(sub(CAMERA_EYE, CAMERA_TARGET), axis, degrees)
-    r.eye(*add(CAMERA_TARGET, offset))
-    r.up(*rotate_about_axis(CAMERA_UP, axis, degrees))
-
-
 def displayed_box(info):
     """World-space min/max of the part of the volume the clip region shows.
 
@@ -184,10 +119,10 @@ def clip_plane_sweep(info):
     """Return (normal, d_start, d_end) describing the plane's travel.
 
     d_start puts the plane at the far corner of the displayed data along its normal,
-    so nothing is clipped and frame 0 matches the original render. d_end is one
-    travel distance back down that same axis.
+    so nothing is clipped and the opening frame matches the untouched render. d_end
+    is one travel distance back down that same axis.
     """
-    length = math.sqrt(sum(c * c for c in CLIP_NORMAL))
+    length = sum(c * c for c in CLIP_NORMAL) ** 0.5
     normal = tuple(c / length for c in CLIP_NORMAL)
 
     box_min, box_max = displayed_box(info)
@@ -199,18 +134,18 @@ def clip_plane_sweep(info):
 
 
 def setup(r):
-    """Everything from test.py that does not change over the animation."""
+    """Everything about the scene that does not change over the animation."""
     info = r.load_data_and_get_info(
         DATA_URL, 0, 1, 0, [2, 3], [0, 1024, 0, 1024, 0, 245]
     )
-    r.set_resolution(740, 762)
+    r.set_resolution(740 * 2, 762 * 2)
     r.background_color(*BACKGROUND_COLOR)
     r.show_bounding_box(1)
     r.show_scale_bar(0)
     r.show_time_stamp(0)
     r.set_time_stamp_format(1)
     r.bounding_box_color(*BOUNDING_BOX_COLOR)
-    r.render_iterations(256)
+    r.render_iterations(512)
     r.set_primary_ray_step_size(1)
     r.set_secondary_ray_step_size(1)
     r.set_multichannel_blend(0)
@@ -251,79 +186,51 @@ def setup(r):
     return info
 
 
-def render_frame(r, frame):
-    path = OUTPUT_DIR / f"{OUTPUT_PREFIX}_{frame:04d}.png"
-    r.session(str(path))
-    r.redraw()
-    if FLATTEN_ALPHA:
-        with Image.open(path) as img:
-            opaque = img.convert("RGB")
-        opaque.save(path)
-    print(f"frame {frame + 1}/{TOTAL_FRAMES}", flush=True)
+def build_timeline(normal, d_start, d_end):
+    """Declare the shot. Pure: no renderer, no I/O, so it is cheap to inspect."""
+    channels.alias("membrane.opacity", f"mat[{MEMBRANE_CHANNEL}].opacity")
+
+    view = (CAMERA_EYE, CAMERA_TARGET, CAMERA_UP)
+    timeline = Timeline(
+        fps=FPS,
+        initial={
+            "camera.eye": CAMERA_EYE,
+            "camera.up": CAMERA_UP,
+            "clip.plane": (*normal, d_start),
+            "membrane.opacity": (MEMBRANE_OPACITY,),
+        },
+    )
+    timeline.then(
+        pivot_camera(*view, 0.0, CAMERA_SWING_DEGREES, secs=PIVOT_SECS),
+        pivot_camera(*view, CAMERA_SWING_DEGREES, 0.0, secs=PIVOT_SECS),
+        travel_clip_plane(normal, d_start, d_end, secs=CLIP_SECS, ease=ease_in_out),
+        ramp("membrane.opacity", MEMBRANE_OPACITY, 0.0, secs=FADE_SECS),
+        travel_clip_plane(normal, d_end, d_start, secs=CLIP_SECS, ease=ease_in_out),
+        ramp("membrane.opacity", 0.0, MEMBRANE_OPACITY, secs=FADE_SECS),
+    )
+    return timeline
 
 
 def main():
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
     with agave.AgaveRenderer(agave_path=AGAVE_PATH, mode="pathtrace") as r:
         info = setup(r)
         print("channels:", info.get("channel_names"))
-        print(f"fading channel {MEMBRANE_CHANNEL} as the membrane channel")
 
         normal, d_start, d_end = clip_plane_sweep(info)
         print(f"clip plane normal {normal}, d from {d_start:.5f} to {d_end:.5f}")
-        axis = vertical_view_axis()
-        print(f"camera pivots {CAMERA_SWING_DEGREES} deg about {axis} and back")
 
-        frame = 0
+        timeline = build_timeline(normal, d_start, d_end)
+        print(timeline.describe())
 
-        # The clip plane is parked where it clips nothing for the whole camera
-        # pivot, so those frames show the untouched scene from a moving view.
-        r.set_clip_plane(*normal, d_start)
-
-        # 2 s: pivot the camera out. Frame 0 is 0 degrees, i.e. the original view.
-        for i in range(PIVOT_FRAMES):
-            u = i / (PIVOT_FRAMES - 1)
-            set_camera_swing(r, lerp(0.0, CAMERA_SWING_DEGREES, u))
-            render_frame(r, frame)
-            frame += 1
-
-        # 2 s: pivot back. The last frame lands exactly on the original view, which
-        # is where the camera then stays for the rest of the animation.
-        for i in range(PIVOT_FRAMES):
-            u = (i + 1) / PIVOT_FRAMES
-            set_camera_swing(r, lerp(CAMERA_SWING_DEGREES, 0.0, u))
-            render_frame(r, frame)
-            frame += 1
-
-        # 4 s: slide the plane in, camera still.
-        for i in range(CLIP_IN_FRAMES):
-            u = (i + 1) / CLIP_IN_FRAMES
-            r.set_clip_plane(*normal, lerp(d_start, d_end, u))
-            render_frame(r, frame)
-            frame += 1
-
-        # 2 s: hold the plane, fade the membrane channel to fully transparent.
-        for i in range(FADE_OUT_FRAMES):
-            u = (i + 1) / FADE_OUT_FRAMES
-            r.mat_opacity(MEMBRANE_CHANNEL, lerp(MEMBRANE_OPACITY, 0.0, u))
-            render_frame(r, frame)
-            frame += 1
-
-        # 4 s: walk the plane back to where it started.
-        for i in range(CLIP_OUT_FRAMES):
-            u = (i + 1) / CLIP_OUT_FRAMES
-            r.set_clip_plane(*normal, lerp(d_end, d_start, u))
-            render_frame(r, frame)
-            frame += 1
-
-        # 2 s: plane is parked again, bring the membrane channel back to full
-        # opacity. The last frame lands back on the original scene.
-        for i in range(FADE_IN_FRAMES):
-            u = (i + 1) / FADE_IN_FRAMES
-            r.mat_opacity(MEMBRANE_CHANNEL, lerp(0.0, MEMBRANE_OPACITY, u))
-            render_frame(r, frame)
-            frame += 1
+        timeline.render(
+            r,
+            OUTPUT_DIR,
+            OUTPUT_PREFIX,
+            flatten_alpha=FLATTEN_ALPHA,
+            progress=lambda frame, total: print(
+                f"frame {frame + 1}/{total}", flush=True
+            ),
+        )
 
 
 if __name__ == "__main__":
