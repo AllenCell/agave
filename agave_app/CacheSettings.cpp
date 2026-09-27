@@ -133,7 +133,7 @@ void
 CacheSettings::applyToRenderlib(const CacheSettingsData& data) const
 {
   // The cache directory (and its writability) is settled once at startup in
-  // CacheManager::initialize(); if it wasn't writable the manager left its root
+  // CacheManager::initialize(); if it wasn't writable, the manager left its root
   // unset, so a disk-enabled config here is simply honored as RAM-only. We only
   // push the runtime tunables.
   ::CacheConfig config = toRenderlibConfig(data);
