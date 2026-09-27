@@ -17,8 +17,7 @@
 
 // These tests construct their own CacheManager instances (each with its own
 // cache directory) rather than touching the process-wide singleton. That keeps
-// every case fully isolated and means we never need to reach into CacheManager
-// internals or reset shared state.
+// every case fully isolated.
 
 namespace {
 
@@ -32,6 +31,7 @@ makeImage(uint32_t x, uint32_t y, uint32_t z, uint32_t c)
 {
   const std::uint64_t bytes = static_cast<std::uint64_t>(x) * y * z * c * kBytesPerPixel;
   auto* data = new uint8_t[bytes];
+  // fill with zeros
   std::memset(data, 0, bytes);
   return std::make_shared<ImageXYZC>(
     x, y, z, c, static_cast<uint32_t>(ImageXYZC::IN_MEMORY_BPP), data, 1.0f, 1.0f, 1.0f, "units");
@@ -89,13 +89,13 @@ makeImageWithPattern(uint32_t x, uint32_t y, uint32_t z, uint32_t c)
 }
 
 // RAII temporary directory for disk-cache tests. Each instance gets a unique
-// path under the system temp dir and is removed on destruction. The counter
-// guarantees uniqueness even within a single test process.
+// path under the system temp dir and is removed on destruction.
 class TempCacheDir
 {
 public:
   TempCacheDir()
   {
+    // for any test run, ensure a unique temporary directory with this atomic incrementing counter
     static std::atomic<int> sCounter{ 0 };
     int n = sCounter.fetch_add(1);
     m_path = std::filesystem::temp_directory_path() / ("agave_cache_test_" + std::to_string(n));
@@ -141,7 +141,7 @@ TEST_CASE("CacheManager respects RAM limit and evicts LRU entries", "[cache]")
   // Each 4x4x4x1 image is 4*4*4*1*2 = 128 bytes.
   const std::uint64_t oneImage = imageBytes(4, 4, 4, 1);
 
-  // Fresh, RAM-only cache for each section (Catch2 re-runs the body per leaf).
+  // Fresh, RAM-only cache for each section (Catch2 re-runs this per section).
   CacheManager cache;
 
   SECTION("Store and retrieve a single image (RAM hit)")
@@ -268,25 +268,6 @@ TEST_CASE("CacheManager respects RAM limit and evicts LRU entries", "[cache]")
     cache.setConfig(disabled);
 
     REQUIRE(cache.findImage(makeSpec("a")) == nullptr);
-  }
-
-  SECTION("Shrinking the limit evicts existing entries")
-  {
-    cache.setConfig(ramOnlyConfig(oneImage * 4));
-    cache.storeImage(makeSpec("a"), makeImage(4, 4, 4, 1));
-    cache.storeImage(makeSpec("b"), makeImage(4, 4, 4, 1));
-    cache.storeImage(makeSpec("c"), makeImage(4, 4, 4, 1));
-
-    // Reconfigure to a smaller limit; oldest entries must be evicted.
-    cache.setConfig(ramOnlyConfig(oneImage));
-
-    int present = 0;
-    for (const char* name : { "a", "b", "c" }) {
-      if (cache.findImage(makeSpec(name))) {
-        present++;
-      }
-    }
-    REQUIRE(present <= 1);
   }
 
   SECTION("Reducing cache size immediately evicts LRU entries to fit")
