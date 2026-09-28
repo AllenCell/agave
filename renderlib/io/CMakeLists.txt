@@ -15,6 +15,8 @@ target_sources(renderlib PRIVATE
 "${CMAKE_CURRENT_SOURCE_DIR}/FileReaderCCP4.h"
 "${CMAKE_CURRENT_SOURCE_DIR}/FileReaderCzi.cpp"
 "${CMAKE_CURRENT_SOURCE_DIR}/FileReaderCzi.h"
+"${CMAKE_CURRENT_SOURCE_DIR}/FileReaderDicom.cpp"
+"${CMAKE_CURRENT_SOURCE_DIR}/FileReaderDicom.h"
 "${CMAKE_CURRENT_SOURCE_DIR}/FileReaderImageSequence.cpp"
 "${CMAKE_CURRENT_SOURCE_DIR}/FileReaderImageSequence.h"
 "${CMAKE_CURRENT_SOURCE_DIR}/FileReaderTIFF.cpp"
@@ -41,6 +43,26 @@ add_subdirectory(libCZI)
 
 # end libczi dependency
 
+# Build only the DCMTK modules needed for grayscale image decoding.  DCMTK's
+# own CMake project supplies these targets directly to FetchContent.
+set(DCMTK_MODULES "ofstd;oflog;oficonv;dcmdata;dcmimgle;dcmjpeg;dcmjpls" CACHE STRING "DCMTK modules" FORCE)
+set(DCMTK_DEFAULT_DICT builtin CACHE STRING "Embed the DCMTK dictionary for standalone Agave builds" FORCE)
+set(BUILD_APPS OFF CACHE BOOL "Build DCMTK command line applications" FORCE)
+set(DCMTK_WITH_OPENSSL OFF CACHE BOOL "DCMTK TLS support" FORCE)
+set(DCMTK_WITH_ICONV OFF CACHE BOOL "DCMTK iconv support" FORCE)
+set(DCMTK_WITH_ICU OFF CACHE BOOL "DCMTK ICU support" FORCE)
+set(DCMTK_WITH_PNG OFF CACHE BOOL "DCMTK PNG support" FORCE)
+set(DCMTK_WITH_TIFF OFF CACHE BOOL "DCMTK TIFF support" FORCE)
+set(DCMTK_WITH_XML OFF CACHE BOOL "DCMTK XML support" FORCE)
+set(DCMTK_WITH_OPENJPEG OFF CACHE BOOL "DCMTK JPEG 2000 support" FORCE)
+set(DCMTK_WITH_DOXYGEN OFF CACHE BOOL "DCMTK API documentation" FORCE)
+FetchContent_Declare(
+  dcmtk
+  URL "https://github.com/DCMTK/dcmtk/archive/refs/tags/DCMTK-3.7.0.tar.gz"
+  URL_HASH SHA256=5bb3ec8317dc465788bed2ca789e76d03ae5848c9381cce3b14c1a3f8b6aca56
+)
+FetchContent_MakeAvailable(dcmtk)
+
 # Use these system/vcpkg-provided dependencies instead of tensorstore's bundled ones.
 set(TENSORSTORE_USE_SYSTEM_TIFF ON)
 set(TENSORSTORE_USE_SYSTEM_ZLIB ON)
@@ -56,7 +78,7 @@ FetchContent_MakeAvailable(tensorstore)
 
 target_link_libraries(renderlib
 libCZI
+ dcmdata dcmimgle dcmjpeg dcmjpls
 
 tensorstore::tensorstore tensorstore::all_drivers
 )
-

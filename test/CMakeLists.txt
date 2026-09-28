@@ -18,6 +18,7 @@ target_sources(agave_test PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/test_cacheManager.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/test_commands.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/test_fileReaderTestVolume.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/test_fileReaderDicom.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/test_histogram.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/test_main.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/test_mathUtil.cpp"
