@@ -1,6 +1,8 @@
 # AGAVE : Advanced GPU Accelerated Volume Explorer
 
-AGAVE is a desktop application for viewing multichannel volume data. Several formats are supported, including OME-ZARR 0.4 and 0.5, OME-TIFF and Zeiss .czi files.
+AGAVE is a desktop application for viewing multichannel volume data. Several formats are supported, including OME-ZARR 0.4 and 0.5, OME-TIFF, Zeiss .czi, and grayscale DICOM files (.dcm, .dicom, .ima).
+
+The DICOM reader uses DCMTK 3.7.0. It opens single 8-bit or 16-bit grayscale DICOM objects and folders of DICOM slices, including nested study/series folders. Each `SeriesInstanceUID` is a selectable scene. Slices are ordered by image position and orientation, then by instance number or filename when spatial metadata is absent; irregular stacks are rejected. Multi-frame objects become Z stacks. The reader decodes uncompressed, RLE, JPEG, and JPEG-LS transfer syntaxes supported by DCMTK and maps displayed intensity into Agave's unsigned 16-bit volume format. Color images and JPEG 2000 are not yet supported.
 
 ![screenshot](https://github.com/user-attachments/assets/b96618f2-7020-4b93-936e-9b32b795ea83)
 

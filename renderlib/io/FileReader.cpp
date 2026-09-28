@@ -2,6 +2,7 @@
 
 #include "FileReaderCCP4.h"
 #include "FileReaderCzi.h"
+#include "FileReaderDicom.h"
 #include "FileReaderImageSequence.h"
 #include "FileReaderTIFF.h"
 #include "FileReaderTestVolume.h"
@@ -54,16 +55,22 @@ FileReader::getReader(const std::string& filepath, bool isImageSequence)
     return new FileReaderTIFF(filepath);
   } else if (extstr == ".czi") {
     return new FileReaderCzi(filepath);
+  } else if (extstr == ".dcm" || extstr == ".dicom" || extstr == ".ima") {
+    return new FileReaderDicom(filepath);
   } else if (extstr == ".map" || extstr == ".mrc") {
     return new FileReaderCCP4(filepath);
   } else if (extstr == ".zarr") {
     return new FileReaderZarr(filepath);
   }
-  // if it's a directory, and contains the string zarr anywhere, we assume it's a zarr
+  // A directory with Zarr metadata is a Zarr store; other directories can
+  // contain DICOM series, including files without a DICOM extension.
   else if (std::filesystem::is_directory(filepath)) {
-    if (filepath.find("zarr") != std::string::npos) {
+    const std::filesystem::path directory(filepath);
+    if (std::filesystem::exists(directory / "zarr.json") || std::filesystem::exists(directory / ".zgroup") ||
+        std::filesystem::exists(directory / ".zarray") || std::filesystem::exists(directory / ".zattrs")) {
       return new FileReaderZarr(filepath);
     }
+    return new FileReaderDicom(filepath);
   }
 
   return nullptr;

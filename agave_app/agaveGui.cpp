@@ -223,7 +223,7 @@ agaveGui::createActions()
   m_openUrlAction->setStatusTip(tr("Open an existing volume in the cloud"));
   connect(m_openUrlAction, SIGNAL(triggered()), this, SLOT(openUrl()));
 
-  m_openDirectoryAction = new QAction(tr("&Open directory (.zarr)"), this);
+  m_openDirectoryAction = new QAction(tr("&Open directory (.zarr, DICOM)"), this);
   m_openDirectoryAction->setShortcuts(QKeySequence::Open);
   m_openDirectoryAction->setStatusTip(tr("Open an existing volume from local directory"));
   connect(m_openDirectoryAction, SIGNAL(triggered()), this, SLOT(openDirectory()));
