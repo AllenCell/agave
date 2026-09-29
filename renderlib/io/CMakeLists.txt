@@ -43,9 +43,9 @@ add_subdirectory(libCZI)
 
 # end libczi dependency
 
-# Build only the DCMTK modules needed for grayscale image decoding.  DCMTK's
-# own CMake project supplies these targets directly to FetchContent.
-set(DCMTK_MODULES "ofstd;oflog;oficonv;dcmdata;dcmimgle;dcmjpeg;dcmjpls" CACHE STRING "DCMTK modules" FORCE)
+# Build only the DCMTK modules needed for grayscale image decoding.  The JPEG
+# and JPEG-LS modules also link to dcmimage, even for grayscale images.
+set(DCMTK_MODULES "ofstd;oflog;oficonv;dcmdata;dcmimgle;dcmimage;dcmjpeg;dcmjpls" CACHE STRING "DCMTK modules" FORCE)
 set(DCMTK_DEFAULT_DICT builtin CACHE STRING "Embed the DCMTK dictionary for standalone Agave builds" FORCE)
 set(BUILD_APPS OFF CACHE BOOL "Build DCMTK command line applications" FORCE)
 set(DCMTK_WITH_OPENSSL OFF CACHE BOOL "DCMTK TLS support" FORCE)
@@ -78,7 +78,7 @@ FetchContent_MakeAvailable(tensorstore)
 
 target_link_libraries(renderlib
 libCZI
- dcmdata dcmimgle dcmjpeg dcmjpls
+ dcmdata dcmimgle dcmimage dcmjpeg dcmjpls
 
 tensorstore::tensorstore tensorstore::all_drivers
 )
