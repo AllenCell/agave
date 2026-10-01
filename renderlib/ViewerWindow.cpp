@@ -5,6 +5,7 @@
 #include "AppScene.h"
 #include "AxisHelperTool.h"
 #include "BoundingBoxTool.h"
+#include "ImageXYZC.h"
 #include "Light.h"
 #include "Logging.h"
 #include "MoveTool.h"
@@ -16,6 +17,8 @@
 #include "gfxapi/Backend.h"
 #include "gfxapi/RenderToFramebuffer.h"
 #include "renderlib.h"
+
+#include <cmath>
 
 namespace {
 
@@ -191,6 +194,15 @@ void
 ViewerWindow::update(const SceneView::Viewport& viewport, const Clock& clock, Gesture& gesture)
 {
   // [...]
+
+  // Slice modes own their interaction and render their own fixed plane layout.
+  // Do not feed their pointer input to the 3D camera, selection, or object
+  // manipulators.
+  if (isSliceMode()) {
+    sceneView.camera = m_CCamera;
+    sceneView.camera.Update();
+    return;
+  }
 
   // TODO FIXME
   // We need a mechanism to add a tool just from a scene object that was added to the scene.
@@ -411,28 +423,59 @@ ViewerWindow::redrawTo(gfxApi::Framebuffer* framebuffer)
 void
 ViewerWindow::setRenderer(int rendererType)
 {
+  const bool wasSliceRenderer = isSliceMode();
+  const bool useSliceRenderer = rendererType >= 2 && rendererType <= 5;
+  switch (rendererType) {
+    case 2:
+      m_renderSettings->m_SliceView.mode = SliceViewMode::Z;
+      break;
+    case 3:
+      m_renderSettings->m_SliceView.mode = SliceViewMode::Y;
+      break;
+    case 4:
+      m_renderSettings->m_SliceView.mode = SliceViewMode::X;
+      break;
+    case 5:
+      m_renderSettings->m_SliceView.mode = SliceViewMode::Triple;
+      break;
+    default:
+      break;
+  }
+  slicePointerRelease();
+
+  // X/Y/Z/triple are modes of one renderer. Keep its uploaded volume and
+  // transfer resources alive when moving between those modes.
+  if (wasSliceRenderer && useSliceRenderer && m_renderer) {
+    m_rendererType = rendererType;
+    m_renderSettings->m_DirtyFlags.SetFlag(RenderParamsDirty);
+    return;
+  }
+
+  Scene* sc = m_renderer ? m_renderer->scene() : nullptr;
+
   // clean up old renderer.
   if (m_renderer) {
     m_renderer->cleanUpResources();
   }
 
-  Scene* sc = m_renderer->scene();
-
   switch (rendererType) {
     case 1:
-      LOG_DEBUG << "Set OpenGL pathtrace Renderer";
+      LOG_DEBUG << "Set pathtrace renderer";
       m_renderer =
         renderlib::graphicsBackend()->createRenderWindow(gfxApi::RenderWindowKind::PathTrace, m_renderSettings);
       m_renderSettings->m_DirtyFlags.SetFlag(TransferFunctionDirty);
       break;
     case 2:
-      LOG_DEBUG << "Set OpenGL pathtrace Renderer";
+    case 3:
+    case 4:
+    case 5:
+      LOG_DEBUG << "Set slice renderer";
       m_renderer =
-        renderlib::graphicsBackend()->createRenderWindow(gfxApi::RenderWindowKind::PathTrace, m_renderSettings);
+        renderlib::graphicsBackend()->createRenderWindow(gfxApi::RenderWindowKind::Slice, m_renderSettings);
       m_renderSettings->m_DirtyFlags.SetFlag(TransferFunctionDirty);
       break;
     default:
-      LOG_DEBUG << "Set OpenGL single pass Renderer";
+      LOG_DEBUG << "Set raymarch renderer";
       m_renderer =
         renderlib::graphicsBackend()->createRenderWindow(gfxApi::RenderWindowKind::RaymarchBlended, m_renderSettings);
   };
@@ -443,4 +486,149 @@ ViewerWindow::setRenderer(int rendererType)
   m_renderer->initialize(width(), height()); // TODO , devicePixelRatioF());
 
   m_renderSettings->m_DirtyFlags.SetFlag(RenderParamsDirty);
+}
+
+void
+ViewerWindow::markSliceViewDirty()
+{
+  if (m_renderSettings) {
+    m_renderSettings->m_DirtyFlags.SetFlag(RenderParamsDirty);
+  }
+}
+
+void
+ViewerWindow::resetSliceView()
+{
+  if (!m_renderSettings) {
+    return;
+  }
+  m_renderSettings->m_SliceView.resetView();
+  markSliceViewDirty();
+}
+
+TripleSliceLayout
+ViewerWindow::tripleSliceLayout() const
+{
+  glm::vec3 physicalDimensions(m_renderSettings ? m_renderSettings->m_SliceView.dimensions : glm::ivec3(1));
+  if (m_renderer && m_renderer->scene() && m_renderer->scene()->m_volume) {
+    physicalDimensions = glm::max(m_renderer->scene()->m_volume->getPhysicalDimensions(), glm::vec3(0.000001f));
+  }
+  // The reference layout uses a two-framebuffer-pixel gutter. Mouse positions
+  // and the viewport are also in framebuffer pixels, including on HiDPI screens.
+  return computeTripleSliceLayout(physicalDimensions, glm::ivec2(width(), height()), 2.0f);
+}
+
+SliceCrosshairHit
+ViewerWindow::slicePointerHover(const glm::vec2& position, float thresholdPixels) const
+{
+  if (!isTripleSliceMode() || !m_renderSettings) {
+    return SliceCrosshairHit::None;
+  }
+  const TripleSliceLayout layout = tripleSliceLayout();
+  const SlicePane pane = slicePaneAt(layout, position);
+  return hitTestSliceCrosshair(m_renderSettings->m_SliceView, pane, layout, position, thresholdPixels);
+}
+
+void
+ViewerWindow::slicePointerPress(const glm::vec2& position, SlicePointerButton button, float thresholdPixels)
+{
+  if (!isSliceMode() || !m_renderSettings || button == SlicePointerButton::None) {
+    return;
+  }
+
+  m_lastSlicePointer = position;
+  if (!isTripleSliceMode()) {
+    m_slicePointerButton = button;
+    return;
+  }
+
+  if (button != SlicePointerButton::Primary) {
+    return;
+  }
+  const TripleSliceLayout layout = tripleSliceLayout();
+  const SlicePane pane = slicePaneAt(layout, position);
+  const SliceCrosshairHit hit =
+    hitTestSliceCrosshair(m_renderSettings->m_SliceView, pane, layout, position, thresholdPixels);
+  if (hit == SliceCrosshairHit::None) {
+    return;
+  }
+
+  m_slicePointerButton = button;
+  m_tripleDragPane = pane;
+  m_tripleDragHit = hit;
+  if (updateSliceIndicesFromPane(
+        m_renderSettings->m_SliceView, pane, slicePaneUv(layout.pane(pane), position), hit)) {
+    markSliceViewDirty();
+  }
+}
+
+void
+ViewerWindow::slicePointerMove(const glm::vec2& position)
+{
+  if (!isSliceMode() || !m_renderSettings || m_slicePointerButton == SlicePointerButton::None) {
+    return;
+  }
+
+  if (isTripleSliceMode()) {
+    const TripleSliceLayout layout = tripleSliceLayout();
+    if (m_tripleDragPane != SlicePane::None &&
+        updateSliceIndicesFromPane(m_renderSettings->m_SliceView,
+                                   m_tripleDragPane,
+                                   slicePaneUv(layout.pane(m_tripleDragPane), position),
+                                   m_tripleDragHit)) {
+      markSliceViewDirty();
+    }
+    m_lastSlicePointer = position;
+    return;
+  }
+
+  const glm::vec2 delta = position - m_lastSlicePointer;
+  if (m_slicePointerButton == SlicePointerButton::Primary) {
+    // State pan is measured in framebuffer pixels with a bottom-left origin.
+    m_renderSettings->m_SliceView.activePan() += glm::vec2(delta.x, -delta.y);
+    markSliceViewDirty();
+  } else if (m_slicePointerButton == SlicePointerButton::Secondary) {
+    const float factor = std::exp(-delta.y * 0.01f);
+    m_renderSettings->m_SliceView.activeZoom() =
+      glm::clamp(m_renderSettings->m_SliceView.activeZoom() * factor, 0.05f, 100.0f);
+    markSliceViewDirty();
+  }
+  m_lastSlicePointer = position;
+}
+
+void
+ViewerWindow::slicePointerRelease()
+{
+  m_slicePointerButton = SlicePointerButton::None;
+  m_tripleDragPane = SlicePane::None;
+  m_tripleDragHit = SliceCrosshairHit::None;
+}
+
+void
+ViewerWindow::slicePointerDoubleClick(const glm::vec2& position)
+{
+  if (!isTripleSliceMode() || !m_renderSettings) {
+    return;
+  }
+  const TripleSliceLayout layout = tripleSliceLayout();
+  const SlicePane pane = slicePaneAt(layout, position);
+  if (pane != SlicePane::None &&
+      updateSliceIndicesFromPane(m_renderSettings->m_SliceView,
+                                 pane,
+                                 slicePaneUv(layout.pane(pane), position),
+                                 SliceCrosshairHit::Both)) {
+    markSliceViewDirty();
+  }
+}
+
+void
+ViewerWindow::sliceWheel(float steps)
+{
+  if (!isSliceMode() || isTripleSliceMode() || !m_renderSettings || steps == 0.0f) {
+    return;
+  }
+  const float factor = std::exp(steps * 0.15f);
+  m_renderSettings->m_SliceView.activeZoom() =
+    glm::clamp(m_renderSettings->m_SliceView.activeZoom() * factor, 0.05f, 100.0f);
+  markSliceViewDirty();
 }

@@ -2,6 +2,7 @@
 
 #include "CCamera.h"
 #include "Manipulator.h"
+#include "SliceViewState.h"
 #include "Timing.h"
 #include "gfxapi/Framebuffer.h"
 #include "gfxapi/IGestureRenderer.h"
@@ -16,6 +17,13 @@ class RenderSettings;
 class ViewerWindow
 {
 public:
+  enum class SlicePointerButton
+  {
+    None,
+    Primary,
+    Secondary
+  };
+
   ViewerWindow(RenderSettings* rs);
   ~ViewerWindow();
 
@@ -29,6 +37,16 @@ public:
   void update(const SceneView::Viewport& viewport, const Clock& clock, Gesture& gesture);
 
   void setRenderer(int rendererType);
+
+  bool isSliceMode() const { return m_rendererType >= 2 && m_rendererType <= 5; }
+  bool isTripleSliceMode() const { return m_rendererType == 5; }
+  void resetSliceView();
+  SliceCrosshairHit slicePointerHover(const glm::vec2& position, float thresholdPixels) const;
+  void slicePointerPress(const glm::vec2& position, SlicePointerButton button, float thresholdPixels);
+  void slicePointerMove(const glm::vec2& position);
+  void slicePointerRelease();
+  void slicePointerDoubleClick(const glm::vec2& position);
+  void sliceWheel(float steps);
 
   // Provide a new active tool
   void setTool(ManipulationTool* tool)
@@ -91,4 +109,13 @@ public:
 
   // Track camera manipulation for light following
   bool m_wasCameraBeingEdited = false;
+
+private:
+  TripleSliceLayout tripleSliceLayout() const;
+  void markSliceViewDirty();
+
+  SlicePointerButton m_slicePointerButton = SlicePointerButton::None;
+  glm::vec2 m_lastSlicePointer = glm::vec2(0.0f);
+  SlicePane m_tripleDragPane = SlicePane::None;
+  SliceCrosshairHit m_tripleDragHit = SliceCrosshairHit::None;
 };

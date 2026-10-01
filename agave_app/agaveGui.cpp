@@ -23,6 +23,7 @@
 #include "CacheSettingsDockWidget.h"
 #include "CameraDockWidget.h"
 #include "Serialize.h"
+#include "SliceDockWidget.h"
 #include "StatisticsDockWidget.h"
 #include "TimelineDockWidget.h"
 #include "ViewToolbar.h"
@@ -143,6 +144,7 @@ agaveGui::agaveGui(QWidget* parent)
     // we have loaded new data and need to update the channel histograms at least.
     m_appearanceDockWidget->onTimeChanged(newTime);
   });
+  connect(m_slicedock, &SliceDockWidget::sliceChanged, this, &agaveGui::onSliceChanged);
 
   // add the single 3d view as a tab. Use the view that matches the active
   // graphics backend: the Vulkan swapchain view when running on Vulkan, the
@@ -157,6 +159,7 @@ agaveGui::agaveGui(QWidget* parent)
     m_view = new GLView3D(&m_qcamera, &m_qrendersettings, &m_renderSettings, this);
   }
   QObject::connect(m_view->asWidget(), SIGNAL(ChangedRenderer()), this, SLOT(OnUpdateRenderer()));
+  connect(&m_qrendersettings, &QRenderSettings::ChangedRenderer, this, &agaveGui::onViewModeChanged);
 
   m_view->asWidget()->setObjectName("glcontainer");
   // We need a minimum size or else the size defaults to zero.
@@ -184,6 +187,8 @@ agaveGui::agaveGui(QWidget* parent)
 
   m_viewWithToolbar->setLayout(vlayout);
 
+  onViewModeChanged(m_qrendersettings.GetRendererType());
+
   m_tabs->addTab(m_viewWithToolbar, "None");
 
   QString windowTitle =
@@ -207,6 +212,88 @@ agaveGui::OnUpdateRenderer()
   std::shared_ptr<CStatus> s = m_view->getStatus();
   m_statisticsDockWidget->setStatus(s);
   // s->onNewImage(info.fileName(), &m_appScene);
+}
+
+void
+agaveGui::onViewModeChanged(int rendererType)
+{
+  const bool is3d = rendererType < 2;
+  const bool isSingleSlice = rendererType >= 2 && rendererType <= 4;
+
+  switch (rendererType) {
+    case 2:
+      m_renderSettings.m_SliceView.mode = SliceViewMode::Z;
+      break;
+    case 3:
+      m_renderSettings.m_SliceView.mode = SliceViewMode::Y;
+      break;
+    case 4:
+      m_renderSettings.m_SliceView.mode = SliceViewMode::X;
+      break;
+    case 5:
+      m_renderSettings.m_SliceView.mode = SliceViewMode::Triple;
+      break;
+    default:
+      break;
+  }
+
+  if (m_slicedock) {
+    if (!isSingleSlice) {
+      m_slicedock->stopPlayback();
+    }
+    m_slicedock->setSliceState(m_renderSettings.m_SliceView);
+    m_slicedock->setVisible(isSingleSlice);
+    m_slicedock->toggleViewAction()->setEnabled(isSingleSlice);
+  }
+  if (m_cameradock) {
+    m_cameradock->setEnabled(is3d);
+  }
+  if (m_viewToolbar) {
+    m_viewToolbar->setRendererMode(rendererType);
+  }
+  if (m_toggleCameraProjectionAction) {
+    m_toggleCameraProjectionAction->setEnabled(is3d);
+  }
+  if (m_toggleRotateControlsAction) {
+    m_toggleRotateControlsAction->setEnabled(is3d);
+    m_toggleRotateControlsAction->setChecked(false);
+  }
+  if (m_toggleTranslateControlsAction) {
+    m_toggleTranslateControlsAction->setEnabled(is3d);
+    m_toggleTranslateControlsAction->setChecked(false);
+  }
+  if (!is3d && m_view) {
+    m_view->showRotateControls(false);
+    m_view->showTranslateControls(false);
+  }
+}
+
+void
+agaveGui::onSliceChanged(SliceViewMode mode, int index)
+{
+  if (m_renderSettings.m_SliceView.mode != mode || !m_renderSettings.m_SliceView.isSingleSlice()) {
+    return;
+  }
+  m_renderSettings.m_SliceView.setActiveIndex(index);
+  m_renderSettings.m_DirtyFlags.SetFlag(RenderParamsDirty);
+}
+
+void
+agaveGui::refreshSliceState(bool centerIndices)
+{
+  if (m_appScene.m_volume) {
+    m_renderSettings.m_SliceView.setDimensions(
+      glm::ivec3(static_cast<int>(m_appScene.m_volume->sizeX()),
+                 static_cast<int>(m_appScene.m_volume->sizeY()),
+                 static_cast<int>(m_appScene.m_volume->sizeZ())),
+      centerIndices);
+  } else {
+    m_renderSettings.m_SliceView.setDimensions(glm::ivec3(1), centerIndices);
+  }
+  if (m_slicedock) {
+    m_slicedock->setSliceState(m_renderSettings.m_SliceView);
+  }
+  m_renderSettings.m_DirtyFlags.SetFlag(RenderParamsDirty);
 }
 
 void
@@ -396,6 +483,11 @@ agaveGui::createDockWindows()
   addDockWidget(Qt::RightDockWidgetArea, m_timelinedock);
   m_timelinedock->setVisible(false); // hide by default
 
+  m_slicedock = new SliceDockWidget(this);
+  m_slicedock->setAllowedAreas(Qt::AllDockWidgetAreas);
+  addDockWidget(Qt::RightDockWidgetArea, m_slicedock);
+  m_slicedock->setVisible(false);
+
   m_appearanceDockWidget = new QAppearanceDockWidget(
     this, &m_qrendersettings, &m_renderSettings, m_toggleRotateControlsAction, m_toggleTranslateControlsAction);
   m_appearanceDockWidget->setAllowedAreas(Qt::AllDockWidgetAreas);
@@ -416,6 +508,8 @@ agaveGui::createDockWindows()
   m_viewMenu->addAction(m_cameradock->toggleViewAction());
   m_viewMenu->addSeparator();
   m_viewMenu->addAction(m_timelinedock->toggleViewAction());
+  m_viewMenu->addSeparator();
+  m_viewMenu->addAction(m_slicedock->toggleViewAction());
   m_viewMenu->addSeparator();
   m_viewMenu->addAction(m_appearanceDockWidget->toggleViewAction());
   m_viewMenu->addSeparator();
@@ -768,6 +862,10 @@ agaveGui::onImageLoaded(std::shared_ptr<ImageXYZC> image,
   // this is deref'ing the previous _volume shared_ptr.
   m_appScene.m_volume = image;
 
+  // Slice positions are navigation state for this dataset. Start a new volume
+  // in its center; a ViewerState, when present, restores its indices below.
+  refreshSliceState(/*centerIndices=*/true);
+
   m_appScene.initBoundsFromImg(image);
   if (!keepCurrentUISettings || !wasVolumeLoaded) {
     m_appScene.initSceneFromImg(image);
@@ -990,17 +1088,28 @@ agaveGui::quit()
 void
 agaveGui::view_reset()
 {
-  m_view->initCameraFromImage(&m_appScene);
+  if (m_qrendersettings.GetRendererType() >= 2) {
+    m_view->borrowRenderer()->resetSliceView();
+  } else {
+    m_view->initCameraFromImage(&m_appScene);
+  }
 }
 void
 agaveGui::view_frame()
 {
-  m_view->FitToScene();
+  if (m_qrendersettings.GetRendererType() >= 2) {
+    m_view->borrowRenderer()->resetSliceView();
+  } else {
+    m_view->FitToScene();
+  }
 }
 
 void
 agaveGui::setViewMode(EViewMode mode)
 {
+  if (m_qrendersettings.GetRendererType() >= 2) {
+    return;
+  }
   ViewerWindow* vw = m_view->borrowRenderer();
   vw->beginCameraChange();
   vw->m_CCamera.SetViewMode(mode);
@@ -1042,7 +1151,9 @@ agaveGui::view_right()
 void
 agaveGui::view_toggleProjection()
 {
-  m_view->toggleCameraProjection();
+  if (m_qrendersettings.GetRendererType() < 2) {
+    m_view->toggleCameraProjection();
+  }
 }
 
 void
@@ -1218,8 +1329,13 @@ agaveGui::viewerStateToApp(const Serialize::ViewerState& v)
 {
   // ASSUME THAT IMAGE IS LOADED AND APPSCENE INITIALIZED
 
+  m_renderSettings.m_SliceView.indices = glm::ivec3(
+    static_cast<int>(v.sliceIndices[0]), static_cast<int>(v.sliceIndices[1]), static_cast<int>(v.sliceIndices[2]));
+  m_renderSettings.m_SliceView.clampIndices();
+
   // position camera
   m_view->fromViewerState(v);
+  m_slicedock->setSliceState(m_renderSettings.m_SliceView);
   m_viewToolbar->initFromCamera(m_view->getCamera());
 
   m_appScene.m_roi.SetMinP(glm::vec3(v.clipRegion[0][0], v.clipRegion[1][0], v.clipRegion[2][0]));
@@ -1402,8 +1518,30 @@ agaveGui::appToViewerState()
   v.density = m_renderSettings.m_RenderSettings.m_DensityScale;
   v.interpolate = m_renderSettings.m_RenderSettings.m_InterpolatedVolumeSampling;
 
-  v.rendererType = m_qrendersettings.GetRendererType() == 0 ? Serialize::RendererType_PID::RAYMARCH
-                                                            : Serialize::RendererType_PID::PATHTRACE;
+  switch (m_qrendersettings.GetRendererType()) {
+    case 0:
+      v.rendererType = Serialize::RendererType_PID::RAYMARCH;
+      break;
+    case 2:
+      v.rendererType = Serialize::RendererType_PID::SLICE_Z;
+      break;
+    case 3:
+      v.rendererType = Serialize::RendererType_PID::SLICE_Y;
+      break;
+    case 4:
+      v.rendererType = Serialize::RendererType_PID::SLICE_X;
+      break;
+    case 5:
+      v.rendererType = Serialize::RendererType_PID::TRIPLE;
+      break;
+    case 1:
+    default:
+      v.rendererType = Serialize::RendererType_PID::PATHTRACE;
+      break;
+  }
+  v.sliceIndices = { static_cast<uint32_t>(m_renderSettings.m_SliceView.indices.x),
+                     static_cast<uint32_t>(m_renderSettings.m_SliceView.indices.y),
+                     static_cast<uint32_t>(m_renderSettings.m_SliceView.indices.z) };
 
   v.pathTracer.primaryStepSize = m_renderSettings.m_RenderSettings.m_StepSizeFactor;
   v.pathTracer.secondaryStepSize = m_renderSettings.m_RenderSettings.m_StepSizeFactorShadow;

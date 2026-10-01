@@ -22,6 +22,7 @@
 #include <QLinearGradient>
 #include <QPainter>
 #include <QPointer>
+#include <QSignalBlocker>
 #include <algorithm>
 
 static QGradientStops
@@ -208,6 +209,10 @@ QAppearanceSettingsWidget::QAppearanceSettingsWidget(QWidget* pParent,
 
   m_RendererType.addItem("Ray march blending", 0);
   m_RendererType.addItem("Path Traced", 1);
+  m_RendererType.addItem("Z Slice", 2);
+  m_RendererType.addItem("Y Slice", 3);
+  m_RendererType.addItem("X Slice", 4);
+  m_RendererType.addItem("Triple Slice", 5);
 
   m_RendererType.setCurrentIndex(1);
   Controls::addFormRow(
@@ -485,6 +490,13 @@ QAppearanceSettingsWidget::QAppearanceSettingsWidget(QWidget* pParent,
   m_MainLayout->addRow(lineA);
 
   QObject::connect(&m_RendererType, SIGNAL(currentIndexChanged(int)), this, SLOT(OnSetRendererType(int)));
+  QObject::connect(m_qrendersettings, &QRenderSettings::ChangedRenderer, this, [this](int rendererType) {
+    const int index = m_RendererType.findData(rendererType);
+    if (index >= 0 && index != m_RendererType.currentIndex()) {
+      const QSignalBlocker blocker(&m_RendererType);
+      m_RendererType.setCurrentIndex(index);
+    }
+  });
   QObject::connect(&m_ShadingType, SIGNAL(currentIndexChanged(int)), this, SLOT(OnSetShadingType(int)));
   // QObject::connect(&gStatus, SIGNAL(RenderBegin()), this, SLOT(OnRenderBegin()));
 
@@ -1028,7 +1040,7 @@ QAppearanceSettingsWidget::OnSetShadingType(int Index)
 void
 QAppearanceSettingsWidget::OnSetRendererType(int Index)
 {
-  m_qrendersettings->SetRendererType(Index);
+  m_qrendersettings->SetRendererType(m_RendererType.itemData(Index).toInt());
 }
 
 void
