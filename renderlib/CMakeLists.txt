@@ -4,7 +4,7 @@ configure_file(
 )
 
 add_library(renderlib "${CMAKE_CURRENT_SOURCE_DIR}/renderlib.cpp")
-set_property(TARGET renderlib PROPERTY AUTOMOC ON)
+set_property(TARGET renderlib PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 target_include_directories(renderlib PUBLIC
 	"${CMAKE_CURRENT_SOURCE_DIR}"
@@ -96,6 +96,8 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/ViewerWindow.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/VolumeDimensions.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/VolumeDimensions.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/PythonRenderer.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/PythonRenderer.h"
 )
 add_subdirectory(gesture)
 add_subdirectory(gfxapi)
