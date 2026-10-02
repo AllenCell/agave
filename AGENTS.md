@@ -34,8 +34,8 @@ aqt install-qt --outputdir ~/Qt mac desktop 6.9.3 -m qtwebsockets qtimageformats
 export Qt6_DIR=~/Qt/6.9.3/macos
 
 mkdir build && cd build
-cmake ..
-make
+cmake .. -G Ninja
+cmake --build .
 ```
 
 ### Windows
@@ -90,7 +90,7 @@ clang-tidy -p build --fix renderlib/RenderSettings.cpp
 ### Python
 
 - PEP 8 / snake_case
-- Tooling: black, flake8, pyright (see `pyrightconfig.json`)
+- Tooling: - `ruff check`, `ruff format`.
 
 ## Conventions
 
