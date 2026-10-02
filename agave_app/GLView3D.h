@@ -2,8 +2,6 @@
 
 #include <memory>
 
-#include "glad/glad.h"
-
 #include "glm.h"
 #include "renderlib/CCamera.h"
 #include "renderlib/ViewerWindow.h"
@@ -15,7 +13,6 @@
 class CStatus;
 class ImageXYZC;
 class QCamera;
-class IRenderWindow;
 class QRenderSettings;
 class Scene;
 namespace Serialize {

@@ -1,5 +1,6 @@
 #include "renderer.h"
 
+#include "QtGLContext.h"
 #include "renderlib/AppScene.h"
 #include "renderlib/BoundingBoxTool.h"
 #include "renderlib/CCamera.h"
@@ -7,8 +8,9 @@
 #include "renderlib/RenderSettings.h"
 #include "renderlib/ScaleBarTool.h"
 #include "renderlib/SceneView.h"
-#include "renderlib/graphics/RenderGL.h"
-#include "renderlib/graphics/RenderGLPT.h"
+#include "renderlib/gfxapi/Backend.h"
+#include "renderlib/gfxapi/IGLContext.h"
+#include "renderlib/gfxapi/IRenderWindow.h"
 #include "renderlib/io/FileReader.h"
 
 #include "command.h"
@@ -18,7 +20,59 @@
 #include <QElapsedTimer>
 #include <QMessageBox>
 #include <QMutexLocker>
-#include <QOpenGLFramebufferObjectFormat>
+
+namespace {
+
+gfxApi::ClearColor
+backgroundClearColor(const Scene* scene)
+{
+  if (!scene) {
+    return {};
+  }
+
+  return { scene->m_material.m_backgroundColor[0],
+           scene->m_material.m_backgroundColor[1],
+           scene->m_material.m_backgroundColor[2],
+           0.0f };
+}
+
+class MutexContextLocker
+{
+public:
+  explicit MutexContextLocker(QMutex* mutex, gfxApi::IGLContext* context)
+    : m_mutex(mutex)
+    , m_context(context)
+  {
+    if (!m_mutex || !m_context) {
+      LOG_ERROR << "MutexContextLocker: mutex or context is null";
+      return;
+    }
+    if (m_mutex) {
+      m_mutex->lock();
+      m_locked = true;
+      m_context->makeCurrent();
+    }
+  }
+
+  ~MutexContextLocker()
+  {
+    if (m_locked) {
+      m_context->doneCurrent();
+      m_mutex->unlock();
+    }
+  }
+
+  // Disable copying
+  MutexContextLocker(const MutexContextLocker&) = delete;
+  MutexContextLocker& operator=(const MutexContextLocker&) = delete;
+
+private:
+  QMutex* m_mutex;
+  gfxApi::IGLContext* m_context;
+  bool m_locked = false;
+};
+
+} // namespace
 
 Renderer::Renderer(const QString& id, QObject* parent, QMutex& mutex)
   : QThread(parent)
@@ -31,7 +85,6 @@ Renderer::Renderer(const QString& id, QObject* parent, QMutex& mutex)
   , m_height(0)
   , m_openGLMutex(&mutex)
   , m_wait()
-  , m_rglContext()
 {
   this->m_totalQueueDuration = 0;
 
@@ -46,16 +99,18 @@ Renderer::~Renderer()
 }
 
 void
-Renderer::configure(IRenderWindow* renderer,
+Renderer::configure(gfxApi::IRenderWindow* renderer,
                     const RenderSettings& renderSettings,
                     const Scene& scene,
                     const CCamera& camera,
                     const LoadSpec& loadSpec,
                     // rendererMode ignored if renderer is non-null
                     renderlib::RendererType rendererMode,
-                    QOpenGLContext* glContext,
+                    gfxApi::IGLContext* glContext,
                     const CaptureSettings* captureSettings)
 {
+  m_ownedGLContext.reset();
+
   // assumes scene is already set in renderer and everything is initialized
   m_myVolumeData.m_renderSettings = new RenderSettings(renderSettings);
   m_myVolumeData.m_camera = new CCamera(camera);
@@ -79,17 +134,28 @@ Renderer::configure(IRenderWindow* renderer,
     m_myVolumeData.m_renderer = renderer;
   }
 
-  m_rglContext.configure(glContext);
+  m_myVolumeData.m_gestureRenderer = renderlib::graphicsBackend()->createGestureRenderer();
+
+  gfxApi::Backend* backend = renderlib::graphicsBackend();
+  if (!backend->isHeadless() && !glContext) {
+    m_ownedGLContext = std::make_unique<QtGLContext>();
+    if (m_ownedGLContext->create()) {
+      m_ownedGLContext->moveToThread(this);
+      glContext = m_ownedGLContext.get();
+    } else {
+      LOG_ERROR << "Renderer " << m_id.toStdString() << " failed to create a Qt GL context";
+    }
+  }
+
+  m_renderContext = backend->createRendererContext(glContext);
 }
 
 void
 Renderer::init()
 {
-  m_rglContext.init();
-
-  int status = gladLoadGL();
-  if (!status) {
-    LOG_INFO << m_id.toStdString() << " COULD NOT LOAD GL ON THREAD";
+  if (!m_renderContext || !m_renderContext->create()) {
+    LOG_ERROR << "Renderer " << m_id.toStdString() << " failed to create a render GL context";
+    return;
   }
 
   ///////////////////////////////////
@@ -103,14 +169,9 @@ Renderer::init()
   this->resizeGL(m_myVolumeData.m_camera->m_Film.m_Resolution.GetResX(),
                  m_myVolumeData.m_camera->m_Film.m_Resolution.GetResY());
 
-  int MaxSamples = 0;
-  glGetIntegerv(GL_MAX_SAMPLES, &MaxSamples);
-  LOG_INFO << m_id.toStdString() << " max samples" << MaxSamples;
-  glEnable(GL_MULTISAMPLE);
-
   reset();
 
-  m_rglContext.doneCurrent();
+  m_renderContext->doneCurrent();
 }
 
 void
@@ -118,7 +179,9 @@ Renderer::run()
 {
   this->init();
 
-  m_rglContext.makeCurrent();
+  if (m_renderContext) {
+    m_renderContext->makeCurrent();
+  }
 
   while (!this->isInterruptionRequested()) {
     this->processRequest();
@@ -127,7 +190,9 @@ Renderer::run()
     QApplication::processEvents();
   }
 
-  m_rglContext.makeCurrent();
+  if (m_renderContext) {
+    m_renderContext->makeCurrent();
+  }
   if (m_myVolumeData.ownRenderer) {
     m_myVolumeData.m_renderer->cleanUpResources();
   }
@@ -282,7 +347,9 @@ Renderer::processRequest()
 void
 Renderer::processCommandBuffer(RenderRequest* rr)
 {
-  m_rglContext.makeCurrent();
+  if (m_renderContext) {
+    m_renderContext->makeCurrent();
+  }
 
   std::vector<Command*> cmds = rr->getParameters();
   if (!cmds.empty()) {
@@ -306,9 +373,7 @@ Renderer::processCommandBuffer(RenderRequest* rr)
 QImage
 Renderer::render()
 {
-  QMutexLocker locker(m_openGLMutex);
-
-  m_rglContext.makeCurrent();
+  MutexContextLocker locker(m_openGLMutex, m_renderContext.get());
 
   // DRAW
   m_myVolumeData.m_camera->Update();
@@ -333,22 +398,20 @@ Renderer::render()
   bbox.draw(sceneView, m_myVolumeData.m_gesture);
 
   m_fbo->bind();
-  clearFramebuffer(sceneView.scene);
-  m_myVolumeData.m_gestureRenderer.drawUnderlay(sceneView, nullptr, m_myVolumeData.m_gesture.graphics);
+  m_fbo->clear(backgroundClearColor(sceneView.scene));
+  m_myVolumeData.m_gestureRenderer->drawUnderlay(sceneView, m_myVolumeData.m_gesture.graphics);
   m_fbo->release();
 
   // main scene rendering
-  m_myVolumeData.m_renderer->renderTo(sceneView.camera, m_fbo);
+  m_myVolumeData.m_renderer->renderTo(sceneView.camera, m_fbo.get());
 
   m_fbo->bind();
-  m_myVolumeData.m_gestureRenderer.draw(sceneView, nullptr, m_myVolumeData.m_gesture.graphics);
+  m_myVolumeData.m_gestureRenderer->draw(sceneView, m_myVolumeData.m_gesture.graphics);
   m_fbo->release();
 
   std::unique_ptr<uint8_t> bytes(new uint8_t[m_fbo->width() * m_fbo->height() * 4]);
   m_fbo->toImage(bytes.get());
   QImage img = QImage(bytes.get(), m_fbo->width(), m_fbo->height(), QImage::Format_ARGB32).copy().mirrored();
-
-  m_rglContext.doneCurrent();
 
   return img;
 }
@@ -360,18 +423,15 @@ Renderer::resizeGL(int width, int height)
     return;
   }
 
-  QMutexLocker locker(m_openGLMutex);
-  m_rglContext.makeCurrent();
+  MutexContextLocker locker(m_openGLMutex, m_renderContext.get());
 
   // RESIZE THE RENDER INTERFACE
   if (m_myVolumeData.m_renderer) {
     m_myVolumeData.m_renderer->resize(width, height);
   }
 
-  delete this->m_fbo;
-  this->m_fbo = new GLFramebufferObject(width, height, GL_RGBA8);
-
-  glViewport(0, 0, width, height);
+  this->m_fbo = renderlib::graphicsBackend()->createFramebuffer(
+    { static_cast<uint32_t>(width), static_cast<uint32_t>(height), gfxApi::FramebufferColorFormat::Rgba8, true });
 
   m_width = width;
   m_height = height;
@@ -380,19 +440,8 @@ Renderer::resizeGL(int width, int height)
 void
 Renderer::reset(int from)
 {
-  QMutexLocker locker(m_openGLMutex);
-
-  m_rglContext.makeCurrent();
-
-  glClearColor(0.0, 0.0, 0.0, 1.0);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  // glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA, GL_ONE);
-  glEnable(GL_BLEND);
-  glEnable(GL_LINE_SMOOTH);
-
+  (void)from;
   this->m_time.start();
-
-  m_rglContext.doneCurrent();
 }
 
 int
@@ -404,30 +453,32 @@ Renderer::getTime()
 void
 Renderer::shutDown()
 {
-  m_rglContext.makeCurrent();
+  {
+    MutexContextLocker locker(m_openGLMutex, m_renderContext.get());
 
-  delete this->m_fbo;
+    this->m_fbo.reset();
+    m_myVolumeData.m_gestureRenderer.reset();
 
-  delete m_myVolumeData.m_captureSettings;
-  m_myVolumeData.m_captureSettings = nullptr;
+    delete m_myVolumeData.m_captureSettings;
+    m_myVolumeData.m_captureSettings = nullptr;
 
-  delete m_myVolumeData.m_renderSettings;
-  m_myVolumeData.m_renderSettings = nullptr;
+    delete m_myVolumeData.m_renderSettings;
+    m_myVolumeData.m_renderSettings = nullptr;
 
-  delete m_myVolumeData.m_camera;
-  m_myVolumeData.m_camera = nullptr;
+    delete m_myVolumeData.m_camera;
+    m_myVolumeData.m_camera = nullptr;
 
-  delete m_myVolumeData.m_scene;
-  m_myVolumeData.m_scene = nullptr;
+    delete m_myVolumeData.m_scene;
+    m_myVolumeData.m_scene = nullptr;
 
-  if (m_myVolumeData.ownRenderer) {
-    delete m_myVolumeData.m_renderer;
+    if (m_myVolumeData.ownRenderer) {
+      delete m_myVolumeData.m_renderer;
+    }
+    m_myVolumeData.m_renderer = nullptr;
   }
-  m_myVolumeData.m_renderer = nullptr;
 
-  m_rglContext.doneCurrent();
-
-  m_rglContext.destroy();
+  m_renderContext.reset();
+  m_ownedGLContext.reset();
 
   // Stop event processing, move the thread to GUI and make sure it is deleted.
   exit();

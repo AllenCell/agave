@@ -1,5 +1,3 @@
-set(GLAD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/graphics/glad/include")
-
 configure_file(
 	"${CMAKE_CURRENT_SOURCE_DIR}/version.h.in"
 	"${CMAKE_CURRENT_SOURCE_DIR}/version.h"
@@ -11,7 +9,6 @@ set_property(TARGET renderlib PROPERTY AUTOMOC ON)
 target_include_directories(renderlib PUBLIC
 	"${CMAKE_CURRENT_SOURCE_DIR}"
 	"${glm_SOURCE_DIR}"
-	${GLAD_DIR}
 )
 target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/AppScene.cpp"
@@ -101,16 +98,15 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/VolumeDimensions.h"
 )
 add_subdirectory(gesture)
-add_subdirectory(graphics)
+add_subdirectory(gfxapi)
+add_subdirectory(gfxOpenGL)
 add_subdirectory(io)
 add_subdirectory(pugixml)
+add_subdirectory(stb)
 
 target_link_libraries(renderlib
-	Qt::Core Qt::OpenGL
 	${CMAKE_DL_LIBS}
 	${TIFF_LIBRARIES}
-
-	${OPENGL_egl_LIBRARY}
 	spdlog::spdlog_header_only
 )
 
