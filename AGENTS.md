@@ -34,13 +34,13 @@ aqt install-qt --outputdir ~/Qt mac desktop 6.9.3 -m qtwebsockets qtimageformats
 export Qt6_DIR=~/Qt/6.9.3/macos
 
 mkdir build && cd build
-cmake ..
-make
+cmake .. -G Ninja
+cmake --build .
 ```
 
 ### Windows
 
-Run from a **VS2022 x64 Native Tools Command Prompt**. Requires Perl, NASM, and GNU Patch in PATH (install via `choco install strawberryperl nasm patch`).
+Run from a **VS2026 x64 Native Tools Command Prompt**. Requires Perl, NASM, and GNU Patch in PATH (install via `choco install strawberryperl nasm patch`).
 
 ```powershell
 pip install aqtinstall
@@ -69,7 +69,7 @@ pytest agave_pyclient/tests/
 # macOS / Linux (requires clang-tidy, e.g. brew install llvm)
 clang-tidy -p build renderlib/RenderSettings.cpp
 
-# Windows (from a VS2022 x64 Native Tools Command Prompt)
+# Windows (from a VS2026 x64 Native Tools Command Prompt)
 clang-tidy.exe -p build renderlib\RenderSettings.cpp
 
 # To auto-apply suggested fixes, add --fix:
@@ -90,7 +90,7 @@ clang-tidy -p build --fix renderlib/RenderSettings.cpp
 ### Python
 
 - PEP 8 / snake_case
-- Tooling: black, flake8, pyright (see `pyrightconfig.json`)
+- Tooling: - `ruff check`, `ruff format`.
 
 ## Conventions
 

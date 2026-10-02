@@ -7,12 +7,10 @@
 #include "FileReaderZarr.h"
 #include "ImageXYZC.h"
 #include "Logging.h"
+#include "CacheManager.h"
 
 #include <chrono>
 #include <filesystem>
-#include <map>
-
-std::map<std::string, std::shared_ptr<ImageXYZC>> FileReader::sPreloadedImageCache;
 
 // return file extension as lowercase
 std::string
@@ -66,30 +64,34 @@ FileReader::getReader(const std::string& filepath, bool isImageSequence)
 }
 
 std::shared_ptr<ImageXYZC>
-FileReader::loadAndCache(const LoadSpec& loadSpec)
+FileReader::loadAndCache(const LoadSpec& loadSpec, std::shared_ptr<IFileReader> reader)
 {
-  // check cache first of all.
-  auto cached = sPreloadedImageCache.find(loadSpec.filepath);
-  if (cached != sPreloadedImageCache.end()) {
-    return cached->second;
+  auto cached = CacheManager::instance().findImage(loadSpec);
+  if (cached) {
+    return cached;
   }
-
-  VolumeDimensions dims;
 
   std::shared_ptr<ImageXYZC> image;
 
-  std::string filepath = loadSpec.filepath;
+  const std::string& filepath = loadSpec.filepath;
 
-  std::unique_ptr<IFileReader> reader(FileReader::getReader(filepath));
+  // Fall back to constructing a new reader if the caller didn't supply one.
+  // A reused reader can skip re-opening the file and re-parsing metadata (notably
+  // valuable for time-series stepping on OME-Zarr/TIFF/CZI).
+  std::shared_ptr<IFileReader> ownedReader;
   if (!reader) {
-    LOG_ERROR << "Could not find a reader for file " << filepath;
-    return nullptr;
+    ownedReader.reset(FileReader::getReader(filepath, loadSpec.isImageSequence));
+    if (!ownedReader) {
+      LOG_ERROR << "Could not find a reader for file " << filepath;
+      return nullptr;
+    }
+    reader = ownedReader;
   }
 
   image = reader->loadFromFile(loadSpec);
 
   if (image) {
-    sPreloadedImageCache[filepath] = image;
+    CacheManager::instance().storeImage(loadSpec, image);
   }
 
   return image;
@@ -106,9 +108,11 @@ FileReader::loadFromArray_4D(uint8_t* dataArray,
                              bool addToCache)
 {
   // check cache first of all.
-  auto cached = sPreloadedImageCache.find(name);
-  if (cached != sPreloadedImageCache.end()) {
-    return cached->second;
+  LoadSpec cacheSpec;
+  cacheSpec.filepath = name;
+  auto cached = CacheManager::instance().findImage(cacheSpec);
+  if (cached) {
+    return cached;
   }
 
   // assume data is in CZYX order:
@@ -145,7 +149,9 @@ FileReader::loadFromArray_4D(uint8_t* dataArray,
 
   std::shared_ptr<ImageXYZC> sharedImage(im);
   if (addToCache) {
-    sPreloadedImageCache[name] = sharedImage;
+    LoadSpec newSpec;
+    newSpec.filepath = name;
+    CacheManager::instance().storeImage(newSpec, sharedImage);
   }
   return sharedImage;
 }
