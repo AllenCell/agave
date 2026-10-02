@@ -49,6 +49,8 @@ public:
 class PythonRenderer final : public RendererCommandInterface
 {
 public:
+  // selectedGpu is a zero-based physical device index; gfxApi::kAutoSelectGpu
+  // (-1) lets the backend pick the best graphics-capable device.
   PythonRenderer(const std::string& mode, const std::string& assetPath, int selectedGpu);
   ~PythonRenderer();
 

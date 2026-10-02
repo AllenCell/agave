@@ -1,5 +1,6 @@
 #define VK_USE_PLATFORM_METAL_EXT
 
+#include "NativeSurface.h"
 #include "Swapchain.h"
 
 #if AGAVE_HAS_VULKAN && defined(__APPLE__)
@@ -14,14 +15,25 @@ namespace gfxvulkan {
 bool
 Swapchain::createNativeSurface()
 {
-  if (!m_backend || !m_surface) {
+  if (!m_backend) {
     return false;
   }
 
-  NSView* view = reinterpret_cast<NSView*>(m_surface->nativeHandle());
+  m_vkSurface = createNativeWindowSurface(m_backend->instance(), m_surface);
+  return m_vkSurface != VK_NULL_HANDLE;
+}
+
+VkSurfaceKHR
+createNativeWindowSurface(VkInstance instance, gfxApi::IWindowSurface* surface)
+{
+  if (instance == VK_NULL_HANDLE || !surface) {
+    return VK_NULL_HANDLE;
+  }
+
+  NSView* view = reinterpret_cast<NSView*>(surface->nativeHandle());
   if (!view) {
     LOG_ERROR << "Unable to get an NSView for the Vulkan window";
-    return false;
+    return VK_NULL_HANDLE;
   }
 
   // Note on Qt integration: standalone Vulkan apps (e.g. GLFW) usually own the
@@ -53,30 +65,29 @@ Swapchain::createNativeSurface()
     [[view layer] addSublayer:metalLayer];
   }
 
-  metalLayer.contentsScale = m_surface->contentScale();
+  metalLayer.contentsScale = surface->contentScale();
   metalLayer.frame = [view bounds];
 
   auto createMetalSurface = reinterpret_cast<PFN_vkCreateMetalSurfaceEXT>(
-    vkGetInstanceProcAddr(m_backend->instance(), "vkCreateMetalSurfaceEXT"));
+    vkGetInstanceProcAddr(instance, "vkCreateMetalSurfaceEXT"));
   if (!createMetalSurface) {
     LOG_ERROR << "vkCreateMetalSurfaceEXT is not available on the current "
                  "Vulkan instance";
-    return false;
+    return VK_NULL_HANDLE;
   }
 
   VkMetalSurfaceCreateInfoEXT createInfo = {};
   createInfo.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
   createInfo.pLayer = metalLayer;
 
-  VkResult result = createMetalSurface(
-    m_backend->instance(), &createInfo, nullptr, &m_vkSurface);
+  VkSurfaceKHR vkSurface = VK_NULL_HANDLE;
+  VkResult result = createMetalSurface(instance, &createInfo, nullptr, &vkSurface);
   if (result != VK_SUCCESS) {
     LOG_ERROR << "vkCreateMetalSurfaceEXT failed with VkResult " << result;
-    m_vkSurface = VK_NULL_HANDLE;
-    return false;
+    return VK_NULL_HANDLE;
   }
 
-  return true;
+  return vkSurface;
 }
 
 void
