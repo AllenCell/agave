@@ -388,11 +388,17 @@ TEST_CASE("CacheManager disk tier round-trips images and respects the disk cap",
     // No entry subdirectory should have been created.
     REQUIRE(countSubdirs(tmp.path()) == 0);
 
-    // Drop RAM to force a disk-or-miss lookup; with no entry on disk we
+    // Confirm that the data is in ram.
+    REQUIRE(cache.findImage(spec) != nullptr);
+    // Confirm that no disk writes occurred.
+    REQUIRE(cache.getStats().diskWrites == 0);
+
+    // Drop RAM to force a lookup from disk cache; with no entry on disk we
     // should get a miss.
     cache.clearMemoryCache();
-  REQUIRE(cache.findImage(spec) == nullptr);
-}
+    REQUIRE(cache.findImage(spec) == nullptr);
+  }
+
   SECTION("Disk eviction removes the oldest entry to stay under the cap")
   {
     // Cap large enough for two entries' raw byte estimate but not three.
@@ -413,7 +419,7 @@ TEST_CASE("CacheManager disk tier round-trips images and respects the disk cap",
     REQUIRE(cache.findImage(makeSpec("disk_c")) != nullptr);
 
     // After eviction there should be at most two entry subdirectories on
-    // disk (the marker file is not a directory).
+    // disk.
     REQUIRE(countSubdirs(tmp.path()) <= 2);
   }
 
@@ -500,6 +506,12 @@ TEST_CASE("CacheManager cache directory is fixed at construction", "[cache][disk
 
 TEST_CASE("CacheManager invalidates entries when the source file mtime changes", "[cache][mtime]")
 {
+  // The purpose of this test is to verify that the CacheManager uses a different cache key
+  // when the source file's modification time changes.
+  // From a user perspective, this represents loading an image file that has been modified
+  // since the last time it was loaded and cached in AGAVE.
+  // The old entry will just sit there and never receive cache hits until eventually it is evicted.
+
   CacheManager cache;
 
   // Use a real file on disk so the cache key picks up its mtime via
