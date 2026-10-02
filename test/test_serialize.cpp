@@ -13,11 +13,18 @@ TEST_CASE("Json Serialization", "[serialize]")
     auto settings = Serialize::PathTraceSettings_V1{};
     settings.primaryStepSize = 0.1f;
     settings.secondaryStepSize = 0.2f;
+    settings.multichannelBlendMode = 1;
     nlohmann::json json = settings;
     std::string str = json.dump();
     json = nlohmann::json::parse(str);
     auto settings2 = json.get<Serialize::PathTraceSettings_V1>();
     REQUIRE(settings == settings2);
+  }
+  SECTION("Old PathTraceSettings_V1 defaults multichannel blend to Max")
+  {
+    auto json = nlohmann::json::parse(R"({"primaryStepSize": 0.1, "secondaryStepSize": 0.2})");
+    auto settings = json.get<Serialize::PathTraceSettings_V1>();
+    REQUIRE(settings.multichannelBlendMode == 0);
   }
   SECTION("Read and write TimelineSettings_V1")
   {
@@ -174,12 +181,12 @@ TEST_CASE("Json Serialization", "[serialize]")
     REQUIRE(settings == settings2);
   }
 
-  SECTION("Error out on bad json")
+  SECTION("Use defaults and error out on bad json")
   {
-    // valid json to struct fails
+    // missing fields use the struct defaults
     auto jstr = "{}";
     auto json = nlohmann::json::parse(jstr);
-    REQUIRE_THROWS_AS(json.get<Serialize::PathTraceSettings_V1>(), std::exception);
+    REQUIRE(json.get<Serialize::PathTraceSettings_V1>() == Serialize::PathTraceSettings_V1{});
 
     // all good
     jstr = R"(

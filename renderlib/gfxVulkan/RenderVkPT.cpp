@@ -129,7 +129,7 @@ struct alignas(16) PtVolumeUniforms
   int gShadingType;
   int gUseWoodcockTracking;
   float gExtinctionMajorant;
-  float _padShade;
+  int gMultichannelBlendMode;
   glm::vec3 gGradientDeltaX;
   float _pgx;
   glm::vec3 gGradientDeltaY;
@@ -161,6 +161,8 @@ static_assert(offsetof(PtVolumeUniforms, gClippedAaBbMin) == 496, "PtVolumeUnifo
 static_assert(offsetof(PtVolumeUniforms, gPosToUVW) == 544, "PtVolumeUniforms.gPosToUVW offset");
 static_assert(offsetof(PtVolumeUniforms, gUseWoodcockTracking) == 564, "PtVolumeUniforms.gUseWoodcockTracking offset");
 static_assert(offsetof(PtVolumeUniforms, gExtinctionMajorant) == 568, "PtVolumeUniforms.gExtinctionMajorant offset");
+static_assert(offsetof(PtVolumeUniforms, gMultichannelBlendMode) == 572,
+              "PtVolumeUniforms.gMultichannelBlendMode offset");
 static_assert(offsetof(PtVolumeUniforms, gGradientDeltaX) == 576, "PtVolumeUniforms.gGradientDeltaX offset");
 static_assert(offsetof(PtVolumeUniforms, g_intensityMax) == 640, "PtVolumeUniforms.g_intensityMax offset");
 static_assert(offsetof(PtVolumeUniforms, g_opacity) == 720, "PtVolumeUniforms.g_opacity offset");
@@ -1195,6 +1197,7 @@ RenderVkPT::updatePtVolumeUniforms(const CCamera& camera, int sampleCounter)
   u.gPosToUVW = m_scene->m_boundingBox.GetInverseExtent() * glm::vec3(m_scene->m_volume->getVolumeAxesFlipped());
   u.gShadingType = rs.m_ShadingType;
   u.gUseWoodcockTracking = rs.m_UseWoodcockTracking ? 1 : 0;
+  u.gMultichannelBlendMode = static_cast<int>(rs.m_MultichannelBlendMode);
 
   const float gradientDelta = 1.0f * rs.m_GradientDelta;
   u.gGradientDeltaX = glm::vec3(gradientDelta, 0.0f, 0.0f);
