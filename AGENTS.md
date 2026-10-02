@@ -9,7 +9,7 @@ AGAVE (Advanced GPU Accelerated Volume Explorer) is a C++17/Qt6 desktop applicat
 | `agave_app/`      | Qt6 GUI layer — widgets, dialogs, dock panels, OpenGL viewport (`GLView3D`)                                                                       |
 | `renderlib/`      | Core rendering engine — image I/O (`io/`), graphics abstraction (`gfxapi/`) with OpenGL and Vulkan backends (`gfxOpenGL/`, `gfxVulkan/`), camera, scene, gesture handling (`gesture/`), JSON serialization (`json/`) |
 | `agave_pyclient/` | Python WebSocket client for remote control of AGAVE in server mode                                                                                |
-| `agave_pyvk/`     | Standalone Python client including all data loading and rendering functionality via the Vulkan graphics backend                                                                             |
+| `agave_pyvk/`     | Standalone Python client wrapping renderlib, including all data loading and rendering functionality via the Vulkan graphics backend                                                                             |
 | `test/`           | C++ unit tests (Catch2)                                                                                                                           |
 | `webclient/`      | JavaScript client                                                                                                                                 |
 
