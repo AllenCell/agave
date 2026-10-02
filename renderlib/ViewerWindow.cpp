@@ -14,6 +14,7 @@
 #include "SceneLight.h"
 #include "TimeStampTool.h"
 #include "gfxapi/Backend.h"
+#include "gfxapi/RenderToFramebuffer.h"
 #include "renderlib.h"
 
 namespace {
@@ -335,6 +336,72 @@ ViewerWindow::redraw()
 
   // render and then clear out draw commands from gesture graphics
   m_gestureRenderer->draw(sceneView, gesture.graphics);
+
+  // Make sure we consumed any unused input event before we poll new events.
+  // (in the case of Qt we are not explicitly polling but using signals/slots.)
+  gesture.input.consume();
+}
+
+void
+ViewerWindow::redrawTo(gfxApi::Framebuffer* framebuffer)
+{
+  if (!framebuffer) {
+    return;
+  }
+
+  m_clock.tick();
+  // m_gesture.setTimeIncrement(m_clock.timeIncrement);
+  // Display frame rate in window title
+  double interval = m_clock.time - m_lastTimeCheck; //< Interval in seconds
+  m_increments += 1;
+  // update once per second
+  if (interval >= 1.0) {
+    // Compute average frame rate over the last second, if different than what we
+    // display previously, update the window title.
+    double newFrameRate = round(m_increments / interval);
+    if (m_frameRate != newFrameRate) {
+      m_frameRate = newFrameRate;
+
+      // TODO update frame rate stats from here.
+      // char title[256];
+      // snprintf(title, 256, "%s | %d fps", windowTitle, frameRate);
+      // glfwSetWindowTitle(mainWindow.handle, title);
+    }
+    m_lastTimeCheck = m_clock.time;
+    m_increments = 0;
+  }
+
+  bool selectionBufferResized = !m_gestureRenderer->selectionBufferMatches(width(), height());
+  bool ok = m_gestureRenderer->updateSelectionBuffer(width(), height());
+  if (!ok) {
+    LOG_ERROR << "Failed to update selection buffer";
+  }
+
+  // lazy init
+  if (!gesture.graphics.font.isLoaded()) {
+    std::string fontPath = renderlib::assetPath() + "/fonts/Arial.ttf";
+    gesture.graphics.font.load(fontPath.c_str());
+  }
+
+  // renderer size may have been directly manipulated by e.g. the renderdialog
+  uint32_t oldrendererwidth, oldrendererheight;
+  m_renderer->getSize(oldrendererwidth, oldrendererheight);
+  if (selectionBufferResized || width() != oldrendererwidth || height() != oldrendererheight) {
+    m_renderer->resize(width(), height());
+    m_CCamera.m_Film.m_Resolution.SetResX(width());
+    m_CCamera.m_Film.m_Resolution.SetResY(height());
+  }
+
+  sceneView.viewport.region = { { 0, 0 }, { width(), height() } };
+  sceneView.camera = m_CCamera;
+  sceneView.scene = m_renderer->scene();
+  sceneView.renderSettings = m_renderSettings;
+
+  // fill gesture graphics with draw commands
+  update(sceneView.viewport, m_clock, gesture);
+
+  gfxApi::renderToFramebuffer(
+    *framebuffer, *m_renderer, *m_gestureRenderer, sceneView, gesture.graphics, 0.0f);
 
   // Make sure we consumed any unused input event before we poll new events.
   // (in the case of Qt we are not explicitly polling but using signals/slots.)
