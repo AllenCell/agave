@@ -475,17 +475,47 @@ Backend::beginSingleTimeCommands() const
 void
 Backend::endSingleTimeCommands(VkCommandBuffer commandBuffer) const
 {
-  vkEndCommandBuffer(commandBuffer);
+  VkResult result = vkEndCommandBuffer(commandBuffer);
+  if (result != VK_SUCCESS) {
+    LOG_ERROR << "vkEndCommandBuffer failed with VkResult " << result;
+    vkFreeCommandBuffers(m_deviceHandle, m_commandPool.get(), 1, &commandBuffer);
+    return;
+  }
 
   VkSubmitInfo submitInfo = {};
   submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
   submitInfo.commandBufferCount = 1;
   submitInfo.pCommandBuffers = &commandBuffer;
 
-  vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-  vkQueueWaitIdle(m_graphicsQueue);
+  VkFenceCreateInfo fenceInfo = {};
+  fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+  VkFence submittedFence = VK_NULL_HANDLE;
+  result = vkCreateFence(m_deviceHandle, &fenceInfo, nullptr, &submittedFence);
+  if (result != VK_SUCCESS) {
+    LOG_ERROR << "vkCreateFence failed with VkResult " << result;
+    vkFreeCommandBuffers(m_deviceHandle, m_commandPool.get(), 1, &commandBuffer);
+    return;
+  }
+
+  // Wait only for this submission. Queue-idle also waited for unrelated work
+  // submitted after this helper, which made large time-step uploads block the
+  // GUI longer than the upload itself required.
+  result = vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, submittedFence);
+  if (result != VK_SUCCESS) {
+    LOG_ERROR << "vkQueueSubmit failed with VkResult " << result;
+    vkDestroyFence(m_deviceHandle, submittedFence, nullptr);
+    vkFreeCommandBuffers(m_deviceHandle, m_commandPool.get(), 1, &commandBuffer);
+    return;
+  }
+
+  result = vkWaitForFences(m_deviceHandle, 1, &submittedFence, VK_TRUE, UINT64_MAX);
+  if (result != VK_SUCCESS) {
+    LOG_ERROR << "vkWaitForFences failed with VkResult " << result;
+  }
+
   VkCommandPool commandPool = m_commandPool.get();
   vkFreeCommandBuffers(m_deviceHandle, commandPool, 1, &commandBuffer);
+  vkDestroyFence(m_deviceHandle, submittedFence, nullptr);
 }
 
 void

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "IFileReader.h"
+#include "BlockingFileReader.h"
 #include "VolumeDimensions.h"
 
 #include <memory>
@@ -8,7 +8,7 @@
 
 class ImageXYZC;
 
-class FileReaderCCP4 : public IFileReader
+class FileReaderCCP4 : public BlockingFileReader
 {
 public:
   FileReaderCCP4(const std::string& filepath);
@@ -16,7 +16,7 @@ public:
 
   bool supportChunkedLoading() const override { return false; }
 
-  std::shared_ptr<ImageXYZC> loadFromFile(const LoadSpec& loadSpec) override;
+  std::shared_ptr<ImageXYZC> loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progress) override;
   VolumeDimensions loadDimensions(const std::string& filepath, uint32_t scene = 0) override;
   uint32_t loadNumScenes(const std::string& filepath) override;
   std::vector<MultiscaleDims> loadMultiscaleDims(const std::string& filepath, uint32_t scene = 0) override;

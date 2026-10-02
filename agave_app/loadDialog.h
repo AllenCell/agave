@@ -36,6 +36,20 @@ public:
   int getMultiscaleLevelIndex() const { return mSelectedLevel; }
   bool getKeepSettings() const { return m_keepSettingsCheckbox->isChecked(); }
 
+  // "Prefetch time series": fill memory and disk with time steps in the
+  // background.
+  // This is an initialization to seed this from the persisted setting before exec(),
+  // so the dialog shows the current state instead of always starting unchecked.
+  void setPrefetchTimeSeries(bool enabled);
+  bool getPrefetchTimeSeries() const;
+
+  // Whether the prefetch choice was actually offered, i.e. the file has more than
+  // one time step. Callers must check this before applying getPrefetchTimeSeries():
+  // a single-timepoint load would otherwise persist "prefetch off" and silently
+  // disable it for the next series.
+  // (Single timepoint files should not cause this setting to change.)
+  bool hasTimeSeriesChoice() const;
+
   QSize sizeHint() const override { return QSize(400, 100); }
 
 private slots:
@@ -69,6 +83,7 @@ private:
   RangeWidget* m_roiZ;
   Section* m_roiSection;
   QCheckBox* m_keepSettingsCheckbox;
+  QCheckBox* m_prefetchWholeSeriesCheckbox = nullptr;
 
   void updateMemoryEstimate();
   void updateMultiresolutionInput();

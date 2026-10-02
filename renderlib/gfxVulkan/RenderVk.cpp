@@ -1,5 +1,6 @@
 #include "RenderVk.h"
 
+#include "CacheStatusReport.h"
 #include "CCamera.h"
 #include "Enumerations.h"
 #include "Framebuffer.h"
@@ -312,6 +313,7 @@ RenderVk::renderToFramebuffer(const CCamera& camera, Framebuffer& framebuffer)
   if (usesProgressiveAccumulation()) {
     m_status->SetStatisticChanged("Performance", "No. Iterations", std::to_string(m_renderSettings->GetNoIterations()));
   }
+  reportCacheStatistics(m_status.get());
   m_startTime = std::chrono::high_resolution_clock::now();
 }
 

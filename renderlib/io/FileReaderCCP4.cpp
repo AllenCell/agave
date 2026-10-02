@@ -283,7 +283,7 @@ FileReaderCCP4::loadDimensions(const std::string& filepath, uint32_t scene)
 }
 
 std::shared_ptr<ImageXYZC>
-FileReaderCCP4::loadFromFile(const LoadSpec& loadSpec)
+FileReaderCCP4::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progress)
 {
   std::string filepath = loadSpec.filepath;
   uint32_t scene = loadSpec.scene;

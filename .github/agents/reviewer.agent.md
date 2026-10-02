@@ -30,6 +30,7 @@ When invoked, determine what to review:
 ### Architecture
 
 - `renderlib/` must not depend on Qt. Flag any `Q*` types, `QObject`, signals/slots, or Qt headers leaking into `renderlib/`.
+- `renderlib/gfxOpenGL/` and `renderlib/gfxVulkan/` are the only places that should contain graphics API calls. Flag any OpenGL or Vulkan calls outside those directories.
 - GUI logic belongs in `agave_app/`. Rendering, I/O, scene, and serialization belong in `renderlib/`. It is preferable to have anything not necessary for the GUI to be pushed down into `renderlib/`.
 - New commands must be added to **all** of: `renderlib/command.h`, `renderlib/command.cpp`, `agave_app/commandBuffer.cpp`, `test/test_commands.cpp`, `agave_pyclient/agave_pyclient/commandbuffer.py`, `agave_pyclient/agave_pyclient/agave.py`, `webclient/src/commandbuffer.ts`, `webclient/src/agave.ts`. Verify the integer ID is unique and consistent, and that the argument list/order matches across all locations.
 

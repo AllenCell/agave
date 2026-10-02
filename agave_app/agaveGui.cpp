@@ -101,16 +101,16 @@ agaveGui::agaveGui(QWidget* parent)
   createActions();
   createMenus();
   createToolbars();
+  m_settings.load();
   createDockWindows();
   setDockOptions(AllowTabbedDocks);
 
-  CacheSettingsData cacheData = m_cacheSettings.load();
-  m_cacheSettingsDockWidget->widget()->setSettings(cacheData);
-  m_cacheSettings.applyToRenderlib(cacheData);
+  m_settings.applyCacheToRenderlib();
   connect(m_cacheSettingsDockWidget->widget()->applyButton(), &QPushButton::clicked, this, [this]() {
-    CacheSettingsData data = m_cacheSettingsDockWidget->widget()->getSettings();
-    m_cacheSettings.save(data);
-    m_cacheSettings.applyToRenderlib(data);
+    m_cacheSettingsDockWidget->widget()->writeToSettings();
+    m_settings.applyCacheToRenderlib();
+    m_timelinedock->timelineWidget().updateUiFromSettings();
+    m_settings.save();
   });
   connect(m_cacheSettingsDockWidget->widget()->clearDiskButton(), &QPushButton::clicked, this, [this]() {
     // Show the directory that will actually be cleared.
@@ -390,7 +390,7 @@ agaveGui::createDockWindows()
   m_cameradock->setAllowedAreas(Qt::AllDockWidgetAreas);
   addDockWidget(Qt::RightDockWidgetArea, m_cameradock);
 
-  m_timelinedock = new QTimelineDockWidget(this, &m_qrendersettings);
+  m_timelinedock = new QTimelineDockWidget(this, &m_qrendersettings, &m_settings.data().timeSeries);
   m_timelinedock->setAllowedAreas(Qt::AllDockWidgetAreas);
   addDockWidget(Qt::RightDockWidgetArea, m_timelinedock);
   m_timelinedock->setVisible(false); // hide by default
@@ -406,7 +406,7 @@ agaveGui::createDockWindows()
   m_statisticsDockWidget->setAllowedAreas(Qt::AllDockWidgetAreas);
   addDockWidget(Qt::RightDockWidgetArea, m_statisticsDockWidget);
 
-  m_cacheSettingsDockWidget = new CacheSettingsDockWidget(this);
+  m_cacheSettingsDockWidget = new CacheSettingsDockWidget(this, &m_settings.data());
   m_cacheSettingsDockWidget->setAllowedAreas(Qt::AllDockWidgetAreas);
   addDockWidget(Qt::LeftDockWidgetArea, m_cacheSettingsDockWidget);
   m_cacheSettingsDockWidget->setVisible(false);
@@ -695,8 +695,9 @@ agaveGui::onRenderAction()
     }
     m_view->asWidget()->setUpdatesEnabled(true);
     m_view->restartRenderLoop();
-    // refresh timeline to current time
-    m_timelinedock->setTime(m_appScene.m_timeLine.currentTime());
+    // refresh timeline to current time. Signals blocked: this only re-syncs the
+    // widget with the scene, it must not kick off another load.
+    m_timelinedock->setTime(m_appScene.m_timeLine.currentTime(), /*blockSignals=*/true);
   });
 
   // rdialog->setImage(imcopy);
@@ -865,12 +866,22 @@ agaveGui::open(const std::string& file, const Serialize::ViewerState* vs, bool i
 
   if (!vs) {
     LoadDialog* loadDialog = new LoadDialog(file, multiscaledims, sceneToLoad, this);
+    // Make sure loadDialog gets initialized from the loaded prefetch setting.
+    loadDialog->setPrefetchTimeSeries(m_settings.data().timeSeries.prefetchEnabled);
     if (loadDialog->exec() == QDialog::Accepted) {
       loadSpec = loadDialog->getLoadSpec();
       // the loadSpec will need to remember that we loaded an image sequence
       loadSpec.isImageSequence = isImageSequence;
       dims = multiscaledims[loadDialog->getMultiscaleLevelIndex()].getVolumeDimensions();
       keepCurrentUISettings = loadDialog->getKeepSettings();
+
+      if (loadDialog->hasTimeSeriesChoice()) {
+        // update prefetch settings from the load dialog choice
+        m_settings.data().timeSeries.prefetchEnabled = loadDialog->getPrefetchTimeSeries();
+        m_cacheSettingsDockWidget->widget()->updateUiFromSettings();
+        m_timelinedock->timelineWidget().updateUiFromSettings();
+        m_settings.save();
+      }
     } else {
       LOG_INFO << "Canceled load dialog.";
       return true;
