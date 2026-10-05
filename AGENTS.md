@@ -12,7 +12,13 @@ AGAVE (Advanced GPU Accelerated Volume Explorer) is a C++17/Qt6 desktop applicat
 | `test/`           | C++ unit tests (Catch2)                                                                                                                           |
 | `webclient/`      | JavaScript client                                                                                                                                 |
 
-`agave_app` depends on `renderlib` for all rendering and data operations. Keep GUI concerns out of `renderlib`. `renderlib` should have no Qt dependencies and be testable in isolation. The Python client and web client communicate with the C++ engine via a binary command protocol defined in `renderlib/command.h` and implemented in `renderlib/command.cpp`. Commands must be added in all three locations to stay in sync (see "Adding a New Command" below).
+`agave_app` depends on `renderlib` for all rendering and data operations. Keep GUI concerns out of `renderlib`. `renderlib` should have no Qt dependencies and be testable in isolation. The Python client and web client communicate with the C++ engine via a binary command protocol defined in `renderlib/command.h` and implemented in `renderlib/command.cpp`. Commands must be added in every location listed under "Adding a New Command" below to stay in sync.
+
+### Architectural rules
+
+- `renderlib/` must not depend on Qt. No `Q*` types, `QObject`, signals/slots, or Qt headers belong there.
+- GUI logic belongs in `agave_app/`. Rendering, I/O, scene, and serialization belong in `renderlib/`. Anything not strictly required by the GUI should be pushed down into `renderlib/`.
+- The command protocol must stay consistent across C++, Python, and TypeScript: unique integer ID, and identical argument list and order in all locations.
 
 ## Build and Test
 
@@ -76,30 +82,48 @@ clang-tidy.exe -p build renderlib\RenderSettings.cpp
 clang-tidy -p build --fix renderlib/RenderSettings.cpp
 ```
 
+### Test expectations
+
+- New commands require a round-trip test in `test/test_commands.cpp` (see "Adding a New Command" below).
+- Non-trivial logic in `renderlib/` should have a Catch2 test.
+- Python client changes should have a corresponding test in `agave_pyclient/tests/`.
+
 ## Code Style
 
 ### C++
 
-- **Standard:** C++17
+- **Standard:** C++17 only — no later-standard features.
 - **Classes, methods, enums:** PascalCase (`GLView3D`, `RenderSettings`, `GetNoIterations()`)
 - **Member variables:** `m_` prefix (`m_Type`, `m_DirtyFlags`, `m_qcamera`)
 - **Header guards:** prefer `#pragma once`
 - **Include order:** local project headers → standard C++ headers → third-party headers → Qt headers
-- **Static analysis:** Run `clang-tidy -p build <file>` on individual source files (the build exports `compile_commands.json`). Add `--fix` to auto-apply suggestions.
+- **Formatting:** clang-format, Mozilla style (see `.clang-format`). Code should be autoformatted before commit.
+- **Static analysis:** Run `clang-tidy -p build <file>` on individual source files (the build exports `compile_commands.json`). Add `--fix` to auto-apply suggestions. The custom config is in `.clang-tidy`; warnings not explicitly disabled there should be fixed.
+- Prefer `const`, `constexpr`, references, and RAII. Avoid raw `new`/`delete` outside the ownership-transfer patterns already in use.
+- Watch for missing `override`, unnecessary copies in range-for, signed/unsigned comparisons, and narrowing conversions (especially `size_t` ↔ `int`).
 
 ### Python
 
 - PEP 8 / snake_case
 - Tooling: - `ruff check`, `ruff format`.
 
+## Correctness and Safety
+
+- Qt signal/slot connections: verify sender/receiver lifetimes, and that lambdas capturing `this` are safe.
+- OpenGL / GPU code in `renderlib/graphics/`: check resource cleanup, context currency, and that GL calls are never made from non-GL threads.
+- File I/O in `renderlib/io/`: validate bounds, handle malformed input, and avoid blocking the UI thread.
+- Command protocol: `parse()` / `write()` field order must match the `CMD_ARGS` declaration exactly.
+- OWASP-relevant issues: unchecked input sizes, path traversal in file loaders, integer overflow in image dimension math.
+
 ## Conventions
 
-- Versioning is managed with `tbump` — run `tbump <version>` to bump across all components
+- New source files must be added to the relevant `CMakeLists.txt`
+- Versioning is managed with `tbump` — run `tbump <version>` to bump across all components; never hand-edit version strings
 - Contribution workflow and PR process: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Adding a New Command
 
-Commands are the binary protocol connecting the C++ engine, Python client, and web client. Every command must be added to all four locations to stay in sync.
+Commands are the binary protocol connecting the C++ engine, Python client, and web client. Every command must be added to all eight locations below to stay in sync.
 
 ### 1. `renderlib/command.h` — declare data struct + command class
 
@@ -197,7 +221,7 @@ set_foo(x: number, mode: number) {
 
 **Key rules:**
 
-- The integer ID must be unique and match across all four locations
+- The integer ID must be unique and match across all locations
 - Argument types are `F32`, `I32`, `S` (string), `F32A` (float array), `I32A` (int array)
 - Python method name uses snake_case; `COMMANDS` dict key is UPPERCASE
 - `parse()`/`write()` field order must match the `CMD_ARGS` type list exactly
