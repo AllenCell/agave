@@ -5,7 +5,7 @@
 #include "Logging.h"
 #include "threading.h"
 
-#include "gl/Util.h"
+#include "gfxOpenGL/Util.h"
 
 #include <chrono>
 

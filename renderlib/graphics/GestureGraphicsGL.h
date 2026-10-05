@@ -2,9 +2,9 @@
 
 #include "glad/glad.h"
 
-#include "graphics/glsl/GLGuiShader.h"
-#include "graphics/glsl/GLThickLines.h"
-#include "graphics/gl/FontGL.h"
+#include "gfxOpenGL/glsl/GLGuiShader.h"
+#include "gfxOpenGL/glsl/GLThickLines.h"
+#include "gfxOpenGL/FontGL.h"
 #include "gesture/gesture.h"
 
 #include <memory>
