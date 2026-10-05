@@ -77,15 +77,6 @@ planeCoordinate(float uv, int dimension)
   return clamp(uv, 0.5 / d, 1.0 - 0.5 / d);
 }
 
-float
-indexToUv(int index, int dimension)
-{
-  if (dimension <= 1) {
-    return 0.5;
-  }
-  return float(clamp(index, 0, dimension - 1)) / float(dimension - 1);
-}
-
 vec3
 samplePosition(int viewAxis, vec2 uv)
 {
@@ -170,33 +161,6 @@ shadeSlice(vec3 position)
   return vec4(clamp(weightedColor / totalWeight, 0.0, 1.0), clamp(totalWeight, 0.0, 1.0));
 }
 
-vec2
-crosshairUv(int viewAxis)
-{
-  if (viewAxis == VIEW_X) {
-    return vec2(indexToUv(uIndices.z, uDimensions.z), indexToUv(uIndices.y, uDimensions.y));
-  }
-  if (viewAxis == VIEW_Y) {
-    return vec2(indexToUv(uIndices.x, uDimensions.x), indexToUv(uIndices.z, uDimensions.z));
-  }
-  return vec2(indexToUv(uIndices.x, uDimensions.x), indexToUv(uIndices.y, uDimensions.y));
-}
-
-vec4
-drawCrosshair(vec4 color, vec4 rect, int viewAxis, vec2 pixel)
-{
-  vec2 crosshair = rect.xy + crosshairUv(viewAxis) * rect.zw;
-  bool shadow = abs(pixel.x - (crosshair.x + 1.0)) < 0.75 || abs(pixel.y - (crosshair.y - 1.0)) < 0.75;
-  bool line = abs(pixel.x - crosshair.x) < 0.75 || abs(pixel.y - crosshair.y) < 0.75;
-  if (shadow) {
-    color = vec4(0.2, 0.2, 0.2, 1.0);
-  }
-  if (line) {
-    color = vec4(1.0);
-  }
-  return color;
-}
-
 void
 main()
 {
@@ -226,9 +190,5 @@ main()
   }
 
   vec2 uv = (pixel - rect.xy) / rect.zw;
-  vec4 color = shadeSlice(samplePosition(viewAxis, uv));
-  if (uMode == VIEW_TRIPLE) {
-    color = drawCrosshair(color, rect, viewAxis, pixel);
-  }
-  out_FragColor = color;
+  out_FragColor = shadeSlice(samplePosition(viewAxis, uv));
 }

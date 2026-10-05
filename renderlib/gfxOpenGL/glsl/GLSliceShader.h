@@ -3,6 +3,7 @@
 #include "gfxOpenGL/Util.h"
 
 struct ImageGpu;
+class CCamera;
 class Scene;
 struct SliceViewState;
 
@@ -12,8 +13,12 @@ public:
   GLSliceShader();
   ~GLSliceShader();
 
-  void setShadingUniforms(
-    const Scene& scene, const SliceViewState& state, int viewportWidth, int viewportHeight, const ImageGpu& image);
+  void setShadingUniforms(const Scene& scene,
+                          const SliceViewState& state,
+                          const CCamera& camera,
+                          int viewportWidth,
+                          int viewportHeight,
+                          const ImageGpu& image);
 
 private:
   GLShader* m_vertexShader = nullptr;

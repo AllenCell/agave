@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <cstdint>
 
 #include <glm/glm.hpp>
@@ -58,17 +57,9 @@ struct SliceViewState
   SliceViewMode mode = SliceViewMode::Z;
   glm::ivec3 indices = glm::ivec3(0);
   glm::ivec3 dimensions = glm::ivec3(1);
-  // Z, Y and X each retain their own fitted-view transform when modes switch.
-  std::array<glm::vec2, 3> pan = { glm::vec2(0.0f), glm::vec2(0.0f), glm::vec2(0.0f) };
-  std::array<float, 3> zoom = { 1.0f, 1.0f, 1.0f };
 
   void setDimensions(const glm::ivec3& newDimensions, bool centerIndices = false);
   void clampIndices();
-  void resetView();
-  glm::vec2& activePan();
-  const glm::vec2& activePan() const;
-  float& activeZoom();
-  float activeZoom() const;
 
   bool isSingleSlice() const;
   int activeAxis() const;

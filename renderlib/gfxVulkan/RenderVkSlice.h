@@ -27,9 +27,9 @@ protected:
   VolumeTextureMode volumeTextureMode() const override;
 
 private:
-  void renderToFramebufferSlice(Framebuffer& framebuffer);
+  void renderToFramebufferSlice(const CCamera& camera, Framebuffer& framebuffer);
   bool ensureResources(VkFormat colorFormat);
-  bool updateUniformBuffer(uint32_t viewportWidth, uint32_t viewportHeight);
+  bool updateUniformBuffer(const CCamera& camera, uint32_t viewportWidth, uint32_t viewportHeight);
   bool updateDescriptorSet();
   void destroyPipeline();
   void destroySliceResources();

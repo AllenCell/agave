@@ -10,6 +10,7 @@ Gesture::Input::setButtonEvent(uint32_t mbIndex, Action action, int mods, glm::v
     return;
   }
 
+  cursorPos = position;
   Button& button = mbs[mbIndex];
   if (action == Input::kPress) {
     // If the the button is pressed and was previously in a neutral state, it could be a click or a
@@ -40,6 +41,50 @@ Gesture::Input::setButtonEvent(uint32_t mbIndex, Action action, int mods, glm::v
 
     button.action = Gesture::Input::kRelease;
   }
+}
+
+void
+Gesture::Input::setDoubleClickEvent(uint32_t mbIndex, int mods, glm::vec2 position, double time)
+{
+  if (mbIndex >= kButtonsCount) {
+    return;
+  }
+
+  Button& button = mbs[mbIndex];
+  button.action = kPress;
+  button.modifier = mods;
+  button.pressedPosition = position;
+  button.drag = glm::vec2(0);
+  button.dragConstraint = kUnconstrained;
+  button.doubleClick = true;
+  button.triggerTime = time;
+  cursorPos = position;
+}
+
+bool
+Gesture::Input::consumeDoubleClick(ButtonId id, int mods)
+{
+  Button& button = mbs[id];
+  if (!button.doubleClick || (mods != 0 && (button.modifier & mods) == 0)) {
+    return false;
+  }
+
+  button.doubleClick = false;
+  return true;
+}
+
+void
+Gesture::Input::addWheelDelta(float delta)
+{
+  m_wheelDelta += delta;
+}
+
+float
+Gesture::Input::consumeWheelDelta()
+{
+  const float delta = m_wheelDelta;
+  m_wheelDelta = 0.0f;
+  return delta;
 }
 
 void

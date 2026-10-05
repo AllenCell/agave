@@ -2,6 +2,7 @@
 
 #include "CCamera.h"
 #include "Manipulator.h"
+#include "SliceCrosshairTool.h"
 #include "SliceViewState.h"
 #include "Timing.h"
 #include "gfxapi/Framebuffer.h"
@@ -9,6 +10,7 @@
 #include "gfxapi/IRenderWindow.h"
 #include "gesture/gesture.h"
 
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -17,13 +19,6 @@ class RenderSettings;
 class ViewerWindow
 {
 public:
-  enum class SlicePointerButton
-  {
-    None,
-    Primary,
-    Secondary
-  };
-
   ViewerWindow(RenderSettings* rs);
   ~ViewerWindow();
 
@@ -39,14 +34,13 @@ public:
   void setRenderer(int rendererType);
 
   bool isSliceMode() const { return m_rendererType >= 2 && m_rendererType <= 5; }
+  bool isSingleSliceMode() const { return m_rendererType >= 2 && m_rendererType <= 4; }
   bool isTripleSliceMode() const { return m_rendererType == 5; }
   void resetSliceView();
-  SliceCrosshairHit slicePointerHover(const glm::vec2& position, float thresholdPixels) const;
-  void slicePointerPress(const glm::vec2& position, SlicePointerButton button, float thresholdPixels);
-  void slicePointerMove(const glm::vec2& position);
-  void slicePointerRelease();
-  void slicePointerDoubleClick(const glm::vec2& position);
-  void sliceWheel(float steps);
+  void initializeSliceCameras(const CBoundingBox& bounds);
+  void retargetSliceCameras(const CBoundingBox& bounds);
+  void setSliceInteractionThreshold(float thresholdPixels);
+  SliceCrosshairHit sliceCrosshairHit(const glm::vec2& position, float thresholdPixels) const;
 
   // Provide a new active tool
   void setTool(ManipulationTool* tool)
@@ -78,7 +72,7 @@ public:
 
   void select(SceneObject* obj);
 
-  void updateCamera();
+  void updateCamera(CameraManipulationMode mode = CameraManipulationMode::Orbit3D);
 
   // Bracket instant camera changes (toolbar view buttons, etc.) to maintain
   // light-lock-to-camera invariant. Call beginCameraChange() before modifying
@@ -111,11 +105,14 @@ public:
   bool m_wasCameraBeingEdited = false;
 
 private:
-  TripleSliceLayout tripleSliceLayout() const;
-  void markSliceViewDirty();
+  CCamera& activeCamera();
+  const CCamera& activeCamera() const;
+  void ensureSliceCamerasCurrent();
+  void fitSliceCamera(CCamera& camera);
+  void resetInteractionState();
 
-  SlicePointerButton m_slicePointerButton = SlicePointerButton::None;
-  glm::vec2 m_lastSlicePointer = glm::vec2(0.0f);
-  SlicePane m_tripleDragPane = SlicePane::None;
-  SliceCrosshairHit m_tripleDragHit = SliceCrosshairHit::None;
+  std::array<CCamera, 3> m_sliceCameras;
+  CBoundingBox m_sliceCameraBounds;
+  bool m_sliceCamerasInitialized = false;
+  SliceCrosshairTool m_sliceCrosshairTool;
 };

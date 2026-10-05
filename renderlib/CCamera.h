@@ -556,8 +556,18 @@ struct CameraAnimation
 
 struct Gesture;
 
+enum class CameraManipulationMode : std::uint8_t
+{
+  Orbit3D,
+  Planar2D
+};
+
 extern bool
-cameraManipulation(const glm::vec2 viewportSize, Gesture& gesture, CCamera& camera, CameraModifier& cameraMod);
+cameraManipulation(const glm::vec2 viewportSize,
+                   Gesture& gesture,
+                   CCamera& camera,
+                   CameraModifier& cameraMod,
+                   CameraManipulationMode mode = CameraManipulationMode::Orbit3D);
 
 inline CCamera&
 operator+=(CCamera& camera, const CameraModifier& mod)

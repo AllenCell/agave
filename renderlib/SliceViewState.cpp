@@ -102,40 +102,6 @@ SliceViewState::clampIndices()
   indices.z = clampIndex(indices.z, dimensions.z);
 }
 
-void
-SliceViewState::resetView()
-{
-  if (!isSingleSlice()) {
-    return;
-  }
-  activePan() = glm::vec2(0.0f);
-  activeZoom() = 1.0f;
-}
-
-glm::vec2&
-SliceViewState::activePan()
-{
-  return pan[mode == SliceViewMode::Triple ? 0 : static_cast<std::size_t>(mode)];
-}
-
-const glm::vec2&
-SliceViewState::activePan() const
-{
-  return pan[mode == SliceViewMode::Triple ? 0 : static_cast<std::size_t>(mode)];
-}
-
-float&
-SliceViewState::activeZoom()
-{
-  return zoom[mode == SliceViewMode::Triple ? 0 : static_cast<std::size_t>(mode)];
-}
-
-float
-SliceViewState::activeZoom() const
-{
-  return zoom[mode == SliceViewMode::Triple ? 0 : static_cast<std::size_t>(mode)];
-}
-
 bool
 SliceViewState::isSingleSlice() const
 {

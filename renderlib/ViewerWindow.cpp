@@ -1,11 +1,8 @@
 #include "ViewerWindow.h"
 
-#include <memory>
-
 #include "AppScene.h"
 #include "AxisHelperTool.h"
 #include "BoundingBoxTool.h"
-#include "ImageXYZC.h"
 #include "Light.h"
 #include "Logging.h"
 #include "MoveTool.h"
@@ -18,9 +15,12 @@
 #include "gfxapi/RenderToFramebuffer.h"
 #include "renderlib.h"
 
-#include <cmath>
+#include <algorithm>
+#include <memory>
 
 namespace {
+
+constexpr float MIN_SLICE_CAMERA_SCALE = 0.000001f;
 
 gfxApi::ClearColor
 backgroundClearColor(const Scene* scene)
@@ -33,6 +33,20 @@ backgroundClearColor(const Scene* scene)
            scene->m_material.m_backgroundColor[1],
            scene->m_material.m_backgroundColor[2],
            0.0f };
+}
+
+float
+sliceFitScale(const CCamera& camera, const CBoundingBox& bounds)
+{
+  if (camera.m_Film.GetWidth() <= 0 || camera.m_Film.GetHeight() <= 0) {
+    return MIN_SLICE_CAMERA_SCALE;
+  }
+
+  const glm::vec3 extent = bounds.GetExtent();
+  const float planeWidth = glm::dot(glm::abs(camera.m_U), extent);
+  const float planeHeight = glm::dot(glm::abs(camera.m_V), extent);
+  const float aspect = static_cast<float>(camera.m_Film.GetWidth()) / camera.m_Film.GetHeight();
+  return glm::max(0.5f * glm::max(planeHeight, planeWidth / aspect), MIN_SLICE_CAMERA_SCALE);
 }
 
 } // namespace
@@ -72,6 +86,13 @@ ViewerWindow::setSize(int width, int height)
   sceneView.viewport.region.upper.x = width;
   sceneView.viewport.region.upper.y = height;
 
+  m_CCamera.m_Film.m_Resolution.SetResX(width);
+  m_CCamera.m_Film.m_Resolution.SetResY(height);
+  for (CCamera& camera : m_sliceCameras) {
+    camera.m_Film.m_Resolution.SetResX(width);
+    camera.m_Film.m_Resolution.SetResY(height);
+  }
+
   // TODO do whatever resizing now?
 }
 
@@ -105,18 +126,20 @@ ViewerWindow::select(SceneObject* obj)
 }
 
 void
-ViewerWindow::updateCamera()
+ViewerWindow::updateCamera(CameraManipulationMode mode)
 {
+  CCamera& camera = activeCamera();
   // Use gesture strokes (if any) to move the camera. If camera edit is still in progress, we are not
   // going to change the camera directly, instead we fill a CameraModifier object with the delta.
   CameraModifier cameraMod;
   bool cameraEdit = cameraManipulation(glm::vec2(width(), height()),
                                        // m_clock,
                                        gesture,
-                                       m_CCamera,
-                                       cameraMod);
+                                       camera,
+                                       cameraMod,
+                                       mode);
   // Apply camera animation transitions if we have any
-  if (!m_cameraAnim.empty()) {
+  if (mode == CameraManipulationMode::Orbit3D && !m_cameraAnim.empty()) {
     for (auto it = m_cameraAnim.begin(); it != m_cameraAnim.end();) {
       CameraAnimation& anim = *it;
       anim.time += static_cast<float>(m_clock.timeIncrement);
@@ -129,7 +152,7 @@ ViewerWindow::updateCamera()
         ++it;
       } else {
         // Completed animation is applied to the camera instead
-        m_CCamera = m_CCamera + anim.mod;
+        camera = camera + anim.mod;
         it = m_cameraAnim.erase(it);
       }
 
@@ -140,9 +163,9 @@ ViewerWindow::updateCamera()
 
   // Produce the render camera for current frame
   // m_CCamera.Update();
-  CCamera renderCamera = m_CCamera;
+  CCamera renderCamera = camera;
   if (cameraEdit) {
-    renderCamera = m_CCamera + cameraMod;
+    renderCamera = camera + cameraMod;
   }
   // renderCamera.Update();
   if (cameraEdit) {
@@ -154,13 +177,13 @@ ViewerWindow::updateCamera()
   sceneView.camera.Update();
 
   // Update lights to maintain fixed direction relative to camera view when enabled.
-  if (sceneView.scene && sceneView.scene->m_lighting.lockToCamera) {
+  if (mode == CameraManipulationMode::Orbit3D && sceneView.scene && sceneView.scene->m_lighting.lockToCamera) {
     if (cameraEdit) {
       // If we just started editing the camera, we need to capture the current view-space
       // basis from the pre-transformed camera (m_CCamera) for the lights to
       // maintain their orientation relative to the camera view during the edit.
       if (!m_wasCameraBeingEdited) {
-        sceneView.scene->m_lighting.captureLightsViewSpaceBasis(m_CCamera);
+        sceneView.scene->m_lighting.captureLightsViewSpaceBasis(camera);
       }
       // Restore the lights' view-space basis on the post-transformed camera
       sceneView.scene->m_lighting.restoreLightsViewSpaceBasis(sceneView.camera, m_renderSettings);
@@ -168,7 +191,7 @@ ViewerWindow::updateCamera()
   }
 
   // Track camera edit state for next frame
-  m_wasCameraBeingEdited = cameraEdit;
+  m_wasCameraBeingEdited = mode == CameraManipulationMode::Orbit3D && cameraEdit;
 }
 
 void
@@ -195,36 +218,29 @@ ViewerWindow::update(const SceneView::Viewport& viewport, const Clock& clock, Ge
 {
   // [...]
 
-  // Slice modes own their interaction and render their own fixed plane layout.
-  // Do not feed their pointer input to the 3D camera, selection, or object
-  // manipulators.
   if (isSliceMode()) {
-    sceneView.camera = m_CCamera;
-    sceneView.camera.Update();
-    return;
+    ensureSliceCamerasCurrent();
   }
 
-  // TODO FIXME
-  // We need a mechanism to add a tool just from a scene object that was added to the scene.
-  // For now, we just add the tool for special scene objects(like clip plane) right here on the fly.
-  // Instead of adding to this temporary vector, we should add to the sceneView.scene->m_tools
-  std::vector<ManipulationTool*> sceneTools;
-  if (sceneView.scene) {
-    if (sceneView.scene->m_clipPlane) {
-      if (sceneView.scene->m_clipPlane->m_enabled) {
-        if (sceneView.scene->m_clipPlane->getTool()) {
-          // add to sceneTools, a temporary array per-update
-          sceneTools.push_back(sceneView.scene->m_clipPlane->getTool());
-        }
-      }
+  // Each view mode owns a distinct interaction set. Triple-slice mode exposes
+  // only its screen-space crosshair tool, single-slice modes use only planar
+  // camera navigation, and 3D modes retain the scene/object tools.
+  std::vector<ManipulationTool*> frameTools;
+  if (isTripleSliceMode()) {
+    frameTools.push_back(&m_sliceCrosshairTool);
+  } else if (!isSliceMode()) {
+    // TODO FIXME: scene-owned tools should eventually be registered directly
+    // instead of collected here each frame.
+    if (sceneView.scene && sceneView.scene->m_clipPlane && sceneView.scene->m_clipPlane->m_enabled &&
+        sceneView.scene->m_clipPlane->getTool()) {
+      frameTools.push_back(sceneView.scene->m_clipPlane->getTool());
     }
+    forEachTool([&](ManipulationTool* tool) { frameTools.push_back(tool); });
   }
 
-  // Reset all manipulators and tools
-  for (ManipulationTool* tool : sceneTools) {
+  for (ManipulationTool* tool : frameTools) {
     tool->clear();
   }
-  forEachTool([&](ManipulationTool* tool) { tool->clear(); });
 
   // Query Gesture::Graphics for selection codes
   // If we are in mid-gesture, then we can continue to use the retained selection code.
@@ -232,22 +248,32 @@ ViewerWindow::update(const SceneView::Viewport& viewport, const Clock& clock, Ge
   // This is a slight oversimplification because it checks for any single-button release
   // or drag: two-button drag gestures are not handled well.
   bool pickedAnything = false;
-  if (gesture.input.clickEnded() || gesture.input.isDragging()) {
-    pickedAnything = gesture.graphics.m_retainedSelectionCode != Gesture::Graphics::k_noSelectionCode;
-  } else {
-    pickedAnything = m_gestureRenderer->pick(gesture.input, viewport, gesture.graphics.m_retainedSelectionCode);
+  // Triple-slice crosshairs use CPU hit testing because their configurable
+  // grab radius is wider than their visible line geometry and the hit result
+  // distinguishes horizontal, vertical, and intersection drags.
+  if (!frameTools.empty() && !isTripleSliceMode()) {
+    if (gesture.input.clickEnded() || gesture.input.isDragging()) {
+      pickedAnything = gesture.graphics.m_retainedSelectionCode != Gesture::Graphics::k_noSelectionCode;
+    } else {
+      pickedAnything = m_gestureRenderer->pick(gesture.input, viewport, gesture.graphics.m_retainedSelectionCode);
+    }
   }
 
   if (pickedAnything) {
     int selectionCode = gesture.graphics.getCurrentSelectionCode();
-    for (ManipulationTool* tool : sceneTools) {
+    for (ManipulationTool* tool : frameTools) {
       tool->setActiveCode(selectionCode);
     }
-    forEachTool([&](ManipulationTool* tool) { tool->setActiveCode(selectionCode); });
-  } else {
+  } else if (isSingleSliceMode()) {
+    updateCamera(CameraManipulationMode::Planar2D);
+  } else if (!isTripleSliceMode()) {
     // User didn't click on a manipulator, run scene object selection
     // [...]
-    updateCamera();
+    updateCamera(CameraManipulationMode::Orbit3D);
+  } else {
+    // Triple-slice layout is fixed and intentionally has no camera navigation.
+    sceneView.camera = activeCamera();
+    sceneView.camera.Update();
   }
 
   // update sceneView.camera here?
@@ -258,24 +284,21 @@ ViewerWindow::update(const SceneView::Viewport& viewport, const Clock& clock, Ge
   {
     // Ask manipulation tools to do something. Typically only one of them does
     // something, if anything at all
-    for (ManipulationTool* tool : sceneTools) {
+    for (ManipulationTool* tool : frameTools) {
       tool->action(sceneView, gesture);
     }
-    forEachTool([&](ManipulationTool* tool) { tool->action(sceneView, gesture); });
 
     // Leave code 0 as neutral, we can start at any number, this will not affect
     // anything else in the system... start at 1
     int selectionCodeOffset = 1;
-    for (ManipulationTool* tool : sceneTools) {
+    for (ManipulationTool* tool : frameTools) {
       tool->requestCodesRange(&selectionCodeOffset);
     }
-    forEachTool([&](ManipulationTool* tool) { tool->requestCodesRange(&selectionCodeOffset); });
 
     // Ask tools to generate draw commands
-    for (ManipulationTool* tool : sceneTools) {
+    for (ManipulationTool* tool : frameTools) {
       tool->draw(sceneView, gesture);
     }
-    forEachTool([&](ManipulationTool* tool) { tool->draw(sceneView, gesture); });
   }
 
   // Manipulators may have changed the scene.
@@ -325,12 +348,11 @@ ViewerWindow::redraw()
   m_renderer->getSize(oldrendererwidth, oldrendererheight);
   if (selectionBufferResized || width() != oldrendererwidth || height() != oldrendererheight) {
     m_renderer->resize(width(), height());
-    m_CCamera.m_Film.m_Resolution.SetResX(width());
-    m_CCamera.m_Film.m_Resolution.SetResY(height());
+    setSize(width(), height());
   }
 
   sceneView.viewport.region = { { 0, 0 }, { width(), height() } };
-  sceneView.camera = m_CCamera;
+  sceneView.camera = activeCamera();
   sceneView.scene = m_renderer->scene();
   sceneView.renderSettings = m_renderSettings;
 
@@ -400,12 +422,11 @@ ViewerWindow::redrawTo(gfxApi::Framebuffer* framebuffer)
   m_renderer->getSize(oldrendererwidth, oldrendererheight);
   if (selectionBufferResized || width() != oldrendererwidth || height() != oldrendererheight) {
     m_renderer->resize(width(), height());
-    m_CCamera.m_Film.m_Resolution.SetResX(width());
-    m_CCamera.m_Film.m_Resolution.SetResY(height());
+    setSize(width(), height());
   }
 
   sceneView.viewport.region = { { 0, 0 }, { width(), height() } };
-  sceneView.camera = m_CCamera;
+  sceneView.camera = activeCamera();
   sceneView.scene = m_renderer->scene();
   sceneView.renderSettings = m_renderSettings;
 
@@ -425,6 +446,10 @@ ViewerWindow::setRenderer(int rendererType)
 {
   const bool wasSliceRenderer = isSliceMode();
   const bool useSliceRenderer = rendererType >= 2 && rendererType <= 5;
+  Scene* sc = m_renderer ? m_renderer->scene() : nullptr;
+
+  resetInteractionState();
+
   switch (rendererType) {
     case 2:
       m_renderSettings->m_SliceView.mode = SliceViewMode::Z;
@@ -441,7 +466,10 @@ ViewerWindow::setRenderer(int rendererType)
     default:
       break;
   }
-  slicePointerRelease();
+
+  if (useSliceRenderer) {
+    ensureSliceCamerasCurrent();
+  }
 
   // X/Y/Z/triple are modes of one renderer. Keep its uploaded volume and
   // transfer resources alive when moving between those modes.
@@ -450,8 +478,6 @@ ViewerWindow::setRenderer(int rendererType)
     m_renderSettings->m_DirtyFlags.SetFlag(RenderParamsDirty);
     return;
   }
-
-  Scene* sc = m_renderer ? m_renderer->scene() : nullptr;
 
   // clean up old renderer.
   if (m_renderer) {
@@ -489,146 +515,181 @@ ViewerWindow::setRenderer(int rendererType)
 }
 
 void
-ViewerWindow::markSliceViewDirty()
+ViewerWindow::resetSliceView()
 {
+  if (!isSingleSliceMode()) {
+    return;
+  }
+
+  ensureSliceCamerasCurrent();
+  if (!m_sliceCamerasInitialized) {
+    return;
+  }
+
+  fitSliceCamera(activeCamera());
   if (m_renderSettings) {
-    m_renderSettings->m_DirtyFlags.SetFlag(RenderParamsDirty);
+    m_renderSettings->m_DirtyFlags.SetFlag(CameraDirty);
   }
 }
 
 void
-ViewerWindow::resetSliceView()
+ViewerWindow::initializeSliceCameras(const CBoundingBox& bounds)
 {
-  if (!m_renderSettings) {
-    return;
+  static constexpr std::array<EViewMode, 3> VIEW_MODES = {
+    ViewModeFront,
+    ViewModeBottom,
+    ViewModeRight,
+  };
+
+  for (std::size_t i = 0; i < m_sliceCameras.size(); ++i) {
+    CCamera& camera = m_sliceCameras[i];
+    camera = m_CCamera;
+    camera.m_SceneBoundingBox = bounds;
+    camera.SetProjectionMode(ORTHOGRAPHIC);
+    camera.SetViewMode(VIEW_MODES[i]);
+
+    // The X slice shader presents Z from left to right and Y from bottom to
+    // top. ViewModeRight supplies the desired line of sight, but its default
+    // up vector is Z; use Y so the camera basis matches that pane convention.
+    if (i == 2) {
+      camera.m_Up = glm::vec3(0.0f, 1.0f, 0.0f);
+      camera.Update();
+    }
+
+    fitSliceCamera(camera);
   }
-  m_renderSettings->m_SliceView.resetView();
-  markSliceViewDirty();
+
+  m_sliceCameraBounds = bounds;
+  m_sliceCamerasInitialized = true;
 }
 
-TripleSliceLayout
-ViewerWindow::tripleSliceLayout() const
+void
+ViewerWindow::retargetSliceCameras(const CBoundingBox& bounds)
 {
-  glm::vec3 physicalDimensions(m_renderSettings ? m_renderSettings->m_SliceView.dimensions : glm::ivec3(1));
-  if (m_renderer && m_renderer->scene() && m_renderer->scene()->m_volume) {
-    physicalDimensions = glm::max(m_renderer->scene()->m_volume->getPhysicalDimensions(), glm::vec3(0.000001f));
+  if (!m_sliceCamerasInitialized) {
+    initializeSliceCameras(bounds);
+    return;
   }
-  // The reference layout uses a two-framebuffer-pixel gutter. Mouse positions
-  // and the viewport are also in framebuffer pixels, including on HiDPI screens.
-  return computeTripleSliceLayout(physicalDimensions, glm::ivec2(width(), height()), 2.0f);
+
+  const glm::vec3 oldCenter = m_sliceCameraBounds.GetCenter();
+  const glm::vec3 newCenter = bounds.GetCenter();
+  for (CCamera& camera : m_sliceCameras) {
+    camera.Update();
+
+    const float oldScale = glm::max(camera.m_OrthoScale, MIN_SLICE_CAMERA_SCALE);
+    const float oldFitScale = sliceFitScale(camera, m_sliceCameraBounds);
+    const float relativeZoom = oldFitScale / oldScale;
+    const float oldPixelsPerWorld =
+      static_cast<float>(camera.m_Film.GetHeight()) / (2.0f * oldScale);
+    const glm::vec2 panPixels =
+      glm::vec2(glm::dot(oldCenter - camera.m_Target, camera.m_U),
+                glm::dot(oldCenter - camera.m_Target, camera.m_V)) *
+      oldPixelsPerWorld;
+
+    const float newScale = sliceFitScale(camera, bounds) / relativeZoom;
+    const float newPixelsPerWorld =
+      static_cast<float>(camera.m_Film.GetHeight()) / (2.0f * newScale);
+    const glm::vec3 newTarget =
+      newCenter - camera.m_U * (panPixels.x / newPixelsPerWorld) -
+      camera.m_V * (panPixels.y / newPixelsPerWorld);
+
+    const glm::vec3 reverseLineOfSight = camera.m_From - camera.m_Target;
+    camera.m_From = newTarget + reverseLineOfSight * (newScale / oldScale);
+    camera.m_Target = newTarget;
+    camera.m_OrthoScale = newScale;
+    camera.m_SceneBoundingBox = bounds;
+    camera.Update();
+  }
+
+  m_sliceCameraBounds = bounds;
+}
+
+void
+ViewerWindow::setSliceInteractionThreshold(float thresholdPixels)
+{
+  m_sliceCrosshairTool.setHitThresholdPixels(thresholdPixels);
 }
 
 SliceCrosshairHit
-ViewerWindow::slicePointerHover(const glm::vec2& position, float thresholdPixels) const
+ViewerWindow::sliceCrosshairHit(const glm::vec2& position, float thresholdPixels) const
 {
-  if (!isTripleSliceMode() || !m_renderSettings) {
+  if (!isTripleSliceMode()) {
     return SliceCrosshairHit::None;
   }
-  const TripleSliceLayout layout = tripleSliceLayout();
-  const SlicePane pane = slicePaneAt(layout, position);
-  return hitTestSliceCrosshair(m_renderSettings->m_SliceView, pane, layout, position, thresholdPixels);
+
+  const bool useCapturedDrag =
+    gesture.input.mbs[Gesture::Input::kButtonLeft].action != Gesture::Input::kRelease;
+  return m_sliceCrosshairTool.hoverHit(sceneView, position, thresholdPixels, useCapturedDrag);
 }
 
-void
-ViewerWindow::slicePointerPress(const glm::vec2& position, SlicePointerButton button, float thresholdPixels)
+CCamera&
+ViewerWindow::activeCamera()
 {
-  if (!isSliceMode() || !m_renderSettings || button == SlicePointerButton::None) {
-    return;
-  }
-
-  m_lastSlicePointer = position;
-  if (!isTripleSliceMode()) {
-    m_slicePointerButton = button;
-    return;
-  }
-
-  if (button != SlicePointerButton::Primary) {
-    return;
-  }
-  const TripleSliceLayout layout = tripleSliceLayout();
-  const SlicePane pane = slicePaneAt(layout, position);
-  const SliceCrosshairHit hit =
-    hitTestSliceCrosshair(m_renderSettings->m_SliceView, pane, layout, position, thresholdPixels);
-  if (hit == SliceCrosshairHit::None) {
-    return;
-  }
-
-  m_slicePointerButton = button;
-  m_tripleDragPane = pane;
-  m_tripleDragHit = hit;
-  if (updateSliceIndicesFromPane(
-        m_renderSettings->m_SliceView, pane, slicePaneUv(layout.pane(pane), position), hit)) {
-    markSliceViewDirty();
+  switch (m_rendererType) {
+    case 2:
+      return m_sliceCameras[0];
+    case 3:
+      return m_sliceCameras[1];
+    case 4:
+      return m_sliceCameras[2];
+    default:
+      return m_CCamera;
   }
 }
 
-void
-ViewerWindow::slicePointerMove(const glm::vec2& position)
+const CCamera&
+ViewerWindow::activeCamera() const
 {
-  if (!isSliceMode() || !m_renderSettings || m_slicePointerButton == SlicePointerButton::None) {
+  return const_cast<ViewerWindow*>(this)->activeCamera();
+}
+
+void
+ViewerWindow::ensureSliceCamerasCurrent()
+{
+  Scene* scene = m_renderer ? m_renderer->scene() : nullptr;
+  if (!scene || !scene->m_volume) {
     return;
   }
 
-  if (isTripleSliceMode()) {
-    const TripleSliceLayout layout = tripleSliceLayout();
-    if (m_tripleDragPane != SlicePane::None &&
-        updateSliceIndicesFromPane(m_renderSettings->m_SliceView,
-                                   m_tripleDragPane,
-                                   slicePaneUv(layout.pane(m_tripleDragPane), position),
-                                   m_tripleDragHit)) {
-      markSliceViewDirty();
+  const CBoundingBox& bounds = scene->m_boundingBox;
+  const bool boundsChanged =
+    !m_sliceCamerasInitialized || glm::any(glm::notEqual(bounds.GetMinP(), m_sliceCameraBounds.GetMinP())) ||
+    glm::any(glm::notEqual(bounds.GetMaxP(), m_sliceCameraBounds.GetMaxP()));
+  if (boundsChanged) {
+    if (m_sliceCamerasInitialized) {
+      retargetSliceCameras(bounds);
+    } else {
+      initializeSliceCameras(bounds);
     }
-    m_lastSlicePointer = position;
-    return;
-  }
-
-  const glm::vec2 delta = position - m_lastSlicePointer;
-  if (m_slicePointerButton == SlicePointerButton::Primary) {
-    // State pan is measured in framebuffer pixels with a bottom-left origin.
-    m_renderSettings->m_SliceView.activePan() += glm::vec2(delta.x, -delta.y);
-    markSliceViewDirty();
-  } else if (m_slicePointerButton == SlicePointerButton::Secondary) {
-    const float factor = std::exp(-delta.y * 0.01f);
-    m_renderSettings->m_SliceView.activeZoom() =
-      glm::clamp(m_renderSettings->m_SliceView.activeZoom() * factor, 0.05f, 100.0f);
-    markSliceViewDirty();
-  }
-  m_lastSlicePointer = position;
-}
-
-void
-ViewerWindow::slicePointerRelease()
-{
-  m_slicePointerButton = SlicePointerButton::None;
-  m_tripleDragPane = SlicePane::None;
-  m_tripleDragHit = SliceCrosshairHit::None;
-}
-
-void
-ViewerWindow::slicePointerDoubleClick(const glm::vec2& position)
-{
-  if (!isTripleSliceMode() || !m_renderSettings) {
-    return;
-  }
-  const TripleSliceLayout layout = tripleSliceLayout();
-  const SlicePane pane = slicePaneAt(layout, position);
-  if (pane != SlicePane::None &&
-      updateSliceIndicesFromPane(m_renderSettings->m_SliceView,
-                                 pane,
-                                 slicePaneUv(layout.pane(pane), position),
-                                 SliceCrosshairHit::Both)) {
-    markSliceViewDirty();
   }
 }
 
 void
-ViewerWindow::sliceWheel(float steps)
+ViewerWindow::fitSliceCamera(CCamera& camera)
 {
-  if (!isSliceMode() || isTripleSliceMode() || !m_renderSettings || steps == 0.0f) {
+  if (camera.m_Film.GetWidth() <= 0 || camera.m_Film.GetHeight() <= 0) {
     return;
   }
-  const float factor = std::exp(steps * 0.15f);
-  m_renderSettings->m_SliceView.activeZoom() =
-    glm::clamp(m_renderSettings->m_SliceView.activeZoom() * factor, 0.05f, 100.0f);
-  markSliceViewDirty();
+
+  const glm::vec3 reverseLineOfSight = camera.m_From - camera.m_Target;
+  const float lineOfSightLength = glm::length(reverseLineOfSight);
+  const glm::vec3 direction =
+    lineOfSightLength > MIN_SLICE_CAMERA_SCALE ? reverseLineOfSight / lineOfSightLength : glm::vec3(0.0f, 0.0f, 1.0f);
+  const float distance = glm::max(lineOfSightLength, MIN_SLICE_CAMERA_SCALE);
+  camera.m_Target = camera.m_SceneBoundingBox.GetCenter();
+  camera.m_From = camera.m_Target + direction * distance;
+  camera.m_OrthoScale = sliceFitScale(camera, camera.m_SceneBoundingBox);
+  camera.Update();
+}
+
+void
+ViewerWindow::resetInteractionState()
+{
+  m_sliceCrosshairTool.cancelInteraction();
+  m_wasCameraBeingEdited = false;
+  gesture.input.reset();
+  gesture.graphics.m_retainedSelectionCode = Gesture::Graphics::k_noSelectionCode;
+  if (m_gestureRenderer) {
+    m_gestureRenderer->clearSelectionBuffer();
+  }
 }

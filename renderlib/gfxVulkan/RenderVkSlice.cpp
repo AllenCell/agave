@@ -1,6 +1,7 @@
 #include "RenderVkSlice.h"
 
 #include "CacheStatusReport.h"
+#include "CCamera.h"
 #include "Framebuffer.h"
 #include "ImageXYZC.h"
 #include "Logging.h"
@@ -45,6 +46,12 @@ struct alignas(16) SliceUniforms
   std::array<glm::vec4, SliceTransferFunction::MAX_CHANNELS * SliceTransferFunction::MAX_NODES> tfNodes = {};
 };
 
+struct SliceCameraTransform
+{
+  glm::vec2 pan = glm::vec2(0.0f);
+  float zoom = 1.0f;
+};
+
 glm::vec4
 toBottomLeftRect(const SliceRect& rect, uint32_t viewportHeight)
 {
@@ -52,6 +59,45 @@ toBottomLeftRect(const SliceRect& rect, uint32_t viewportHeight)
                    static_cast<float>(viewportHeight) - rect.y - rect.height,
                    rect.width,
                    rect.height);
+}
+
+glm::vec2
+slicePlaneWorldSize(SliceViewMode mode, const glm::vec3& boundsExtent)
+{
+  if (mode == SliceViewMode::X) {
+    return glm::vec2(boundsExtent.z, boundsExtent.y);
+  }
+  if (mode == SliceViewMode::Y) {
+    return glm::vec2(boundsExtent.x, boundsExtent.z);
+  }
+  return glm::vec2(boundsExtent.x, boundsExtent.y);
+}
+
+SliceCameraTransform
+sliceCameraTransform(const Scene& scene,
+                     const SliceViewState& state,
+                     const CCamera& camera,
+                     uint32_t viewportWidth,
+                     uint32_t viewportHeight)
+{
+  SliceCameraTransform transform;
+  if (!state.isSingleSlice() || camera.m_Projection != ORTHOGRAPHIC || viewportWidth == 0 || viewportHeight == 0) {
+    return transform;
+  }
+
+  constexpr float MIN_EXTENT = 0.000001f;
+  const glm::vec2 planeSize =
+    glm::max(slicePlaneWorldSize(state.mode, scene.m_boundingBox.GetExtent()), glm::vec2(MIN_EXTENT));
+  const float fitPixelsPerWorld =
+    std::min(static_cast<float>(viewportWidth) / planeSize.x, static_cast<float>(viewportHeight) / planeSize.y);
+  const float pixelsPerWorld =
+    static_cast<float>(viewportHeight) / (2.0f * std::max(camera.m_OrthoScale, MIN_EXTENT));
+
+  transform.zoom = pixelsPerWorld / fitPixelsPerWorld;
+  const glm::vec3 centerOffset = scene.m_boundingBox.GetCenter() - camera.m_Target;
+  transform.pan =
+    glm::vec2(glm::dot(centerOffset, camera.m_U), glm::dot(centerOffset, camera.m_V)) * pixelsPerWorld;
+  return transform;
 }
 
 std::optional<resources::Buffer>
@@ -127,7 +173,7 @@ RenderVkSlice::resize(uint32_t w, uint32_t h)
 }
 
 void
-RenderVkSlice::render(const CCamera&)
+RenderVkSlice::render(const CCamera& camera)
 {
   if (m_w == 0 || m_h == 0) {
     return;
@@ -141,18 +187,18 @@ RenderVkSlice::render(const CCamera&)
     desc.depthStencil = false;
     m_internalFramebuffer = std::make_unique<Framebuffer>(m_backend, desc);
   }
-  renderToFramebufferSlice(*m_internalFramebuffer);
+  renderToFramebufferSlice(camera, *m_internalFramebuffer);
 }
 
 void
-RenderVkSlice::renderTo(const CCamera&, gfxApi::Framebuffer* fbo)
+RenderVkSlice::renderTo(const CCamera& camera, gfxApi::Framebuffer* fbo)
 {
   auto* framebuffer = dynamic_cast<Framebuffer*>(fbo);
   if (!framebuffer) {
     LOG_ERROR << "gfxvulkan::RenderVkSlice::renderTo requires a Vulkan framebuffer";
     return;
   }
-  renderToFramebufferSlice(*framebuffer);
+  renderToFramebufferSlice(camera, *framebuffer);
 }
 
 gfxApi::ClearColor
@@ -168,14 +214,14 @@ RenderVkSlice::backgroundClearColor() const
 }
 
 void
-RenderVkSlice::renderToFramebufferSlice(Framebuffer& framebuffer)
+RenderVkSlice::renderToFramebufferSlice(const CCamera& camera, Framebuffer& framebuffer)
 {
   if (!prepareToRender()) {
     framebuffer.clear(backgroundClearColor());
     return;
   }
   if (!ensureResources(framebuffer.colorFormat()) ||
-      !updateUniformBuffer(framebuffer.width(), framebuffer.height()) || !updateDescriptorSet()) {
+      !updateUniformBuffer(camera, framebuffer.width(), framebuffer.height()) || !updateDescriptorSet()) {
     framebuffer.clear(backgroundClearColor());
     return;
   }
@@ -402,7 +448,7 @@ RenderVkSlice::ensureResources(VkFormat colorFormat)
 }
 
 bool
-RenderVkSlice::updateUniformBuffer(uint32_t viewportWidth, uint32_t viewportHeight)
+RenderVkSlice::updateUniformBuffer(const CCamera& camera, uint32_t viewportWidth, uint32_t viewportHeight)
 {
   if (!m_scene || !m_scene->m_volume || !m_renderSettings || !m_sliceUniformBuffer) {
     return false;
@@ -427,9 +473,9 @@ RenderVkSlice::updateUniformBuffer(uint32_t viewportWidth, uint32_t viewportHeig
   uniforms.indices = glm::ivec4(indices, 0);
   uniforms.dimensions = glm::ivec4(dimensions, 1);
   const SliceViewState& sliceView = m_renderSettings->m_SliceView;
-  const glm::vec2 pan = sliceView.isSingleSlice() ? sliceView.activePan() : glm::vec2(0.0f);
-  const float zoom = sliceView.isSingleSlice() ? sliceView.activeZoom() : 1.0f;
-  uniforms.panZoomGap = glm::vec4(pan, zoom, 2.0f);
+  const SliceCameraTransform cameraTransform =
+    sliceCameraTransform(*m_scene, sliceView, camera, viewportWidth, viewportHeight);
+  uniforms.panZoomGap = glm::vec4(cameraTransform.pan, cameraTransform.zoom, 2.0f);
   uniforms.physicalDimensions = glm::vec4(physicalDimensions, 0.0f);
   uniforms.flipAxes = glm::vec4(glm::vec3(volume->getVolumeAxesFlipped()), 0.0f);
   uniforms.paneXY = toBottomLeftRect(layout.xy, viewportHeight);

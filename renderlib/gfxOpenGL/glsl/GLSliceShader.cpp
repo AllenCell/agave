@@ -1,6 +1,7 @@
 #include "GLSliceShader.h"
 
 #include "AppScene.h"
+#include "CCamera.h"
 #include "ImageXYZC.h"
 #include "Logging.h"
 #include "SliceTransferFunction.h"
@@ -8,10 +9,18 @@
 #include "gfxOpenGL/ImageXyzcGpu.h"
 #include "gfxOpenGL/glsl/shaders.h"
 
+#include <algorithm>
+
 #include <glm/gtc/type_ptr.hpp>
 
 namespace
 {
+struct SliceCameraTransform
+{
+  glm::vec2 pan = glm::vec2(0.0f);
+  float zoom = 1.0f;
+};
+
 glm::vec4
 toBottomLeftRect(const SliceRect& rect, int viewportHeight)
 {
@@ -19,6 +28,45 @@ toBottomLeftRect(const SliceRect& rect, int viewportHeight)
                    static_cast<float>(viewportHeight) - rect.y - rect.height,
                    rect.width,
                    rect.height);
+}
+
+glm::vec2
+slicePlaneWorldSize(SliceViewMode mode, const glm::vec3& boundsExtent)
+{
+  if (mode == SliceViewMode::X) {
+    return glm::vec2(boundsExtent.z, boundsExtent.y);
+  }
+  if (mode == SliceViewMode::Y) {
+    return glm::vec2(boundsExtent.x, boundsExtent.z);
+  }
+  return glm::vec2(boundsExtent.x, boundsExtent.y);
+}
+
+SliceCameraTransform
+sliceCameraTransform(const Scene& scene,
+                     const SliceViewState& state,
+                     const CCamera& camera,
+                     int viewportWidth,
+                     int viewportHeight)
+{
+  SliceCameraTransform transform;
+  if (!state.isSingleSlice() || camera.m_Projection != ORTHOGRAPHIC || viewportWidth <= 0 || viewportHeight <= 0) {
+    return transform;
+  }
+
+  constexpr float MIN_EXTENT = 0.000001f;
+  const glm::vec2 planeSize =
+    glm::max(slicePlaneWorldSize(state.mode, scene.m_boundingBox.GetExtent()), glm::vec2(MIN_EXTENT));
+  const float fitPixelsPerWorld =
+    std::min(static_cast<float>(viewportWidth) / planeSize.x, static_cast<float>(viewportHeight) / planeSize.y);
+  const float pixelsPerWorld =
+    static_cast<float>(viewportHeight) / (2.0f * std::max(camera.m_OrthoScale, MIN_EXTENT));
+
+  transform.zoom = pixelsPerWorld / fitPixelsPerWorld;
+  const glm::vec3 centerOffset = scene.m_boundingBox.GetCenter() - camera.m_Target;
+  transform.pan =
+    glm::vec2(glm::dot(centerOffset, camera.m_U), glm::dot(centerOffset, camera.m_V)) * pixelsPerWorld;
+  return transform;
 }
 }
 
@@ -77,6 +125,7 @@ GLSliceShader::~GLSliceShader()
 void
 GLSliceShader::setShadingUniforms(const Scene& scene,
                                   const SliceViewState& state,
+                                  const CCamera& camera,
                                   int viewportWidth,
                                   int viewportHeight,
                                   const ImageGpu& image)
@@ -110,10 +159,10 @@ GLSliceShader::setShadingUniforms(const Scene& scene,
   glUniform3fv(m_physicalDimensions, 1, glm::value_ptr(physicalDimensions));
   const glm::vec3 flipAxes(volume->getVolumeAxesFlipped());
   glUniform3fv(m_flipAxes, 1, glm::value_ptr(flipAxes));
-  const glm::vec2 pan = state.isSingleSlice() ? state.activePan() : glm::vec2(0.0f);
-  const float zoom = state.isSingleSlice() ? state.activeZoom() : 1.0f;
-  glUniform2fv(m_pan, 1, glm::value_ptr(pan));
-  glUniform1f(m_zoom, zoom);
+  const SliceCameraTransform cameraTransform =
+    sliceCameraTransform(scene, state, camera, viewportWidth, viewportHeight);
+  glUniform2fv(m_pan, 1, glm::value_ptr(cameraTransform.pan));
+  glUniform1f(m_zoom, cameraTransform.zoom);
 
   const glm::vec4 paneXY = toBottomLeftRect(layout.xy, viewportHeight);
   const glm::vec4 paneYZ = toBottomLeftRect(layout.yz, viewportHeight);

@@ -80,6 +80,7 @@ GLView3D::initCameraFromImage(Scene* scene)
   // reposition to face image
   m_viewerWindow->m_CCamera.SetViewMode(ViewModeFront);
   m_viewerWindow->endCameraChange();
+  m_viewerWindow->initializeSliceCameras(scene->m_boundingBox);
 
   RenderSettings* rs = m_viewerWindow->m_renderSettings;
   rs->m_DirtyFlags.SetFlag(CameraDirty);
@@ -98,6 +99,7 @@ GLView3D::retargetCameraForNewVolume(Scene* scene)
   glm::vec3 ctr = m_viewerWindow->m_CCamera.m_SceneBoundingBox.GetCenter();
   // offset target by delta of prev bounds and new bounds.
   m_viewerWindow->m_CCamera.m_Target += (ctr - oldctr);
+  m_viewerWindow->retargetSliceCameras(scene->m_boundingBox);
 
   RenderSettings* rs = m_viewerWindow->m_renderSettings;
   rs->m_DirtyFlags.SetFlag(CameraDirty);
@@ -244,18 +246,6 @@ getGestureMods(QMouseEvent* event)
   return mods;
 }
 
-static ViewerWindow::SlicePointerButton
-getSliceButton(QMouseEvent* event)
-{
-  if (event->button() == Qt::LeftButton) {
-    return ViewerWindow::SlicePointerButton::Primary;
-  }
-  if (event->button() == Qt::RightButton) {
-    return ViewerWindow::SlicePointerButton::Secondary;
-  }
-  return ViewerWindow::SlicePointerButton::None;
-}
-
 static Qt::CursorShape
 sliceCursor(SliceCrosshairHit hit)
 {
@@ -281,10 +271,12 @@ GLView3D::mousePressEvent(QMouseEvent* event)
   double time = Clock::now();
   const float dpr = devicePixelRatioF();
   const glm::vec2 position(event->position().x() * dpr, event->position().y() * dpr);
+  m_viewerWindow->setSliceInteractionThreshold(8.0f * dpr);
+  m_viewerWindow->gesture.input.setButtonEvent(
+    getButton(event), Gesture::Input::Action::kPress, getGestureMods(event), position, time);
   if (m_viewerWindow->isSliceMode()) {
-    m_viewerWindow->slicePointerPress(position, getSliceButton(event), 8.0f * dpr);
     if (m_viewerWindow->isTripleSliceMode()) {
-      setCursor(sliceCursor(m_viewerWindow->slicePointerHover(position, 8.0f * dpr)));
+      setCursor(sliceCursor(m_viewerWindow->sliceCrosshairHit(position, 8.0f * dpr)));
     } else if (event->button() == Qt::LeftButton) {
       setCursor(Qt::ClosedHandCursor);
     } else if (event->button() == Qt::RightButton) {
@@ -293,11 +285,6 @@ GLView3D::mousePressEvent(QMouseEvent* event)
     event->accept();
     return;
   }
-  m_viewerWindow->gesture.input.setButtonEvent(getButton(event),
-                                               Gesture::Input::Action::kPress,
-                                               getGestureMods(event),
-                                               glm::vec2(event->x() * dpr, event->y() * dpr),
-                                               time);
 }
 
 void
@@ -310,21 +297,18 @@ GLView3D::mouseReleaseEvent(QMouseEvent* event)
   double time = Clock::now();
   const float dpr = devicePixelRatioF();
   const glm::vec2 position(event->position().x() * dpr, event->position().y() * dpr);
+  m_viewerWindow->setSliceInteractionThreshold(8.0f * dpr);
+  m_viewerWindow->gesture.input.setButtonEvent(
+    getButton(event), Gesture::Input::Action::kRelease, getGestureMods(event), position, time);
   if (m_viewerWindow->isSliceMode()) {
-    m_viewerWindow->slicePointerRelease();
     if (m_viewerWindow->isTripleSliceMode()) {
-      setCursor(sliceCursor(m_viewerWindow->slicePointerHover(position, 8.0f * dpr)));
+      setCursor(sliceCursor(m_viewerWindow->sliceCrosshairHit(position, 8.0f * dpr)));
     } else {
       setCursor(Qt::OpenHandCursor);
     }
     event->accept();
     return;
   }
-  m_viewerWindow->gesture.input.setButtonEvent(getButton(event),
-                                               Gesture::Input::Action::kRelease,
-                                               getGestureMods(event),
-                                               glm::vec2(event->x() * dpr, event->y() * dpr),
-                                               time);
 }
 
 // No switch default to avoid -Wunreachable-code errors.
@@ -343,11 +327,12 @@ GLView3D::mouseMoveEvent(QMouseEvent* event)
   }
   const float dpr = devicePixelRatioF();
   const glm::vec2 position(event->position().x() * dpr, event->position().y() * dpr);
+  m_viewerWindow->setSliceInteractionThreshold(8.0f * dpr);
+  m_viewerWindow->gesture.input.setPointerPosition(position);
 
   if (m_viewerWindow->isSliceMode()) {
-    m_viewerWindow->slicePointerMove(position);
     if (m_viewerWindow->isTripleSliceMode()) {
-      setCursor(sliceCursor(m_viewerWindow->slicePointerHover(position, 8.0f * dpr)));
+      setCursor(sliceCursor(m_viewerWindow->sliceCrosshairHit(position, 8.0f * dpr)));
     } else if (event->buttons() & Qt::LeftButton) {
       setCursor(Qt::ClosedHandCursor);
     } else if (event->buttons() & Qt::RightButton) {
@@ -358,21 +343,20 @@ GLView3D::mouseMoveEvent(QMouseEvent* event)
     event->accept();
     return;
   }
-
-  m_viewerWindow->gesture.input.setPointerPosition(position);
 }
 
 void
 GLView3D::mouseDoubleClickEvent(QMouseEvent* event)
 {
-  if (!isEnabled() || !m_viewerWindow->isSliceMode()) {
+  if (!isEnabled()) {
     QOpenGLWidget::mouseDoubleClickEvent(event);
     return;
   }
   const float dpr = devicePixelRatioF();
   const glm::vec2 position(event->position().x() * dpr, event->position().y() * dpr);
-  m_viewerWindow->slicePointerDoubleClick(position);
-  m_viewerWindow->slicePointerRelease();
+  m_viewerWindow->setSliceInteractionThreshold(8.0f * dpr);
+  m_viewerWindow->gesture.input.setDoubleClickEvent(
+    getButton(event), getGestureMods(event), position, Clock::now());
   event->accept();
 }
 
@@ -383,8 +367,10 @@ GLView3D::wheelEvent(QWheelEvent* event)
     return;
   }
   if (m_viewerWindow->isSliceMode()) {
-    m_viewerWindow->sliceWheel(static_cast<float>(event->angleDelta().y()) / 120.0f);
+    m_viewerWindow->gesture.input.addWheelDelta(static_cast<float>(event->angleDelta().y()) / 120.0f);
     event->accept();
+  } else {
+    event->ignore();
   }
 }
 

@@ -76,6 +76,8 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/ScenePlane.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/SceneView.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/SceneView.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/SliceCrosshairTool.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/SliceCrosshairTool.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/SliceTransferFunction.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/SliceViewState.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/SliceViewState.h"

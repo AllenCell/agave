@@ -33,7 +33,7 @@ private:
   bool prepareToRender();
   void initVolumeTexture();
   void updateActiveColormaps();
-  void draw(int viewportWidth, int viewportHeight);
+  void draw(const CCamera& camera, int viewportWidth, int viewportHeight);
 
   RenderSettings* m_renderSettings = nullptr;
   Scene* m_scene = nullptr;

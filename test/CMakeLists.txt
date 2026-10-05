@@ -16,6 +16,7 @@ target_include_directories(agave_test PUBLIC
 target_sources(agave_test PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/test_arrayVolume.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/test_cacheManager.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/test_cameraManipulation.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/test_commands.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/test_fileReaderTestVolume.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/test_fileReaderDicom.cpp"
@@ -29,6 +30,7 @@ target_sources(agave_test PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/test_timeSeriesLoader.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/test_timeSeriesPlayer.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/test_serialize.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/test_sliceCrosshairTool.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/test_sliceViewState.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/test_version.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/test_volumeDimensions.cpp"

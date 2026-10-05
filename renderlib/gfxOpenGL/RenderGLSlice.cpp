@@ -101,7 +101,7 @@ RenderGLSlice::prepareToRender()
 }
 
 void
-RenderGLSlice::draw(int viewportWidth, int viewportHeight)
+RenderGLSlice::draw(const CCamera& camera, int viewportWidth, int viewportHeight)
 {
   if (viewportWidth <= 0 || viewportHeight <= 0) {
     return;
@@ -113,7 +113,8 @@ RenderGLSlice::draw(int viewportWidth, int viewportHeight)
   glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
   m_shader->bind();
-  m_shader->setShadingUniforms(*m_scene, m_renderSettings->m_SliceView, viewportWidth, viewportHeight, m_image);
+  m_shader->setShadingUniforms(
+    *m_scene, m_renderSettings->m_SliceView, camera, viewportWidth, viewportHeight, m_image);
   m_fullscreenQuad->render(glm::mat4(1.0f));
   m_shader->release();
 
@@ -126,12 +127,12 @@ RenderGLSlice::draw(int viewportWidth, int viewportHeight)
 }
 
 void
-RenderGLSlice::render(const CCamera&)
+RenderGLSlice::render(const CCamera& camera)
 {
   if (!prepareToRender()) {
     return;
   }
-  draw(static_cast<int>(m_w), static_cast<int>(m_h));
+  draw(camera, static_cast<int>(m_w), static_cast<int>(m_h));
 
   const auto endTime = std::chrono::high_resolution_clock::now();
   const std::chrono::duration<double> elapsed = endTime - m_startTime;
@@ -142,13 +143,13 @@ RenderGLSlice::render(const CCamera&)
 }
 
 void
-RenderGLSlice::renderTo(const CCamera&, gfxApi::Framebuffer* fbo)
+RenderGLSlice::renderTo(const CCamera& camera, gfxApi::Framebuffer* fbo)
 {
   if (!fbo || !prepareToRender()) {
     return;
   }
   fbo->bind();
-  draw(static_cast<int>(fbo->width()), static_cast<int>(fbo->height()));
+  draw(camera, static_cast<int>(fbo->width()), static_cast<int>(fbo->height()));
   fbo->release();
 }
 

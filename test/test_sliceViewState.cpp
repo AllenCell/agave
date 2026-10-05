@@ -27,23 +27,6 @@ TEST_CASE("Slice view dimensions can center indices", "[sliceView]")
   state.setDimensions(glm::ivec3(10, 5, 2), true);
   REQUIRE(state.dimensions == glm::ivec3(10, 5, 2));
   REQUIRE(state.indices == glm::ivec3(5, 2, 1));
-
-  state.mode = SliceViewMode::Y;
-  state.activePan() = glm::vec2(1.0f, -2.0f);
-  state.activeZoom() = 3.0f;
-  state.resetView();
-  REQUIRE(state.activePan() == glm::vec2(0.0f));
-  REQUIRE(state.activeZoom() == 1.0f);
-
-  state.mode = SliceViewMode::X;
-  state.activePan() = glm::vec2(4.0f, 5.0f);
-  state.activeZoom() = 2.0f;
-  state.mode = SliceViewMode::Z;
-  REQUIRE(state.activePan() == glm::vec2(0.0f));
-  REQUIRE(state.activeZoom() == 1.0f);
-  state.mode = SliceViewMode::X;
-  REQUIRE(state.activePan() == glm::vec2(4.0f, 5.0f));
-  REQUIRE(state.activeZoom() == 2.0f);
 }
 
 TEST_CASE("Triple slice layout preserves physical pane proportions", "[sliceView]")
