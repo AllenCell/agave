@@ -9,7 +9,7 @@
 #include "renderlib/gesture/gesture.h"
 #include "renderlib/graphics/IRenderWindow.h"
 #include "renderlib/graphics/GestureGraphicsGL.h"
-#include "renderlib/graphics/gl/Util.h"
+#include "renderlib/gfxOpenGL/Util.h"
 #include "renderlib/renderlib.h"
 
 #include <QList>
