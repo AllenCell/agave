@@ -111,6 +111,24 @@ GLFramebufferObject::release()
 }
 
 void
+GLFramebufferObject::clear(const gfxApi::ClearColor& color)
+{
+  GLuint prevFbo = 0;
+  glGetIntegerv(GL_FRAMEBUFFER_BINDING, (GLint*)&prevFbo);
+
+  if (prevFbo != m_id) {
+    bind();
+  }
+
+  glClearColor(color.r, color.g, color.b, color.a);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+  if (prevFbo != m_id) {
+    glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
+  }
+}
+
+void
 GLFramebufferObject::toImage(void* pixels)
 {
   GLuint prevFbo = 0;
