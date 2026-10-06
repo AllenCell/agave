@@ -101,7 +101,9 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/VolumeDimensions.h"
 )
 add_subdirectory(gesture)
+add_subdirectory(gfxapi)
 add_subdirectory(graphics)
+add_subdirectory(gfxOpenGL)
 add_subdirectory(io)
 add_subdirectory(pugixml)
 
