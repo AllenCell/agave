@@ -3,9 +3,10 @@
 #include "CCamera.h"
 #include "Manipulator.h"
 #include "Timing.h"
-#include "graphics/GestureGraphicsGL.h"
+#include "gfxapi/IGestureRenderer.h"
 #include "gesture/gesture.h"
 
+#include <memory>
 #include <vector>
 
 class RenderSettings;
@@ -37,7 +38,7 @@ public:
 
     // clear out the buffer once.
     if (!tool) {
-      m_selection.clear();
+      m_gestureRenderer->clearSelectionBuffer();
     }
 
     // Todo: this could be replaced with a push/pop mechanism to allow
@@ -75,8 +76,7 @@ public:
   double m_frameRate;
   int m_increments;
 
-  SelectionBuffer m_selection;
-  std::unique_ptr<GestureRendererGL> m_gestureRenderer;
+  std::unique_ptr<gfxApi::IGestureRenderer> m_gestureRenderer;
 
   ManipulationTool m_defaultTool; //< a null tool representing selection
   ManipulationTool* m_activeTool = &m_defaultTool;
