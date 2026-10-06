@@ -1,10 +1,11 @@
 #pragma once
 
+#include "gfxapi/Framebuffer.h"
+
 #include <inttypes.h>
 
 class CCamera;
 class CStatus;
-class GLFramebufferObject;
 class RenderSettings;
 class Scene;
 
@@ -20,7 +21,7 @@ public:
 
   virtual void initialize(uint32_t w, uint32_t h) = 0;
   virtual void render(const CCamera& camera) = 0;
-  virtual void renderTo(const CCamera& camera, GLFramebufferObject* fbo) = 0;
+  virtual void renderTo(const CCamera& camera, Framebuffer* fbo) = 0;
   virtual void resize(uint32_t w, uint32_t h) = 0;
   virtual void getSize(uint32_t& w, uint32_t& h) = 0;
   virtual void cleanUpResources() {}
