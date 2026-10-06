@@ -5,7 +5,6 @@
 #include "AppScene.h"
 #include "AxisHelperTool.h"
 #include "BoundingBoxTool.h"
-#include "IRenderWindow.h"
 #include "Light.h"
 #include "MoveTool.h"
 #include "RenderSettings.h"
@@ -13,15 +12,13 @@
 #include "ScaleBarTool.h"
 #include "SceneLight.h"
 #include "TimeStampTool.h"
-#include "graphics/RenderGL.h"
-#include "graphics/RenderGLPT.h"
 #include "gfxOpenGL/Util.h"
 #include "gfxapi/Backend.h"
 #include "renderlib.h"
 
 ViewerWindow::ViewerWindow(RenderSettings* rs)
   : m_renderSettings(rs)
-  , m_renderer(new RenderGLPT(rs))
+  , m_renderer(renderlib::graphicsBackend()->createRenderWindow(gfxApi::RenderWindowKind::PathTrace, rs))
   , m_gestureRenderer(renderlib::graphicsBackend()->createGestureRenderer())
 {
   gesture.input.reset();
@@ -340,17 +337,20 @@ ViewerWindow::setRenderer(int rendererType)
   switch (rendererType) {
     case 1:
       LOG_DEBUG << "Set OpenGL pathtrace Renderer";
-      m_renderer = std::make_unique<RenderGLPT>(m_renderSettings);
+      m_renderer =
+        renderlib::graphicsBackend()->createRenderWindow(gfxApi::RenderWindowKind::PathTrace, m_renderSettings);
       m_renderSettings->m_DirtyFlags.SetFlag(TransferFunctionDirty);
       break;
     case 2:
       LOG_DEBUG << "Set OpenGL pathtrace Renderer";
-      m_renderer = std::make_unique<RenderGLPT>(m_renderSettings);
+      m_renderer =
+        renderlib::graphicsBackend()->createRenderWindow(gfxApi::RenderWindowKind::PathTrace, m_renderSettings);
       m_renderSettings->m_DirtyFlags.SetFlag(TransferFunctionDirty);
       break;
     default:
       LOG_DEBUG << "Set OpenGL single pass Renderer";
-      m_renderer = std::make_unique<RenderGL>(m_renderSettings);
+      m_renderer =
+        renderlib::graphicsBackend()->createRenderWindow(gfxApi::RenderWindowKind::RaymarchBlended, m_renderSettings);
   };
   m_rendererType = rendererType;
 

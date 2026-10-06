@@ -102,7 +102,6 @@ target_sources(renderlib PRIVATE
 )
 add_subdirectory(gesture)
 add_subdirectory(gfxapi)
-add_subdirectory(graphics)
 add_subdirectory(gfxOpenGL)
 add_subdirectory(io)
 add_subdirectory(pugixml)

@@ -15,7 +15,6 @@
 class CStatus;
 class ImageXYZC;
 class QCamera;
-class IRenderWindow;
 class QRenderSettings;
 class Scene;
 namespace Serialize {
