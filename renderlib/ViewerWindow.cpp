@@ -6,15 +6,32 @@
 #include "AxisHelperTool.h"
 #include "BoundingBoxTool.h"
 #include "Light.h"
+#include "Logging.h"
 #include "MoveTool.h"
 #include "RenderSettings.h"
 #include "RotateTool.h"
 #include "ScaleBarTool.h"
 #include "SceneLight.h"
 #include "TimeStampTool.h"
-#include "gfxOpenGL/Util.h"
 #include "gfxapi/Backend.h"
 #include "renderlib.h"
+
+namespace {
+
+gfxApi::ClearColor
+backgroundClearColor(const Scene* scene)
+{
+  if (!scene) {
+    return {};
+  }
+
+  return { scene->m_material.m_backgroundColor[0],
+           scene->m_material.m_backgroundColor[1],
+           scene->m_material.m_backgroundColor[2],
+           0.0f };
+}
+
+} // namespace
 
 ViewerWindow::ViewerWindow(RenderSettings* rs)
   : m_renderSettings(rs)
@@ -308,7 +325,7 @@ ViewerWindow::redraw()
   update(sceneView.viewport, m_clock, gesture);
 
   // ready to start drawing; clear our main framebuffer
-  clearFramebuffer(sceneView.scene);
+  renderlib::graphicsBackend()->clearCurrentFramebuffer(backgroundClearColor(sceneView.scene));
 
   // render and then clear out draw commands from gesture graphics
   m_gestureRenderer->drawUnderlay(sceneView, gesture.graphics);

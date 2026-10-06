@@ -18,6 +18,14 @@ struct FramebufferDesc
   bool depthStencil = false;
 };
 
+struct ClearColor
+{
+  float r = 0.0f;
+  float g = 0.0f;
+  float b = 0.0f;
+  float a = 0.0f;
+};
+
 class Framebuffer
 {
 public:
@@ -29,6 +37,8 @@ public:
 
   virtual uint32_t width() const = 0;
   virtual uint32_t height() const = 0;
+
+  virtual void clear(const ClearColor& color) = 0;
 
   // pixels must be preallocated for 32 bits per pixel.
   virtual void toImage(void* pixels) = 0;
