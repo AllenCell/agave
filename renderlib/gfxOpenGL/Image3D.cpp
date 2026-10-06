@@ -1,11 +1,11 @@
 
-#include "gfxOpenGL/Image3D.h"
+#include "Image3D.h"
 
 #include "Fuse.h"
 #include "ImageXYZC.h"
 #include "Logging.h"
 #include "RenderSettings.h"
-#include "gfxOpenGL/Util.h"
+#include "Util.h"
 
 #include <algorithm>
 #include <array>
