@@ -22,7 +22,7 @@ public:
 
   void initialize(uint32_t w, uint32_t h) override;
   void render(const CCamera& camera) override;
-  void renderTo(const CCamera& camera, GLFramebufferObject* fbo) override;
+  void renderTo(const CCamera& camera, gfxApi::Framebuffer* fbo) override;
   void resize(uint32_t w, uint32_t h) override;
   void getSize(uint32_t& w, uint32_t& h) override
   {

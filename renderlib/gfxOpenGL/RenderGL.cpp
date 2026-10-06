@@ -75,7 +75,7 @@ RenderGL::prepareToRender()
 }
 
 void
-RenderGL::renderTo(const CCamera& camera, GLFramebufferObject* fbo)
+RenderGL::renderTo(const CCamera& camera, gfxApi::Framebuffer* fbo)
 {
   bool haveScene = prepareToRender();
 

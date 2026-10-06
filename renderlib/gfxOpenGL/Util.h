@@ -99,30 +99,6 @@ private:
   void eventElapsedTime(float* result, GLuint startEvent, GLuint stopEvent);
 };
 
-// RAII; must have a current gl context at creation time.
-class GLFramebufferObject
-{
-public:
-  GLFramebufferObject(int width, int height, GLint colorInternalFormat);
-
-  ~GLFramebufferObject();
-
-  void bind();
-  void release();
-  int width() const;
-  int height() const;
-
-  // pixels must be preallocated with 32bits per pixel, ASSUMING RGBA internal format
-  void toImage(void* pixels);
-
-private:
-  GLuint m_fbo;
-  GLuint m_texture;
-  GLuint m_depth_buffer;
-  int m_width;
-  int m_height;
-};
-
 class GLShader
 {
 public:
