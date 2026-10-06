@@ -3,11 +3,14 @@
 #include "renderlib/CCamera.h"
 #include "renderlib/io/FileReader.h"
 
+#include "QtGLContext.h"
 #include "renderer.h"
 
 #include <QDialog>
 #include <QMutex>
 #include <QStandardPaths>
+
+#include <memory>
 
 class QButtonGroup;
 class QCheckBox;
@@ -15,7 +18,6 @@ class QComboBox;
 class QImage;
 class QLabel;
 class QLineEdit;
-class QOpenGLContext;
 class QPixmap;
 class QProgressBar;
 class QPushButton;
@@ -74,7 +76,7 @@ public:
                const RenderSettings& renderSettings,
                const Scene& scene,
                const CCamera& ccamera,
-               QOpenGLContext* glContext,
+               QtGLContext* glContext,
                const LoadSpec& loadSpec,
                CaptureSettings* captureSettings,
                int viewportWidth,
@@ -107,7 +109,8 @@ private slots:
 
 private:
   QMutex m_mutex;
-  QOpenGLContext* m_glContext;
+  // Borrowed from agaveGui, which owns it and outlives this dialog.
+  QtGLContext* m_glContext;
   Renderer* m_renderThread;
   gfxApi::IRenderWindow* m_renderer;
   const RenderSettings& m_renderSettings;
