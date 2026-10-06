@@ -4,13 +4,13 @@
 #include "Manipulator.h"
 #include "Timing.h"
 #include "gfxapi/IGestureRenderer.h"
+#include "gfxapi/IRenderWindow.h"
 #include "gesture/gesture.h"
 
 #include <memory>
 #include <vector>
 
 class RenderSettings;
-class IRenderWindow;
 
 class ViewerWindow
 {
@@ -84,7 +84,7 @@ public:
   bool m_toolsUseLocalSpace = false;
 
   RenderSettings* m_renderSettings;
-  std::unique_ptr<IRenderWindow> m_renderer;
+  std::unique_ptr<gfxApi::IRenderWindow> m_renderer;
   int m_rendererType{ 1 };
 
   // Track camera manipulation for light following

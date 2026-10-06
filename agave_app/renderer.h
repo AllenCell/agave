@@ -25,9 +25,12 @@
 class commandBuffer;
 class CCamera;
 class ImageXYZC;
-class IRenderWindow;
 class RenderSettings;
 class Scene;
+
+namespace gfxApi {
+class IRenderWindow;
+}
 
 // serialized so permanent?
 enum eRenderDurationType
@@ -91,7 +94,7 @@ public:
   Renderer(const QString& id, QObject* parent, QMutex& mutex);
   ~Renderer() override;
 
-  void configure(IRenderWindow* renderer,
+  void configure(gfxApi::IRenderWindow* renderer,
                  const RenderSettings& renderSettings,
                  const Scene& scene,
                  const CCamera& camera,
@@ -159,7 +162,7 @@ private:
     bool ownRenderer;
     RenderSettings* m_renderSettings;
     CaptureSettings* m_captureSettings;
-    IRenderWindow* m_renderer;
+    gfxApi::IRenderWindow* m_renderer;
     Scene* m_scene;
     CCamera* m_camera;
     LoadSpec m_loadSpec;
