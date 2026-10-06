@@ -23,10 +23,9 @@ class HeadlessGLContext;
 class Backend : public gfxApi::Backend
 {
 public:
-  explicit Backend(const gfxApi::InitParams& params)
-    : m_params(params)
-  {
-  }
+  // Makes a bootstrap GL context current (application-supplied or EGL) and
+  // loads the GL entry points.
+  explicit Backend(const gfxApi::InitParams& params);
   ~Backend() override;
 
   gfxApi::IGraphicsDevice& device() override { return m_device; }

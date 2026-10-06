@@ -20,21 +20,19 @@ struct ImageGpu;
 class ImageXYZC;
 class RenderSettings;
 
-namespace gfxApi {
-class Backend;
-}
-
 using EGLContext = void*; // Forward declaration from EGL.h.
 
 namespace gfxApi {
 class Backend;
 class IRenderWindow;
+struct InitParams;
 }
 
 class renderlib
 {
 public:
-  static int initialize(std::string assetPath, bool headless = false, bool listDevices = false, int selectedGpu = 0);
+  static int initialize(const gfxApi::InitParams& params, bool listDevices = false);
+  static bool supportsHeadlessRendering();
   static void clearGpuVolumeCache();
   static void cleanup();
 

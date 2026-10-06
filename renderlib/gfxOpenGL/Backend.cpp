@@ -191,6 +191,24 @@ logGLMessage(GLenum,
 }
 } // namespace
 
+Backend::Backend(const gfxApi::InitParams& params)
+  : m_params(params)
+{
+  bool contextOk = false;
+#if GFXOPENGL_HAS_EGL
+  if (m_params.headless) {
+    contextOk = initEGLContext();
+  } else
+#endif
+  {
+    contextOk = initWindowedContext();
+  }
+
+  // Only load GL once a bootstrap context is current. m_valid reflects whether
+  // the whole bring-up succeeded; callers must discard an invalid backend.
+  m_valid = contextOk && initGL();
+}
+
 #if GFXOPENGL_HAS_EGL
 bool
 Backend::initEGLContext()
