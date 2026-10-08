@@ -82,6 +82,8 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/Status.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/StringUtil.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/StringUtil.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/SystemInfo.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/SystemInfo.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/threading.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/threading.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Timeline.cpp"
