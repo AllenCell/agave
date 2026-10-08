@@ -14,8 +14,8 @@
 #include <string>
 
 class BoundingBoxDrawable;
-class Framebuffer;
 class FSQ;
+class GLFramebufferObject;
 class ImageXYZC;
 class Image3D;
 class RectImage2D;
@@ -69,16 +69,16 @@ private:
   RectImage2D* m_imagequad;
 
   // the rgba8 buffer for display
-  Framebuffer* m_fb;
+  GLFramebufferObject* m_fb;
 
   FSQ* m_fsq;
 
   // the rgbaf32 buffer for rendering
-  Framebuffer* m_fbF32;
+  GLFramebufferObject* m_fbF32;
   GLPTVolumeShader* m_renderBufferShader;
 
   // the rgbaf32 accumulation buffer that holds the progressively rendered image
-  Framebuffer* m_fbF32Accum;
+  GLFramebufferObject* m_fbF32Accum;
   GLCopyShader* m_copyShader;
   GLToneMapShader* m_toneMapShader;
 
