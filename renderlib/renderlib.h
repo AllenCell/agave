@@ -21,6 +21,10 @@ class ImageXYZC;
 class IRenderWindow;
 class RenderSettings;
 
+namespace gfxApi {
+class Backend;
+}
+
 using EGLContext = void*; // Forward declaration from EGL.h.
 
 class renderlib
@@ -31,6 +35,7 @@ public:
   static void cleanup();
 
   static std::string assetPath();
+  static gfxApi::Backend* graphicsBackend();
 
   // usage of this cache:
   // websocketserver:
