@@ -24,7 +24,7 @@ public:
   static std::shared_ptr<ImageXYZC> loadAndCache(const LoadSpec& loadSpec,
                                                  std::shared_ptr<IFileReader> reader = nullptr);
 
-  static std::shared_ptr<ImageXYZC> loadFromArray_4D(uint8_t* dataArray,
+  static std::shared_ptr<ImageXYZC> loadFromArray_4D(std::unique_ptr<uint8_t[]> dataArray,
                                                      std::vector<uint32_t> shape,
                                                      const std::string& name,
                                                      std::vector<char> dims = {},
