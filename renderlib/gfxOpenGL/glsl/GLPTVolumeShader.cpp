@@ -5,7 +5,7 @@
 #include "CCamera.h"
 #include "DenoiseParams.h"
 #include "ImageXYZC.h"
-#include "ImageXyzcGpu.h"
+#include "gfxOpenGL/ImageXyzcGpu.h"
 #include "Logging.h"
 #include "shaders.h"
 

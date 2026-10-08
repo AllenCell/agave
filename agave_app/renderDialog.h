@@ -25,11 +25,14 @@ class QTimeEdit;
 class QToolBar;
 class QWidget;
 
-class IRenderWindow;
 class RenderRequest;
 class RenderSettings;
 class Scene;
 class ViewerWindow;
+
+namespace gfxApi {
+class IRenderWindow;
+}
 
 // very simple scroll, zoom, pan and fit image to widget
 class ImageDisplay : public QWidget
@@ -106,7 +109,7 @@ private:
   QMutex m_mutex;
   QOpenGLContext* m_glContext;
   Renderer* m_renderThread;
-  IRenderWindow* m_renderer;
+  gfxApi::IRenderWindow* m_renderer;
   const RenderSettings& m_renderSettings;
   const Scene& m_scene;
   LoadSpec m_loadSpec;

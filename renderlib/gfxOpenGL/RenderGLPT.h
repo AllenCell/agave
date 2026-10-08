@@ -1,16 +1,17 @@
 #pragma once
-#include "IRenderWindow.h"
+#include "gfxapi/IRenderWindow.h"
 
 #include <glad/glad.h>
 
 #include "AppScene.h"
 #include "RenderSettings.h"
 
-#include "ImageXyzcGpu.h"
+#include "gfxOpenGL/ImageXyzcGpu.h"
 #include "Status.h"
 #include "Timing.h"
 
 #include <memory>
+#include <string>
 
 class BoundingBoxDrawable;
 class Framebuffer;
@@ -22,7 +23,7 @@ class GLCopyShader;
 class GLPTVolumeShader;
 class GLToneMapShader;
 
-class RenderGLPT : public IRenderWindow
+class RenderGLPT : public gfxApi::IRenderWindow
 {
 public:
   static const std::string TYPE_NAME;

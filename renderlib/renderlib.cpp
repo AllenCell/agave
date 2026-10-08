@@ -1,10 +1,8 @@
 #include "renderlib.h"
 
 #include "ImageXYZC.h"
-#include "ImageXyzcGpu.h"
+#include "gfxOpenGL/ImageXyzcGpu.h"
 #include "Logging.h"
-#include "RenderGL.h"
-#include "RenderGLPT.h"
 #include "gfxOpenGL/Backend.h"
 #include "gfxapi/Backend.h"
 
@@ -41,6 +39,25 @@ static std::string s_assetPath = "";
 // Owner of the active graphics backend. Hardcoded to OpenGL while the
 // gfxapi / gfxOpenGL abstraction is being introduced incrementally.
 static std::unique_ptr<gfxApi::Backend> s_graphicsBackend;
+
+namespace {
+
+constexpr const char* kRaymarchRendererTypeName = "raymarch";
+constexpr const char* kPathtraceRendererTypeName = "pathtrace";
+
+gfxApi::RenderWindowKind
+toRenderWindowKind(renderlib::RendererType rendererType)
+{
+  switch (rendererType) {
+    case renderlib::RendererType::RendererType_Raymarch:
+      return gfxApi::RenderWindowKind::RaymarchBlended;
+    case renderlib::RendererType::RendererType_Pathtrace:
+    default:
+      return gfxApi::RenderWindowKind::PathTrace;
+  }
+}
+
+} // namespace
 
 // Backend selection lives here, in renderlib, rather than in gfxapi: the
 // abstract gfxapi layer must not depend on any concrete backend. This is the
@@ -582,24 +599,23 @@ RendererGLContext::doneCurrent()
     this->m_eglContext->doneCurrent();
 }
 
-IRenderWindow*
+gfxApi::IRenderWindow*
 renderlib::createRenderer(renderlib::RendererType rendererType, RenderSettings* rs)
 {
-  switch (rendererType) {
-    case renderlib::RendererType::RendererType_Raymarch:
-      return new RenderGL(rs);
-    case renderlib::RendererType::RendererType_Pathtrace:
-    default:
-      return new RenderGLPT(rs);
+  if (!s_graphicsBackend) {
+    LOG_ERROR << "renderlib::createRenderer: graphics backend is not initialized";
+    return nullptr;
   }
+
+  return s_graphicsBackend->createRenderWindow(toRenderWindowKind(rendererType), rs).release();
 }
 
 renderlib::RendererType
 renderlib::stringToRendererType(std::string rendererTypeString)
 {
-  if (rendererTypeString == RenderGL::TYPE_NAME) {
+  if (rendererTypeString == kRaymarchRendererTypeName) {
     return RendererType::RendererType_Raymarch;
-  } else if (rendererTypeString == RenderGLPT::TYPE_NAME) {
+  } else if (rendererTypeString == kPathtraceRendererTypeName) {
     return RendererType::RendererType_Pathtrace;
   } else {
     return RendererType::RendererType_Pathtrace;
@@ -610,9 +626,9 @@ renderlib::rendererTypeToString(renderlib::RendererType rendererType)
 {
   switch (rendererType) {
     case renderlib::RendererType_Raymarch:
-      return RenderGL::TYPE_NAME;
+      return kRaymarchRendererTypeName;
     case renderlib::RendererType_Pathtrace:
     default:
-      return RenderGLPT::TYPE_NAME;
+      return kPathtraceRendererTypeName;
   }
 }
