@@ -18,7 +18,7 @@ git submodule update --init
 
 ### For WINDOWS:
 
-Make sure you are in an environment where vsvarsall has been run, e.g. a "VS2022 x64 Native Tools Command Prompt"
+Make sure you are in an environment where vsvarsall has been run, e.g. a "VS2026 x64 Native Tools Command Prompt"
 
 **tensorstore** requires:
 
@@ -54,8 +54,8 @@ vcpkg install spdlog zlib libjpeg-turbo liblzma tiff zstd curl --triplet x64-win
 ```
 mkdir build
 cd build
-# (vs 2022)
-cmake -DCMAKE_TOOLCHAIN_FILE=D:\vcpkg\scripts\buildsystems\vcpkg.cmake -G "Visual Studio 17 2022" -A x64 -DVCPKG_TARGET_TRIPLET=x64-windows ..
+# (vs 2026)
+cmake -DCMAKE_TOOLCHAIN_FILE=D:\vcpkg\scripts\buildsystems\vcpkg.cmake -G "Visual Studio 18 2026" -A x64 -DVCPKG_TARGET_TRIPLET=x64-windows ..
 
 # or, example: ninja in separate build dir!
 cmake -DCMAKE_TOOLCHAIN_FILE=C:\Users\%USERNAME%\source\repos\vcpkg\scripts\buildsystems\vcpkg.cmake -G "Ninja Multi-Config" -DVCPKG_TARGET_TRIPLET=x64-windows C:\Users\%USERNAME%\source\repos\allen-cell-animated\agave

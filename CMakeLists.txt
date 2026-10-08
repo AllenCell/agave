@@ -322,7 +322,7 @@ elseif(APPLE)
   endif()
 
   # homebrew lib path
-  list(APPEND DIRS "/usr/local/lib")
+  list(APPEND DIRS "/opt/homebrew/lib" "/usr/local/lib")
 
   # Append Qt's lib folder
   # list(APPEND DIRS "${QTDIR}/lib")
