@@ -1,5 +1,6 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 
+#include "NativeSurface.h"
 #include "Swapchain.h"
 
 #if AGAVE_HAS_VULKAN && defined(_WIN32)
@@ -14,21 +15,32 @@ namespace gfxvulkan {
 bool
 Swapchain::createNativeSurface()
 {
-  if (!m_backend || !m_surface) {
+  if (!m_backend) {
     return false;
   }
 
-  HWND hwnd = reinterpret_cast<HWND>(m_surface->nativeHandle());
+  m_vkSurface = createNativeWindowSurface(m_backend->instance(), m_surface);
+  return m_vkSurface != VK_NULL_HANDLE;
+}
+
+VkSurfaceKHR
+createNativeWindowSurface(VkInstance instance, gfxApi::IWindowSurface* surface)
+{
+  if (instance == VK_NULL_HANDLE || !surface) {
+    return VK_NULL_HANDLE;
+  }
+
+  HWND hwnd = reinterpret_cast<HWND>(surface->nativeHandle());
   if (!hwnd) {
     LOG_ERROR << "Unable to get an HWND for the Vulkan window";
-    return false;
+    return VK_NULL_HANDLE;
   }
 
   auto createWin32Surface = reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(
-    vkGetInstanceProcAddr(m_backend->instance(), "vkCreateWin32SurfaceKHR"));
+    vkGetInstanceProcAddr(instance, "vkCreateWin32SurfaceKHR"));
   if (!createWin32Surface) {
     LOG_ERROR << "vkCreateWin32SurfaceKHR is not available on the current Vulkan instance";
-    return false;
+    return VK_NULL_HANDLE;
   }
 
   VkWin32SurfaceCreateInfoKHR createInfo = {};
@@ -36,14 +48,14 @@ Swapchain::createNativeSurface()
   createInfo.hinstance = GetModuleHandle(nullptr);
   createInfo.hwnd = hwnd;
 
-  VkResult result = createWin32Surface(m_backend->instance(), &createInfo, nullptr, &m_vkSurface);
+  VkSurfaceKHR vkSurface = VK_NULL_HANDLE;
+  VkResult result = createWin32Surface(instance, &createInfo, nullptr, &vkSurface);
   if (result != VK_SUCCESS) {
     LOG_ERROR << "vkCreateWin32SurfaceKHR failed with VkResult " << result;
-    m_vkSurface = VK_NULL_HANDLE;
-    return false;
+    return VK_NULL_HANDLE;
   }
 
-  return true;
+  return vkSurface;
 }
 
 void
