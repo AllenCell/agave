@@ -643,11 +643,14 @@ agaveGui::onRenderAction()
   // extract ViewerWindow from GLView3D to hand to RenderDialog
   ViewerWindow* renderer = m_glView->borrowRenderer();
 
+  if (!m_glContext) {
+    m_glContext = std::make_unique<QtGLContext>(m_glView->context());
+  }
   RenderDialog* rdialog = new RenderDialog(renderer,
                                            m_renderSettings,
                                            m_appScene,
                                            camera,
-                                           m_glView->context(),
+                                           m_glContext.get(),
                                            m_loadSpec,
                                            &m_captureSettings,
                                            m_glView->width(),

@@ -88,7 +88,10 @@ target_sources(agaveapp PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/ViewToolbar.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/ViewToolbar.h"
 )
-add_subdirectory(python)
+option(AGAVE_ENABLE_PYRENDERER "Build the legacy unused Python offscreen renderer." OFF)
+if(AGAVE_ENABLE_PYRENDERER)
+	add_subdirectory(python)
+endif()
 
 add_subdirectory(tfeditor)
 
