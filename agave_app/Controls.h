@@ -240,6 +240,12 @@ private slots:
 signals:
   void valueChanged(int value);
 
+protected:
+  // Access to the embedded slider for subclasses that need its geometry -- e.g.
+  // the TimeSlider needs to align an overlay with the slider groove.
+  QSlider& sliderWidget() { return m_slider; }
+  const QSlider& sliderWidget() const { return m_slider; }
+
 private:
   QGridLayout m_layout;
   MySpinBoxWithEnter m_spinner;

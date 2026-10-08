@@ -12,9 +12,12 @@
 #include "tensorstore/kvstore/generation.h"
 #include "tensorstore/open.h"
 
+#include "absl/time/time.h"
+
 #include <algorithm>
-#include <chrono>
+#include <atomic>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 
@@ -110,6 +113,12 @@ getKvStoreDriverParams(const std::string& filepath, const std::string& subpath)
 FileReaderZarr::FileReaderZarr(const std::string& filepath)
   : m_zarrVersion(0)
 {
+  // Several timepoints may be read at once. tensorstore is safe to read from
+  // concurrently once the store is open, and the lazy open plus the metadata
+  // memo are mutex-guarded, so the only cost is a few worker threads parked on
+  // I/O. Kept modest: each in-flight load owns a full volume buffer, and that
+  // memory is charged against the cache budget by the caller.
+  setMaxConcurrentLoads(3);
 }
 
 FileReaderZarr::~FileReaderZarr() = default;
@@ -146,6 +155,8 @@ tryReadJson(const std::string& zarrurl, const std::string& jsonfile)
 ::nlohmann::json
 FileReaderZarr::jsonRead(const std::string& zarrurl)
 {
+  std::lock_guard<std::recursive_mutex> lock(m_metadataMutex);
+
   if (m_zattrs.is_object()) {
     return m_zattrs;
   }
@@ -376,6 +387,25 @@ FileReaderZarr::tensorstoreZarrDriverName()
 std::vector<MultiscaleDims>
 FileReaderZarr::loadMultiscaleDims(const std::string& filepath, uint32_t scene)
 {
+  const std::string key = filepath + "|" + std::to_string(scene);
+
+  std::lock_guard<std::recursive_mutex> lock(m_metadataMutex);
+
+  auto cached = m_multiscaleDims.find(key);
+  if (cached != m_multiscaleDims.end()) {
+    return cached->second;
+  }
+
+  std::vector<MultiscaleDims> dims = readMultiscaleDims(filepath, scene);
+  // Cache even an empty result: a failed parse will fail identically on every
+  // timepoint, and retrying it per load just repeats the tensorstore opens.
+  m_multiscaleDims.emplace(key, dims);
+  return dims;
+}
+
+std::vector<MultiscaleDims>
+FileReaderZarr::readMultiscaleDims(const std::string& filepath, uint32_t scene)
+{
   std::vector<MultiscaleDims> multiscaleDims;
 
   nlohmann::json attrs = jsonRead(filepath);
@@ -465,9 +495,8 @@ FileReaderZarr::loadDimensions(const std::string& filepath, uint32_t scene)
 }
 
 std::shared_ptr<ImageXYZC>
-FileReaderZarr::loadFromFile(const LoadSpec& loadSpec)
+FileReaderZarr::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progress)
 {
-  auto tStart = std::chrono::high_resolution_clock::now();
   // load channels
   std::shared_ptr<ImageXYZC> emptyimage;
 
@@ -497,24 +526,33 @@ FileReaderZarr::loadFromFile(const LoadSpec& loadSpec)
 
   uint32_t nch = loadSpec.channels.empty() ? dims.sizeC : loadSpec.channels.size();
 
-  if (!m_store.valid()) {
-    auto context = tensorstore::Context::FromJson({ { "cache_pool", { { "total_bytes_limit", 100000000 } } } }).value();
+  {
+    // Guarded because several loads may be in flight on this reader at once;
+    // without the lock two of them could race to open and assign m_store.
+    std::lock_guard<std::mutex> storeLock(m_storeMutex);
+    if (!m_store.valid()) {
+      // TODO this is the tensorstore in-memory cache.  This could be reused across many instances of FileReaderZarr and
+      // hooked up to the CacheManager.
+      auto context =
+        tensorstore::Context::FromJson({ { "cache_pool", { { "total_bytes_limit", 100000000 } } } }).value();
 
-    auto openFuture = tensorstore::Open({ { "driver", tensorstoreZarrDriverName() },
-                                          { "kvstore", getKvStoreDriverParams(loadSpec.filepath, loadSpec.subpath) } },
-                                        context,
-                                        tensorstore::OpenMode::open,
-                                        tensorstore::RecheckCached{ false },
-                                        tensorstore::RecheckCachedData{ false },
-                                        tensorstore::ReadWriteMode::read);
+      auto openFuture =
+        tensorstore::Open({ { "driver", tensorstoreZarrDriverName() },
+                            { "kvstore", getKvStoreDriverParams(loadSpec.filepath, loadSpec.subpath) } },
+                          context,
+                          tensorstore::OpenMode::open,
+                          tensorstore::RecheckCached{ false },
+                          tensorstore::RecheckCachedData{ false },
+                          tensorstore::ReadWriteMode::read);
 
-    const auto& result = openFuture.result();
-    if (!result.ok()) {
-      LOG_ERROR << "Error: " << result.status();
-      return emptyimage;
+      const auto& result = openFuture.result();
+      if (!result.ok()) {
+        LOG_ERROR << "Error: " << result.status();
+        return emptyimage;
+      }
+
+      m_store = result.value();
     }
-
-    m_store = result.value();
   }
   // auto domain = m_store.domain();
   // std::cout << "domain.shape(): " << domain.shape() << std::endl;
@@ -527,17 +565,34 @@ FileReaderZarr::loadFromFile(const LoadSpec& loadSpec)
   size_t channelsize_bytes = planesize_bytes * (size_t)dims.sizeZ;
   uint8_t* data = new uint8_t[channelsize_bytes * nch];
   memset(data, 0, channelsize_bytes * nch);
-  // stash it here in case of early exit, it will be deleted
-  std::unique_ptr<uint8_t[]> smartPtr(data);
+  // TensorStore reads may outlive this stack frame if cancellation abandons
+  // their futures. Share ownership with the target arrays so they never write
+  // into freed memory. On success ImageXYZC takes over the raw pointer.
+  auto dataReleased = std::make_shared<std::atomic_bool>(false);
+  std::shared_ptr<uint8_t> dataOwner(data, [dataReleased](uint8_t* ptr) {
+    if (!dataReleased->load(std::memory_order_relaxed)) {
+      delete[] ptr;
+    }
+  });
 
   // still assuming 1 sample per pixel (scalar data) here.
   size_t rawPlanesize = (size_t)dims.sizeX * (size_t)dims.sizeY * (size_t)(dims.bitsPerPixel / 8);
-  // allocate temp data for one channel
-  uint8_t* channelRawMem = new uint8_t[(size_t)dims.sizeZ * rawPlanesize];
-  memset(channelRawMem, 0, (size_t)dims.sizeZ * rawPlanesize);
+  const size_t rawChannelSize = (size_t)dims.sizeZ * rawPlanesize;
 
-  // stash it here in case of early exit, it will be deleted
-  std::unique_ptr<uint8_t[]> smartPtrTemp(channelRawMem);
+  // When the source is already our in-memory format, convertChannelData is just
+  // a memcpy, so read straight into the destination instead: no scratch buffer
+  // and no full-volume copy per channel. This is the common case for OME-Zarr.
+  const bool readDirectToDest = (dims.bitsPerPixel == ImageXYZC::IN_MEMORY_BPP);
+
+  // Otherwise one scratch buffer per channel, so the reads can be in flight
+  // together rather than taking turns over a single shared buffer.
+  std::shared_ptr<uint8_t> channelRawOwner;
+  uint8_t* channelRawMem = nullptr;
+  if (!readDirectToDest) {
+    channelRawMem = new uint8_t[rawChannelSize * nch];
+    memset(channelRawMem, 0, rawChannelSize * nch);
+    channelRawOwner = std::shared_ptr<uint8_t>(channelRawMem, std::default_delete<uint8_t[]>());
+  }
   uint32_t minx, maxx, miny, maxy, minz, maxz;
   minx = (loadSpec.maxx > loadSpec.minx) ? loadSpec.minx : 0;
   miny = (loadSpec.maxy > loadSpec.miny) ? loadSpec.miny : 0;
@@ -555,14 +610,31 @@ FileReaderZarr::loadFromFile(const LoadSpec& loadSpec)
     LOG_ERROR << "Zarr: sizeX mismatch: " << dims.sizeX << " vs " << maxx - minx;
   }
 
-  // now ready to read channels one by one.
+  // Issue every channel read before waiting on any of them. tensorstore::Read
+  // returns a future backed by its own I/O pool, so the channels of a timepoint
+  // transfer concurrently instead of one after another -- which matters most for
+  // a remote store, where each read is dominated by latency.
+  std::vector<tensorstore::Future<void>> channelReads;
+  channelReads.reserve(nch);
+  auto cancelChannelReads = [&channelReads]() {
+    for (auto& read : channelReads) {
+      read.reset();
+    }
+  };
+
   for (uint32_t channel = 0; channel < nch; ++channel) {
+    if (progress.isCancelled()) {
+      cancelChannelReads();
+      return emptyimage;
+    }
     uint32_t channelToLoad = channel;
     if (!loadSpec.channels.empty()) {
       channelToLoad = loadSpec.channels[channel];
     }
-    // read entire channel into its native size
-    auto* destptr = channelRawMem;
+    // Each channel reads into its own region, so nothing is shared between the
+    // in-flight reads.
+    auto* destptr =
+      readDirectToDest ? (data + channel * channelsize_bytes) : (channelRawMem + channel * rawChannelSize);
 
     tensorstore::IndexTransform<> transform = tensorstore::IdentityTransform(m_store.domain());
     // T value:
@@ -600,56 +672,78 @@ FileReaderZarr::loadFromFile(const LoadSpec& loadSpec)
     const tensorstore::Index shapeToLoad[kNumDims] = { 1, 1, dims.sizeZ, dims.sizeY, dims.sizeX };
     if (levelDims.dtype == "uint8") {
       auto arr = tensorstore::Array(reinterpret_cast<uint8_t*>(destptr), shapeToLoad);
-      tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(arr)).value();
+      const auto& owner = readDirectToDest ? dataOwner : channelRawOwner;
+      channelReads.push_back(tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(owner, arr)));
     } else if (levelDims.dtype == "int32") {
       auto arr = tensorstore::Array(reinterpret_cast<int32_t*>(destptr), shapeToLoad);
-      tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(arr)).value();
+      const auto& owner = readDirectToDest ? dataOwner : channelRawOwner;
+      channelReads.push_back(tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(owner, arr)));
     } else if (levelDims.dtype == "uint16") {
       auto arr = tensorstore::Array(reinterpret_cast<uint16_t*>(destptr), shapeToLoad);
-      tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(arr)).value();
+      const auto& owner = readDirectToDest ? dataOwner : channelRawOwner;
+      channelReads.push_back(tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(owner, arr)));
     } else if (levelDims.dtype == "float32") {
       auto arr = tensorstore::Array(reinterpret_cast<float*>(destptr), shapeToLoad);
-      tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(arr)).value();
+      const auto& owner = readDirectToDest ? dataOwner : channelRawOwner;
+      channelReads.push_back(tensorstore::Read(m_store | transform, tensorstore::UnownedToShared(owner, arr)));
     } else {
       LOG_ERROR << "Unrecognized format (" << levelDims.dtype
                 << "). Please let us know if you need support for this format. Can not load data.";
-      return emptyimage;
-    }
-
-    // convert to our internal format (IN_MEMORY_BPP)
-    if (!FileReaderUtil::convertChannelData(data + channel * channelsize_bytes, channelRawMem, dims)) {
+      cancelChannelReads();
       return emptyimage;
     }
   }
 
-  auto tEnd = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> elapsed = tEnd - tStart;
-  LOG_DEBUG << "zarr loaded in " << (elapsed.count() * 1000.0) << "ms";
+  // Now collect them. Converting channel N while later reads are still in flight
+  // overlaps the CPU work with the remaining transfers.
+  for (uint32_t channel = 0; channel < nch; ++channel) {
+    if (progress.isCancelled()) {
+      cancelChannelReads();
+      return emptyimage;
+    }
 
-  auto tStartImage = std::chrono::high_resolution_clock::now();
+    while (!channelReads[channel].ready()) {
+      if (progress.isCancelled()) {
+        cancelChannelReads();
+        return emptyimage;
+      }
+      channelReads[channel].WaitFor(absl::Milliseconds(5));
+    }
+
+    const auto& readResult = channelReads[channel].result();
+    if (!readResult.ok()) {
+      LOG_ERROR << "Zarr read failed for channel " << channel << ": " << readResult.status();
+      cancelChannelReads();
+      return emptyimage;
+    }
+
+    if (!readDirectToDest) {
+      if (!FileReaderUtil::convertChannelData(
+            data + channel * channelsize_bytes, channelRawMem + channel * rawChannelSize, dims)) {
+        return emptyimage;
+      }
+    }
+
+    progress.setProgress(channel + 1, nch);
+  }
 
   // TODO: convert data to uint16_t pixels if not already.
-  // we can release the smartPtr because ImageXYZC will now own the raw data memory
+  // ImageXYZC owns the raw data after construction succeeds.
   ImageXYZC* im = new ImageXYZC(dims.sizeX,
                                 dims.sizeY,
                                 dims.sizeZ,
                                 nch,
                                 ImageXYZC::IN_MEMORY_BPP, // dims.bitsPerPixel,
-                                smartPtr.release(),
+                                data,
                                 dims.physicalSizeX,
                                 dims.physicalSizeY,
                                 dims.physicalSizeZ,
                                 dims.spatialUnits);
+  dataReleased->store(true, std::memory_order_relaxed);
+  dataOwner.reset();
 
   std::vector<std::string> channelNames = dims.getChannelNames(loadSpec.channels);
   im->setChannelNames(channelNames);
-
-  tEnd = std::chrono::high_resolution_clock::now();
-  elapsed = tEnd - tStartImage;
-  LOG_DEBUG << "ImageXYZC prepared in " << (elapsed.count() * 1000.0) << "ms";
-
-  elapsed = tEnd - tStart;
-  LOG_DEBUG << "Loaded " << loadSpec.filepath << " in " << (elapsed.count() * 1000.0) << "ms";
 
   std::shared_ptr<ImageXYZC> sharedImage(im);
   return sharedImage;
