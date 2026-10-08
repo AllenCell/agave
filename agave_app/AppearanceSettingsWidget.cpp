@@ -265,6 +265,16 @@ QAppearanceSettingsWidget::QAppearanceSettingsWidget(QWidget* pParent,
   QObject::connect(
     &m_StepSizeSecondaryRaySlider, SIGNAL(valueChanged(double)), this, SLOT(OnSetStepSizeSecondaryRay(double)));
 
+  m_woodcockTrackingCheckBox.setChecked(rs->m_RenderSettings.m_UseWoodcockTracking);
+  Controls::addFormRow(m_MainLayout,
+                       "Woodcock Tracking",
+                       &m_woodcockTrackingCheckBox,
+                       tr("Use Woodcock tracking instead of fixed-step ray marching"),
+                       tr("Use Woodcock tracking instead of fixed-step ray marching"));
+  QObject::connect(&m_woodcockTrackingCheckBox, &QCheckBox::clicked, [this](const bool is_checked) {
+    this->OnWoodcockTrackingChecked(is_checked);
+  });
+
   m_interpolateCheckBox.setChecked(true);
   Controls::addFormRow(m_MainLayout,
                        "Interpolate",
@@ -982,6 +992,7 @@ QAppearanceSettingsWidget::OnRenderBegin()
   m_StepSizePrimaryRaySlider.setValue(m_qrendersettings->renderSettings()->m_RenderSettings.m_StepSizeFactor, true);
   m_StepSizeSecondaryRaySlider.setValue(m_qrendersettings->renderSettings()->m_RenderSettings.m_StepSizeFactorShadow,
                                         true);
+  m_woodcockTrackingCheckBox.setChecked(m_qrendersettings->renderSettings()->m_RenderSettings.m_UseWoodcockTracking);
   m_interpolateCheckBox.setChecked(m_qrendersettings->renderSettings()->m_RenderSettings.m_InterpolatedVolumeSampling);
 }
 
@@ -1095,6 +1106,15 @@ QAppearanceSettingsWidget::OnInterpolateChecked(bool isChecked)
   if (!m_scene)
     return;
   m_qrendersettings->renderSettings()->m_RenderSettings.m_InterpolatedVolumeSampling = isChecked;
+  m_qrendersettings->renderSettings()->m_DirtyFlags.SetFlag(RenderParamsDirty);
+}
+
+void
+QAppearanceSettingsWidget::OnWoodcockTrackingChecked(bool isChecked)
+{
+  if (!m_scene)
+    return;
+  m_qrendersettings->renderSettings()->m_RenderSettings.m_UseWoodcockTracking = isChecked;
   m_qrendersettings->renderSettings()->m_DirtyFlags.SetFlag(RenderParamsDirty);
 }
 
@@ -1280,6 +1300,7 @@ QAppearanceSettingsWidget::onNewImage(Scene* scene)
 
   m_StepSizePrimaryRaySlider.setValue(m_qrendersettings->renderSettings()->m_RenderSettings.m_StepSizeFactor);
   m_StepSizeSecondaryRaySlider.setValue(m_qrendersettings->renderSettings()->m_RenderSettings.m_StepSizeFactorShadow);
+  m_woodcockTrackingCheckBox.setChecked(m_qrendersettings->renderSettings()->m_RenderSettings.m_UseWoodcockTracking);
   m_interpolateCheckBox.setChecked(m_qrendersettings->renderSettings()->m_RenderSettings.m_InterpolatedVolumeSampling);
 
   QColor cbg = QColor::fromRgbF(m_scene->m_material.m_backgroundColor[0],
@@ -1369,7 +1390,7 @@ QAppearanceSettingsWidget::onNewImage(Scene* scene)
     this->OnUpdateLut(i, std::vector<LutControlPoint>());
 
     QNumericSlider* opacitySlider = new QNumericSlider();
-    opacitySlider->setRange(0.0, 1.0);
+    opacitySlider->setRange(0.0, 100.0);
     opacitySlider->setSingleStep(0.01);
     opacitySlider->setValue(scene->m_material.m_opacity[i], true);
     Controls::addFormRow(
