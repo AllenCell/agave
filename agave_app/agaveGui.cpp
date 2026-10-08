@@ -828,7 +828,7 @@ agaveGui::open(const std::string& file, const Serialize::ViewerState* vs, bool i
   // We can update the render and gui progressively as chunks are loaded.
   // Also, this would allow renders to be cancelled during loading.
   QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
-  std::shared_ptr<ImageXYZC> image = reader->loadFromFile(loadSpec);
+  std::shared_ptr<ImageXYZC> image = FileReader::loadAndCache(loadSpec, reader);
   QApplication::restoreOverrideCursor();
   if (!image) {
     LOG_DEBUG << "Failed to open " << file;
