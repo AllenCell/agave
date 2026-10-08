@@ -1,7 +1,7 @@
 #include "Device.h"
 
 #include "Logging.h"
-#include "graphics/gl/Util.h"
+#include "gfxOpenGL/Util.h"
 
 #include "glad/glad.h"
 
