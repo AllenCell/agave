@@ -3,13 +3,23 @@
 #include "ImageXYZC.h"
 #include "Logging.h"
 
+#include "tensorstore/array.h"
+#include "tensorstore/context.h"
+#include "tensorstore/open.h"
+#include "tensorstore/tensorstore.h"
+
+// must include after tensorstore so that tensorstore picks up its own internal json impl
+#include "json/json.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <filesystem>
 #include <functional>
 #include <fstream>
+#include <limits>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 
 namespace {
@@ -27,6 +37,21 @@ inline void
 hashCombine(std::size_t& seed, std::size_t value)
 {
   seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
+
+std::uint64_t
+nowMillis()
+{
+  return static_cast<std::uint64_t>(
+    std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+}
+
+std::string
+toHex(std::size_t value)
+{
+  std::ostringstream stream;
+  stream << std::hex << value;
+  return stream.str();
 }
 
 // Paths beginning with these schemes are treated as remote; we don't try to
@@ -100,6 +125,17 @@ statForKey(const std::string& path)
     }
   }
   return { mtimeNs, size };
+}
+
+std::vector<std::string>
+channelNamesFromImage(const ImageXYZC& image)
+{
+  std::vector<std::string> names;
+  names.reserve(image.sizeC());
+  for (size_t i = 0; i < image.sizeC(); ++i) {
+    names.push_back(image.channel(static_cast<uint32_t>(i))->m_name);
+  }
+  return names;
 }
 
 } // namespace
@@ -256,9 +292,13 @@ CacheManager::getConfig() const
 std::shared_ptr<ImageXYZC>
 CacheManager::findImage(const LoadSpec& loadSpec)
 {
+  CacheConfig configCopy;
+  std::string cacheDirCopy;
   CacheKey key = makeKey(loadSpec);
   {
     std::scoped_lock lock(m_mutex);
+    configCopy = m_config;
+    cacheDirCopy = m_cacheDir;
     if (m_config.enabled && m_config.maxRamBytes > 0) {
       auto it = m_entries.find(key);
       if (it != m_entries.end()) {
@@ -266,8 +306,37 @@ CacheManager::findImage(const LoadSpec& loadSpec)
         m_stats.ramHits++;
         LOG_DEBUG << "Cache stats: ram_hits=" << m_stats.ramHits << " disk_hits=" << m_stats.diskHits
                   << " misses=" << m_stats.misses << " disk_writes=" << m_stats.diskWrites;
+        // NOTE: we deliberately do not refresh the matching DiskEntry's
+        // lastAccess (or its on-disk meta.json) on a RAM hit. The disk LRU
+        // is only consulted when an entry has fallen out of RAM, and
+        // loadFromDisk refreshes the disk lastAccess at that point — so
+        // within a session the disk bookkeeping is fresh whenever it
+        // actually matters.
+        //
+        // TODO: edge case — an entry that stays RAM-resident for an entire
+        // session never has its disk lastAccess bumped, so at the next
+        // session start it can look "older" than entries that were only
+        // served from disk in the previous session, and may be the first
+        // thing evicted from disk on cold start. If that ever shows up as
+        // a real cold-start problem, fix by bumping the in-memory
+        // DiskEntry.lastAccess here (no on-disk write needed) and letting
+        // the existing flush-on-eviction-or-shutdown path persist it.
         return it->second.image;
       }
+    }
+  }
+
+  if (configCopy.enabled && configCopy.enableDisk && configCopy.maxDiskBytes > 0 && !cacheDirCopy.empty()) {
+    auto diskImage = loadFromDisk(key, configCopy, cacheDirCopy);
+    if (diskImage) {
+      {
+        std::scoped_lock lock(m_mutex);
+        m_stats.diskHits++;
+        LOG_DEBUG << "Cache stats: ram_hits=" << m_stats.ramHits << " disk_hits=" << m_stats.diskHits
+                  << " misses=" << m_stats.misses << " disk_writes=" << m_stats.diskWrites;
+      }
+      storeImageInMemory(key, diskImage);
+      return diskImage;
     }
   }
 
@@ -288,7 +357,20 @@ CacheManager::storeImage(const LoadSpec& loadSpec, const std::shared_ptr<ImageXY
     return;
   }
 
+  CacheConfig configCopy;
+  std::string cacheDirCopy;
+  {
+    std::scoped_lock lock(m_mutex);
+    configCopy = m_config;
+    cacheDirCopy = m_cacheDir;
+  }
+
   const auto key = makeKey(loadSpec);
+
+  if (configCopy.enabled && configCopy.enableDisk && configCopy.maxDiskBytes > 0 && !cacheDirCopy.empty()) {
+    storeToDisk(key, image, configCopy, cacheDirCopy);
+  }
+
   storeImageInMemory(key, image);
 }
 
@@ -422,6 +504,30 @@ CacheManager::makeKey(const LoadSpec& loadSpec) const
   return key;
 }
 
+std::string
+CacheManager::keyToString(const CacheKey& key) const
+{
+  std::ostringstream stream;
+  stream << key.filepath << "|" << key.subpath << "|" << key.scene << "|" << key.time << "|";
+  stream << key.minx << "," << key.maxx << "," << key.miny << "," << key.maxy << "," << key.minz << "," << key.maxz
+         << "|" << (key.isImageSequence ? 1 : 0) << "|";
+  stream << "m=" << key.fileMtimeNs << ",s=" << key.fileSize << "|";
+  for (size_t i = 0; i < key.channels.size(); ++i) {
+    if (i > 0) {
+      stream << ",";
+    }
+    stream << key.channels[i];
+  }
+  return stream.str();
+}
+
+std::string
+CacheManager::diskCacheId(const CacheKey& key) const
+{
+  std::size_t hashValue = std::hash<std::string>{}(keyToString(key));
+  return toHex(hashValue);
+}
+
 std::uint64_t
 CacheManager::estimateImageBytes(const ImageXYZC& image) const
 {
@@ -487,4 +593,221 @@ CacheManager::storeImageInMemory(const CacheKey& key, const std::shared_ptr<Imag
   entry.lruIt = m_lruKeys.begin();
   m_entries.emplace(key, entry);
   m_currentRamBytes += bytes;
+}
+
+std::shared_ptr<ImageXYZC>
+CacheManager::loadFromDisk(const CacheKey& key, const CacheConfig& config, const std::string& cacheDir)
+{
+  if (!config.enableDisk || cacheDir.empty()) {
+    return nullptr;
+  }
+
+  std::filesystem::path entryPath = std::filesystem::path(cacheDir) / diskCacheId(key);
+  std::filesystem::path metaPath = entryPath / "meta.json";
+  std::filesystem::path dataPath = entryPath / "data.zarr";
+  if (!std::filesystem::exists(metaPath) || !std::filesystem::exists(dataPath)) {
+    return nullptr;
+  }
+
+  nlohmann::json meta;
+  try {
+    std::ifstream metaFile(metaPath.string());
+    metaFile >> meta;
+  } catch (...) {
+    return nullptr;
+  }
+
+  if (!meta.contains("key") || meta["key"].get<std::string>() != keyToString(key)) {
+    return nullptr;
+  }
+
+  if (!meta.contains("sizeX") || !meta.contains("sizeY") || !meta.contains("sizeZ") || !meta.contains("sizeC")) {
+    return nullptr;
+  }
+
+  std::uint32_t sizeX = meta["sizeX"].get<std::uint32_t>();
+  std::uint32_t sizeY = meta["sizeY"].get<std::uint32_t>();
+  std::uint32_t sizeZ = meta["sizeZ"].get<std::uint32_t>();
+  std::uint32_t sizeC = meta["sizeC"].get<std::uint32_t>();
+  std::uint32_t bpp = meta.value("bpp", static_cast<std::uint32_t>(ImageXYZC::IN_MEMORY_BPP));
+  if (bpp != static_cast<std::uint32_t>(ImageXYZC::IN_MEMORY_BPP)) {
+    LOG_ERROR << "Disk cache load: unsupported bpp " << bpp << " in " << metaPath.string() << " (expected "
+              << ImageXYZC::IN_MEMORY_BPP << "); skipping cache entry";
+    return nullptr;
+  }
+  float sx = meta.value("physicalSizeX", 1.0f);
+  float sy = meta.value("physicalSizeY", 1.0f);
+  float sz = meta.value("physicalSizeZ", 1.0f);
+  std::string spatialUnits = meta.value("spatialUnits", std::string("units"));
+
+  std::uint64_t bytes = static_cast<std::uint64_t>(sizeX) * static_cast<std::uint64_t>(sizeY) *
+                        static_cast<std::uint64_t>(sizeZ) * static_cast<std::uint64_t>(sizeC) *
+                        static_cast<std::uint64_t>(bpp / 8);
+  if (bytes == 0) {
+    return nullptr;
+  }
+
+  std::unique_ptr<uint8_t[]> data(new uint8_t[bytes]);
+
+  auto openFuture =
+    tensorstore::Open({ { "driver", "zarr3" }, { "kvstore", { { "driver", "file" }, { "path", dataPath.string() } } } },
+                      tensorstore::OpenMode::open,
+                      tensorstore::ReadWriteMode::read);
+  const auto& result = openFuture.result();
+  if (!result.ok()) {
+    return nullptr;
+  }
+
+  auto store = result.value();
+  std::vector<tensorstore::Index> shape = { sizeC, sizeZ, sizeY, sizeX };
+  auto arr = tensorstore::Array(reinterpret_cast<uint16_t*>(data.get()), shape);
+  auto readResult = tensorstore::Read(store, tensorstore::UnownedToShared(arr)).result();
+  if (!readResult.ok()) {
+    return nullptr;
+  }
+
+  ImageXYZC* image = new ImageXYZC(sizeX, sizeY, sizeZ, sizeC, bpp, data.release(), sx, sy, sz, spatialUnits);
+  std::shared_ptr<ImageXYZC> sharedImage(image);
+
+  if (meta.contains("channelNames")) {
+    std::vector<std::string> channelNames;
+    for (auto& item : meta["channelNames"]) {
+      channelNames.push_back(item.get<std::string>());
+    }
+    image->setChannelNames(channelNames);
+  }
+
+  meta["lastAccess"] = nowMillis();
+  try {
+    std::ofstream metaOut(metaPath.string(), std::ios::trunc);
+    metaOut << meta.dump(2);
+  } catch (...) {
+    // best effort
+  }
+
+  {
+    std::scoped_lock lock(m_mutex);
+    auto it = m_diskEntries.find(diskCacheId(key));
+    if (it != m_diskEntries.end()) {
+      it->second.lastAccess = meta["lastAccess"].get<std::uint64_t>();
+    }
+  }
+
+  return sharedImage;
+}
+
+void
+CacheManager::storeToDisk(const CacheKey& key,
+                          const std::shared_ptr<ImageXYZC>& image,
+                          const CacheConfig& config,
+                          const std::string& cacheDir)
+{
+  if (!image || !config.enableDisk || cacheDir.empty()) {
+    return;
+  }
+
+  std::uint64_t bytes = estimateImageBytes(*image);
+  if (bytes == 0) {
+    return;
+  }
+  if (bytes > config.maxDiskBytes) {
+    // A single image larger than the entire disk cap; refuse rather than
+    // evict everything and overshoot.
+    LOG_WARNING << "Disk cache: skipping store of " << bytes << " byte image — larger than disk cap "
+                << config.maxDiskBytes;
+    return;
+  }
+
+  writeCacheMarker(cacheDir);
+
+  std::filesystem::path entryPath = std::filesystem::path(cacheDir) / diskCacheId(key);
+  std::filesystem::path dataPath = entryPath / "data.zarr";
+  std::filesystem::path metaPath = entryPath / "meta.json";
+  std::error_code ec;
+  std::filesystem::create_directories(entryPath, ec);
+
+  std::uint32_t sizeX = static_cast<std::uint32_t>(image->sizeX());
+  std::uint32_t sizeY = static_cast<std::uint32_t>(image->sizeY());
+  std::uint32_t sizeZ = static_cast<std::uint32_t>(image->sizeZ());
+  std::uint32_t sizeC = static_cast<std::uint32_t>(image->sizeC());
+  std::uint32_t bpp = static_cast<std::uint32_t>(ImageXYZC::IN_MEMORY_BPP);
+
+  std::vector<tensorstore::Index> shape = { sizeC, sizeZ, sizeY, sizeX };
+  std::vector<tensorstore::Index> chunkShape = { 1,
+                                                 std::min<tensorstore::Index>(16, sizeZ),
+                                                 std::min<tensorstore::Index>(256, sizeY),
+                                                 std::min<tensorstore::Index>(256, sizeX) };
+
+  nlohmann::json schema = { { "dtype", "uint16" },
+                            { "domain", { { "shape", shape } } },
+                            { "chunk_layout",
+                              { { "read_chunk", { { "shape", chunkShape } } },
+                                { "write_chunk", { { "shape", chunkShape } } } } } };
+
+  auto openFuture = tensorstore::Open<std::uint16_t, 4, tensorstore::ReadWriteMode::read_write>(
+    { { "driver", "zarr3" },
+      { "kvstore", { { "driver", "file" }, { "path", dataPath.string() } } },
+      { "schema", schema } },
+    tensorstore::OpenMode::create | tensorstore::OpenMode::open);
+  const auto& result = openFuture.result();
+  if (!result.ok()) {
+    std::error_code rmEc;
+    std::filesystem::remove_all(entryPath, rmEc);
+    LOG_WARNING << "Disk cache store: tensorstore open failed for " << dataPath.string();
+    return;
+  }
+
+  auto store = result.value();
+  auto arr = tensorstore::Array(reinterpret_cast<uint16_t*>(image->ptr()), shape);
+  auto writeResult = tensorstore::Write(tensorstore::UnownedToShared(arr), store).result();
+  if (!writeResult.ok()) {
+    std::error_code rmEc;
+    std::filesystem::remove_all(entryPath, rmEc);
+    LOG_WARNING << "Disk cache store: tensorstore write failed for " << dataPath.string();
+    return;
+  }
+
+  std::uint64_t accessTime = nowMillis();
+  nlohmann::json meta = { { "key", keyToString(key) },
+                          { "sizeX", sizeX },
+                          { "sizeY", sizeY },
+                          { "sizeZ", sizeZ },
+                          { "sizeC", sizeC },
+                          { "bpp", bpp },
+                          { "physicalSizeX", image->physicalSizeX() },
+                          { "physicalSizeY", image->physicalSizeY() },
+                          { "physicalSizeZ", image->physicalSizeZ() },
+                          { "spatialUnits", image->spatialUnits() },
+                          { "channelNames", channelNamesFromImage(*image) },
+                          { "bytes", bytes },
+                          { "lastAccess", accessTime } };
+
+  try {
+    std::ofstream metaOut(metaPath.string(), std::ios::trunc);
+    metaOut << meta.dump(2);
+  } catch (...) {
+    std::error_code rmEc;
+    std::filesystem::remove_all(entryPath, rmEc);
+    LOG_WARNING << "Disk cache store: meta.json write failed for " << metaPath.string();
+    return;
+  }
+
+  {
+    std::scoped_lock lock(m_mutex);
+    m_stats.diskWrites++;
+    DiskEntry entry;
+    entry.path = entryPath.string();
+    entry.bytes = bytes;
+    entry.lastAccess = accessTime;
+    auto it = m_diskEntries.find(diskCacheId(key));
+    if (it != m_diskEntries.end()) {
+      if (m_currentDiskBytes >= it->second.bytes) {
+        m_currentDiskBytes -= it->second.bytes;
+      } else {
+        m_currentDiskBytes = 0;
+      }
+    }
+    m_diskEntries[diskCacheId(key)] = entry;
+    m_currentDiskBytes += bytes;
+  }
 }

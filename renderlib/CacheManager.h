@@ -95,11 +95,19 @@ private:
   static bool canWriteCacheDir(const std::string& path);
 
   CacheKey makeKey(const LoadSpec& loadSpec) const;
+  std::string keyToString(const CacheKey& key) const;
+  std::string diskCacheId(const CacheKey& key) const;
   std::uint64_t estimateImageBytes(const ImageXYZC& image) const;
   void touchEntry(std::list<CacheKey>::iterator it);
   // Precondition: caller must hold m_mutex.
   void evictIfNeededLocked(std::uint64_t incomingBytes);
   void storeImageInMemory(const CacheKey& key, const std::shared_ptr<ImageXYZC>& image);
+
+  std::shared_ptr<ImageXYZC> loadFromDisk(const CacheKey& key, const CacheConfig& config, const std::string& cacheDir);
+  void storeToDisk(const CacheKey& key,
+                   const std::shared_ptr<ImageXYZC>& image,
+                   const CacheConfig& config,
+                   const std::string& cacheDir);
   // Writes a marker file to a directory we manage as our own disk cache root.
   // clearDiskCache refuses to delete anything unless this marker is present,
   // protecting against accidental wipes of user-typed paths (e.g. "C:\").
@@ -108,8 +116,7 @@ private:
 
   mutable std::mutex m_mutex;
   CacheConfig m_config;
-  // Optional cache root recorded at construction. Disk support is added in a
-  // later stack slice; this commit only uses in-memory entries.
+  // The disk cache root, fixed at construction.
   const std::string m_cacheDir;
   std::uint64_t m_currentRamBytes = 0;
   std::list<CacheKey> m_lruKeys;
@@ -132,5 +139,6 @@ private:
 
   std::unordered_map<std::string, DiskEntry> m_diskEntries;
   std::uint64_t m_currentDiskBytes = 0;
+
   CacheStats m_stats;
 };
