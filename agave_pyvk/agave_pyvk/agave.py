@@ -339,6 +339,10 @@ class AgaveRenderer:
     def set_time_stamp_format(self, format: int):
         return self._execute("SET_TIME_STAMP_FORMAT", format)
 
+    def set_multichannel_blend(self, mode: int):
+        """Set Vulkan path-tracer channel blending: 0 for Max, 1 for Weighted."""
+        return self._execute("SET_MULTICHANNEL_BLEND", mode)
+
     def batch_render_turntable(
         self, number_of_frames=90, direction=1, output_name="frame", first_frame=0
     ):
