@@ -4,6 +4,7 @@
 #include "FileReaderCzi.h"
 #include "FileReaderImageSequence.h"
 #include "FileReaderTIFF.h"
+#include "FileReaderTestVolume.h"
 #include "FileReaderZarr.h"
 #include "ImageXYZC.h"
 #include "Logging.h"
@@ -34,6 +35,10 @@ FileReader::~FileReader() {}
 IFileReader*
 FileReader::getReader(const std::string& filepath, bool isImageSequence)
 {
+  if (filepath == FileReaderTestVolume::PATH) {
+    return new FileReaderTestVolume(filepath);
+  }
+
   std::string extstr = getExtension(filepath);
 
   if (isImageSequence && (extstr == ".tif" || extstr == ".tiff")) {
