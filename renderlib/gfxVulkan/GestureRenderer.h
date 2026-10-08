@@ -14,7 +14,7 @@
 #include <optional>
 #include <vector>
 
-class Font;
+class AgaveFont;
 
 namespace gfxApi {
 class Framebuffer;
@@ -63,7 +63,7 @@ public:
 private:
   bool ensureBackend();
   bool ensureCommonResources();
-  bool ensureFontResources(const Font& font);
+  bool ensureFontResources(const AgaveFont& font);
   bool ensureSelectionFramebuffer(int width, int height);
   bool ensureDisplayPipelines(VkFormat colorFormat);
   bool ensureSelectionPipelines();

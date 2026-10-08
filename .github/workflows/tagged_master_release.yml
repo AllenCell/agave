@@ -11,137 +11,168 @@ permissions:
   contents: read
 
 jobs:
-  cmake-build:
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            artifact: agave-linux
-          - os: windows-latest
-            artifact: agave-win
-          - os: macos-15
-            artifact: agave-macos-arm64
-          - os: macos-15-intel
-            artifact: agave-macos-x86_64
-
-    runs-on: ${{ matrix.os }}
-
+  linux-build:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: "recursive"
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: jurplel/install-qt-action@v4
         with:
           version: 6.9.3
           modules: qtwebsockets qtimageformats
-      - name: Install Vulkan SDK
-        uses: humbletim/install-vulkan-sdk@e7d6e7b937bde4503c7ba5c9584c9dc68f44c4b8
+      - uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
         with:
-          version: 1.4.350.0
+          vulkan_version: 1.4.350.1
           cache: true
-      - name: macos install deps
-        if: contains(matrix.os, 'macos')
-        env:
-          CC: clang
-          CXX: clang++
+      - name: Diagnose Vulkan SDK installation
         run: |
-          export MACOSX_DEPLOYMENT_TARGET=10.15
-          brew install spdlog nasm curl
-          if [ -d /usr/local/include/openssl ]; then
-            mv /usr/local/include/openssl /usr/local/include/openssl.bak
-          fi
-      - name: macos build and test
-        if: contains(matrix.os, 'macos')
-        env:
-          CC: clang
-          CXX: clang++
-        run: |
-          export MACOSX_DEPLOYMENT_TARGET=10.15
-          export Qt6_DIR=${{ runner.workspace }}/Qt/6.9.3/macos
-          mkdir ./build
-          cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build . --target agave_test --config Release
-          cmake --build . --config Release
-          cpack -D CPACK_PACKAGE_FILE_NAME=${{ matrix.artifact }}
-        shell: bash
-      - name: Upload mac artifact
-        if: contains(matrix.os, 'macos')
-        uses: actions/upload-artifact@v6
-        with:
-          name: ${{ matrix.artifact }}
-          path: ./build/${{ matrix.artifact }}.dmg
-      - name: linux install deps
-        if: matrix.os == 'ubuntu-latest'
-        env:
-          CC: gcc
-          CXX: g++
-        run: |
-          sudo apt-get install libspdlog-dev libglm-dev libgl1-mesa-dev libegl1-mesa-dev libtiff-dev libzstd-dev libcurl4-openssl-dev nasm
-      - name: linux build and test
-        if: matrix.os == 'ubuntu-latest'
+          echo "VULKAN_SDK=$VULKAN_SDK"
+          find "$VULKAN_SDK/include/vulkan" -maxdepth 1 -name "vulkan.h" -print
+          find "$VULKAN_SDK/lib" -maxdepth 1 \( -name "libvulkan*" -o -name "*shaderc*" \) -print
+          find "$VULKAN_SDK/bin" -maxdepth 1 -name "glslc*" -print
+      - name: Install dependencies
+        run: sudo apt-get install libspdlog-dev libglm-dev libgl1-mesa-dev libegl1-mesa-dev libtiff-dev libzstd-dev libcurl4-openssl-dev nasm
+      - name: Build and test
         env:
           CC: gcc-13
           CXX: g++-13
         run: |
-          pwd
-          mkdir ./build
-          cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build . --target agave_test --config Release
-          cmake --build . --target install --config Release
-        shell: bash
-      - name: linux upload artifact
-        if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v6
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target agave_test --config Release
+          cmake --build build --target install --config Release
+      - uses: actions/upload-artifact@v6
         with:
-          name: ${{ matrix.artifact }}
+          name: agave-linux
           path: ./build/install/Release/agave-install
-      - name: windows install nasm
-        if: matrix.os == 'windows-latest'
+      - run: python -m pip install cibuildwheel==3.3.0
+      - name: Build agave_pyvk wheels
+        run: python -m cibuildwheel agave_pyvk --output-dir wheelhouse
+      - uses: actions/upload-artifact@v6
+        with:
+          name: agave-pyvk-agave-linux
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  macos-build:
+    runs-on: macos-15
+    env:
+      CC: clang
+      CXX: clang++
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: "recursive"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.9.3
+          modules: qtwebsockets qtimageformats
+      - uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
+        with:
+          vulkan_version: 1.4.350.1
+          cache: true
+      - name: Diagnose Vulkan SDK installation
         run: |
-          choco install nasm
-      - name: windows install nsis
-        if: matrix.os == 'windows-latest'
-        run: choco install nsis -y
-      - name: windows install deps
-        if: matrix.os == 'windows-latest'
-        shell: cmd
+          echo "VULKAN_SDK=$VULKAN_SDK"
+          find "$VULKAN_SDK/include/vulkan" -maxdepth 1 -name "vulkan.h" -print
+          find "$VULKAN_SDK/lib" -maxdepth 1 \( -name "libvulkan*" -o -name "*shaderc*" \) -print
+          find "$VULKAN_SDK/bin" -maxdepth 1 -name "glslc*" -print
+      - name: Install dependencies
+        run: |
+          brew install spdlog nasm curl
+          if [ -d /usr/local/include/openssl ]; then
+            mv /usr/local/include/openssl /usr/local/include/openssl.bak
+          fi
+      - name: Build and test
         env:
-          vc_arch: "x64"
-        # use older sdk to work around https://github.com/grpc/grpc/issues/37210
+          Qt6_DIR: ${{ runner.workspace }}/Qt/6.9.3/macos
         run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target agave_test --config Release
+          cmake --build build --config Release
+          cpack --config build/CPackConfig.cmake -B build -D CPACK_PACKAGE_FILE_NAME=agave-macos-arm64
+      - uses: actions/upload-artifact@v6
+        with:
+          name: agave-macos-arm64
+          path: ./build/agave-macos-arm64.dmg
+      - run: python -m pip install cibuildwheel==3.3.0
+      - name: Build agave_pyvk wheels
+        run: python -m cibuildwheel agave_pyvk --output-dir wheelhouse
+      - uses: actions/upload-artifact@v6
+        with:
+          name: agave-pyvk-agave-macos-arm64
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: "recursive"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.9.3
+          modules: qtwebsockets qtimageformats
+      - uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
+        with:
+          vulkan_version: 1.4.350.0
+          cache: true
+      - name: Install dependencies
+        shell: cmd
+        run: |
+          choco install nasm nsis -y
           call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
           vcpkg install --triplet x64-windows tiff glm zlib libjpeg-turbo liblzma spdlog zstd curl
       - name: Remove bad Strawberry Perl patch binary in search path
-        # https://github.com/actions/runner-images/issues/5459#issuecomment-1532856844
-        if: matrix.os == 'windows-latest'
+        run: echo "C:\Program Files\git\usr\bin" >> $env:GITHUB_PATH
+      - name: Diagnose Vulkan SDK installation
+        shell: pwsh
         run: |
-          echo "C:\Program Files\git\usr\bin" >> $env:GITHUB_PATH
-      - name: windows build and test
-        if: matrix.os == 'windows-latest'
-        env:
-          vc_arch: "x64"
-        # use older sdk to work around https://github.com/grpc/grpc/issues/37210
-        run: |
-          mkdir build
-          cd build
-          call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          cmake -G "Ninja" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_BUILD_TYPE=Release ..
-          cmake --build . --parallel --target agave_test --config Release
-          cmake --build . --parallel --config Release
-          cpack -D CPACK_PACKAGE_FILE_NAME=${{ matrix.artifact }}
+          Write-Host "VULKAN_SDK=$env:VULKAN_SDK"
+          Get-Item "$env:VULKAN_SDK\Include\vulkan\vulkan.h" -ErrorAction Continue
+          Get-ChildItem "$env:VULKAN_SDK\Lib" -Filter "vulkan*" -ErrorAction Continue
+          Get-ChildItem "$env:VULKAN_SDK\Bin" -Filter "glslc*" -ErrorAction Continue
+          Get-ChildItem "$env:VULKAN_SDK\Lib" -Filter "*shaderc*" -ErrorAction Continue
+      - name: Build and test
         shell: cmd
-      - name: Upload windows artifact
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v6
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          cmake -S . -B build -G "Ninja" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_BUILD_TYPE=Release
+          if errorlevel 1 exit /b %errorlevel%
+          cmake --build build --parallel --target agave_test --config Release
+          if errorlevel 1 exit /b %errorlevel%
+          cmake --build build --parallel --config Release
+          if errorlevel 1 exit /b %errorlevel%
+          cpack --config build\CPackConfig.cmake -B build -D CPACK_PACKAGE_FILE_NAME=agave-win
+      - uses: actions/upload-artifact@v6
         with:
-          name: ${{ matrix.artifact }}
-          path: ./build/${{ matrix.artifact }}.exe
+          name: agave-win
+          path: ./build/agave-win.exe
+      - run: python -m pip install cibuildwheel==3.3.0
+      - name: Build agave_pyvk wheels with MSVC 18
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          python -m cibuildwheel agave_pyvk --output-dir wheelhouse
+      - uses: actions/upload-artifact@v6
+        with:
+          name: agave-pyvk-agave-win
+          path: wheelhouse/*.whl
+          if-no-files-found: error
 
   publish_webclient:
-    needs: cmake-build
+    needs: [linux-build, macos-build, windows-build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -184,7 +215,7 @@ jobs:
           npm publish --provenance --tag ${{ steps.extract_version.outputs.npm_tag }}
 
   publish_pythonclient:
-    needs: cmake-build
+    needs: [linux-build, macos-build, windows-build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -210,8 +241,26 @@ jobs:
           password: ${{ secrets.PYPI_TOKEN }}
           packages-dir: agave_pyclient/dist/
           verbose: true
+
+  publish_agave_pyvk:
+    needs: [linux-build, macos-build, windows-build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download agave_pyvk wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: agave-pyvk-*
+          path: agave_pyvk_wheelhouse
+          merge-multiple: true
+      - name: Publish agave_pyvk wheels to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: agave_pyvk_wheelhouse/
+          verbose: true
   docs:
-    needs: cmake-build
+    needs: [linux-build, macos-build, windows-build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -257,7 +306,7 @@ jobs:
           folder: docs/_build/html/ # The folder the action should deploy.
           clean: false
   docs_pythonclient:
-    needs: [cmake-build, docs]
+    needs: [linux-build, macos-build, windows-build, docs]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -308,9 +357,12 @@ jobs:
   make-release:
     needs:
       [
-        cmake-build,
+        linux-build,
+        macos-build,
+        windows-build,
         docs,
         docs_pythonclient,
+        publish_agave_pyvk,
         publish_pythonclient,
         publish_webclient,
       ]
@@ -326,11 +378,6 @@ jobs:
         run: |
           echo ${GITHUB_REF/refs\/tags\/v/}
           echo "VERSION=${GITHUB_REF/refs\/tags\/v/}" >> "$GITHUB_OUTPUT"
-      - name: Get mac build artifact x86
-        uses: actions/download-artifact@v4
-        with:
-          name: agave-macos-x86_64
-          path: agave-macos-x86_64
       - name: Get mac build artifact arm64
         uses: actions/download-artifact@v4
         with:
@@ -346,9 +393,14 @@ jobs:
         with:
           name: DocumentationPDF
           path: DocumentationPDF
+      - name: Get agave_pyvk wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: agave-pyvk-*
+          path: agave-pyvk-wheels
+          merge-multiple: true
       - name: Version the artifacts
         run: |
-          mv ${{ github.workspace }}/agave-macos-x86_64/agave-macos-x86_64.dmg ${{ github.workspace }}/agave-macos-x86_64/agave-${{ steps.get_version.outputs.VERSION }}-macos-x86_64.dmg
           mv ${{ github.workspace }}/agave-macos-arm64/agave-macos-arm64.dmg ${{ github.workspace }}/agave-macos-arm64/agave-${{ steps.get_version.outputs.VERSION }}-macos-arm64.dmg
           mv ${{ github.workspace }}/agave-win/agave-win.exe ${{ github.workspace }}/agave-win/agave-${{ steps.get_version.outputs.VERSION }}-win.exe
       - name: Create Release
@@ -361,7 +413,7 @@ jobs:
           prerelease: true
           generate_release_notes: true
           files: |
-            ${{ github.workspace }}/agave-macos-x86_64/agave-${{ steps.get_version.outputs.VERSION }}-macos-x86_64.dmg
             ${{ github.workspace }}/agave-macos-arm64/agave-${{ steps.get_version.outputs.VERSION }}-macos-arm64.dmg
             ${{ github.workspace }}/agave-win/agave-${{ steps.get_version.outputs.VERSION }}-win.exe
             ${{ github.workspace }}/DocumentationPDF/agave.pdf
+            ${{ github.workspace }}/agave-pyvk-wheels/*.whl
