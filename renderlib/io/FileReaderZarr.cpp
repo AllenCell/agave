@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <chrono>
 #include <map>
+#include <numeric>
 #include <set>
 
 static bool
@@ -317,28 +318,15 @@ getAxes(nlohmann::json axes)
 
   // is array!
   // we will recognize only t,c,z,y,x...
-  // according to spec (https://ngff.openmicroscopy.org/latest/#multiscale-md)
+  // according to spec
+  // https://ngff.openmicroscopy.org/specifications/0.5/index.html#multiscales-metadata
   // this must be of length 2-5
   // and contain only 2 or 3 spatial axes
-  // type time must come before type channel, and spatial axes (type=space) must follow
-  // therefore:
-  // // if we assume zyx preference, then:
-  // the last 2 axes must be spatial
-  // if there are 2 axes, the order must be yx
-  // if there are 5 axes, the order must be tczyx
-  // 2 spatial axes:
-  // YX    = 111YX -> [0,1,2]
-  // TYX   = T11YX -> [1,2]
-  // CYX   = 1C1YX -> [0,2]
-  // TCYX  = TC1YX -> [2]
-  // 3 spatial axes:
-  // ZYX   = 11ZYX -> [0,1]
-  // TZYX  = T1ZYX -> [1]
-  // CZYX  = 1CZYX -> [0]
-  // TCZYX = TCZYX -> []
-  // are allowed
-
-  // count spatial axes
+  // the spec (v0.5, v0.6) additionally requires time to come before channel,
+  // and the spatial axes to follow both, so that e.g. TCZYX is the only legal 5-axis order.
+  // AGAVE deliberately does not enforce that ordering: the axis names are returned in the
+  // order they are declared, and callers index each dimension by name, so "invalid" files
+  // such as ZCYX still load correctly.
 
   std::vector<std::string> dims;
   for (auto axis : axes) {
@@ -448,6 +436,44 @@ FileReaderZarr::loadDimensions(const std::string& filepath, uint32_t scene)
   return dims;
 }
 
+struct TCZYXDimIndices
+{
+  // index of each axis within the store's dimensions, or -1 if the axis is absent
+  tensorstore::DimensionIndex t = -1;
+  tensorstore::DimensionIndex c = -1;
+  tensorstore::DimensionIndex z = -1;
+  tensorstore::DimensionIndex y = -1;
+  tensorstore::DimensionIndex x = -1;
+  // the present axes listed in TCZYX order, for transposing the store into our internal layout.
+  // does not include any absent axes (for which the dimension index is -1); only the present ones are listed.
+  std::vector<tensorstore::DimensionIndex> permutation;
+};
+
+// the axes metadata gives the position of each dimension in the store; it is not necessarily TCZYX
+static TCZYXDimIndices
+getTCZYXDimIndices(const std::vector<std::string>& dimensionOrder)
+{
+  auto indexOf = [&dimensionOrder](const std::string& dim) -> tensorstore::DimensionIndex {
+    auto it = std::find(dimensionOrder.begin(), dimensionOrder.end(), dim);
+    return it == dimensionOrder.end()
+             ? -1
+             : static_cast<tensorstore::DimensionIndex>(std::distance(dimensionOrder.begin(), it));
+  };
+
+  TCZYXDimIndices indices;
+  indices.t = indexOf("T");
+  indices.c = indexOf("C");
+  indices.z = indexOf("Z");
+  indices.y = indexOf("Y");
+  indices.x = indexOf("X");
+  for (tensorstore::DimensionIndex d : { indices.t, indices.c, indices.z, indices.y, indices.x }) {
+    if (d > -1) {
+      indices.permutation.push_back(d);
+    }
+  }
+  return indices;
+}
+
 std::shared_ptr<ImageXYZC>
 FileReaderZarr::loadFromFile(const LoadSpec& loadSpec)
 {
@@ -539,6 +565,19 @@ FileReaderZarr::loadFromFile(const LoadSpec& loadSpec)
     LOG_ERROR << "Zarr: sizeX mismatch: " << dims.sizeX << " vs " << maxx - minx;
   }
 
+  const TCZYXDimIndices dimIndices = getTCZYXDimIndices(levelDims.dimensionOrder);
+  if (dimIndices.y < 0 || dimIndices.x < 0) {
+    LOG_ERROR << "Zarr: no X and/or Y dimension found in " << loadSpec.filepath;
+    return emptyimage;
+  }
+  if (static_cast<tensorstore::DimensionIndex>(dimIndices.permutation.size()) != m_store.domain().rank()) {
+    std::string dimorderstr =
+      std::accumulate(levelDims.dimensionOrder.begin(), levelDims.dimensionOrder.end(), std::string());
+    LOG_ERROR << "Zarr dimension count mismatch.  metadata dims are " << dimorderstr << " but array store has rank "
+              << m_store.domain().rank() << ", for " << loadSpec.filepath;
+    return emptyimage;
+  }
+
   // now ready to read channels one by one.
   for (uint32_t channel = 0; channel < nch; ++channel) {
     uint32_t channelToLoad = channel;
@@ -560,25 +599,23 @@ FileReaderZarr::loadFromFile(const LoadSpec& loadSpec)
     // auto* p = reinterpret_cast<uint16_t*>(x.data());
 
     // make sure this works with 2d, 3d, or 4d data
-    int tsdim = 0;
-    if (levelDims.hasDim("T")) {
+    if (dimIndices.t > -1) {
       transform =
-        (std::move(transform) | tensorstore::Dims(tsdim).HalfOpenInterval(loadSpec.time, loadSpec.time + 1)).value();
-      tsdim++;
+        (std::move(transform) | tensorstore::Dims(dimIndices.t).HalfOpenInterval(loadSpec.time, loadSpec.time + 1))
+          .value();
     }
-    if (levelDims.hasDim("C")) {
+    if (dimIndices.c > -1) {
       transform =
-        (std::move(transform) | tensorstore::Dims(tsdim).HalfOpenInterval(channelToLoad, channelToLoad + 1)).value();
-      tsdim++;
+        (std::move(transform) | tensorstore::Dims(dimIndices.c).HalfOpenInterval(channelToLoad, channelToLoad + 1))
+          .value();
     }
-    if (levelDims.hasDim("Z")) {
-      transform = (std::move(transform) | tensorstore::Dims(tsdim).HalfOpenInterval(minz, maxz)).value();
-      tsdim++;
+    if (dimIndices.z > -1) {
+      transform = (std::move(transform) | tensorstore::Dims(dimIndices.z).HalfOpenInterval(minz, maxz)).value();
     }
-    transform = (std::move(transform) | tensorstore::Dims(tsdim).HalfOpenInterval(miny, maxy)).value();
-    tsdim++;
-    transform = (std::move(transform) | tensorstore::Dims(tsdim).HalfOpenInterval(minx, maxx)).value();
-    tsdim++;
+    transform = (std::move(transform) | tensorstore::Dims(dimIndices.y).HalfOpenInterval(miny, maxy)).value();
+    transform = (std::move(transform) | tensorstore::Dims(dimIndices.x).HalfOpenInterval(minx, maxx)).value();
+    // get the dims into tczyx order, for our internal representation:
+    transform = (std::move(transform) | tensorstore::Dims(dimIndices.permutation).Transpose()).value();
 
     static constexpr tensorstore::DimensionIndex kNumDims = 5;
     const tensorstore::Index shapeToLoad[kNumDims] = { 1, 1, dims.sizeZ, dims.sizeY, dims.sizeX };
