@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <chrono>
 #include <map>
+#include <numeric>
 #include <set>
 
 static bool
@@ -570,8 +571,10 @@ FileReaderZarr::loadFromFile(const LoadSpec& loadSpec)
     return emptyimage;
   }
   if (static_cast<tensorstore::DimensionIndex>(dimIndices.permutation.size()) != m_store.domain().rank()) {
-    LOG_ERROR << "Zarr dimension count mismatch.  metadata dims are " << levelDims.dimensionOrder
-              << " but array store has rank " << m_store.domain().rank() << ", for " << loadSpec.filepath;
+    std::string dimorderstr =
+      std::accumulate(levelDims.dimensionOrder.begin(), levelDims.dimensionOrder.end(), std::string());
+    LOG_ERROR << "Zarr dimension count mismatch.  metadata dims are " << dimorderstr << " but array store has rank "
+              << m_store.domain().rank() << ", for " << loadSpec.filepath;
     return emptyimage;
   }
 
