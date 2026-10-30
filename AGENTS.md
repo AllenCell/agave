@@ -119,7 +119,7 @@ clang-tidy -p build --fix renderlib/RenderSettings.cpp
 
 ### C++
 
-- **Standard:** C++17 only — no later-standard features.
+- **Standard:** C++17
 - **Classes, methods, enums:** PascalCase (`GLView3D`, `RenderSettings`, `GetNoIterations()`)
 - **Member variables:** `m_` prefix (`m_Type`, `m_DirtyFlags`, `m_qcamera`)
 - **Header guards:** prefer `#pragma once`

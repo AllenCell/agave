@@ -164,3 +164,24 @@ ViewToolbar::initFromCamera(const CCamera& camera)
 {
   orthoViewButton->setState((camera.m_Projection == ProjectionMode::ORTHOGRAPHIC) ? 1 : 0);
 }
+
+void
+ViewToolbar::setRendererMode(int rendererType)
+{
+  const bool is3d = rendererType < 2;
+  const bool isSingleSlice = rendererType >= 2 && rendererType <= 4;
+
+  // Slice views have a fixed orientation. Triple slice also has a fixed fitted
+  // layout, while a single slice can still be returned to its fitted view.
+  homeButton->setEnabled(is3d || isSingleSlice);
+  frameViewButton->setEnabled(is3d || isSingleSlice);
+  orthoViewButton->setEnabled(is3d);
+  axisViewButton->setEnabled(is3d);
+  axisHelperButton->setEnabled(is3d);
+  topViewButton->setEnabled(is3d);
+  bottomViewButton->setEnabled(is3d);
+  frontViewButton->setEnabled(is3d);
+  backViewButton->setEnabled(is3d);
+  leftViewButton->setEnabled(is3d);
+  rightViewButton->setEnabled(is3d);
+}
