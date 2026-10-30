@@ -98,10 +98,12 @@ stateToPythonScript(const Serialize::ViewerState& s)
   ss << "# pip install agave_pyvk" << std::endl;
   ss << "# python myscript.py" << std::endl << std::endl;
   ss << "import agave_pyvk as agave" << std::endl << std::endl;
-  renderlib::RendererType rendererType = renderlib::RendererType_Pathtrace;
-  if (s.rendererType == Serialize::RendererType_PID::RAYMARCH) {
-    rendererType = renderlib::RendererType_Raymarch;
-  }
+  // Slice rendering is not part of the Python renderer protocol yet. Export
+  // those views using the nearest supported mode rather than unexpectedly
+  // selecting the path tracer.
+  const renderlib::RendererType rendererType = s.rendererType == Serialize::RendererType_PID::PATHTRACE
+                                                 ? renderlib::RendererType_Pathtrace
+                                                 : renderlib::RendererType_Raymarch;
   std::string mode = renderlib::rendererTypeToString(rendererType);
   ss << "r = agave.AgaveRenderer(mode=\"" << mode << "\")" << std::endl;
   ss << "with r:" << std::endl;

@@ -10,6 +10,8 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/GLGuiShader.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/GLPTVolumeShader.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/GLPTVolumeShader.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/GLSliceShader.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/GLSliceShader.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/GLThickLines.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/GLThickLines.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/GLToneMapShader.cpp"

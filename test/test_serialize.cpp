@@ -181,6 +181,48 @@ TEST_CASE("Json Serialization", "[serialize]")
     REQUIRE(settings == settings2);
   }
 
+  SECTION("ViewerState preserves every renderer mode and slice index")
+  {
+    const std::array<Serialize::RendererType_PID, 6> rendererTypes = {
+      Serialize::RendererType_PID::PATHTRACE,
+      Serialize::RendererType_PID::RAYMARCH,
+      Serialize::RendererType_PID::SLICE_Z,
+      Serialize::RendererType_PID::SLICE_Y,
+      Serialize::RendererType_PID::SLICE_X,
+      Serialize::RendererType_PID::TRIPLE,
+    };
+
+    for (const auto rendererType : rendererTypes) {
+      Serialize::ViewerState settings;
+      settings.rendererType = rendererType;
+      settings.sliceIndices = { 11, 22, 33 };
+
+      const nlohmann::json json = settings;
+      const auto settings2 = json.get<Serialize::ViewerState>();
+
+      REQUIRE(settings2 == settings);
+    }
+  }
+
+  SECTION("ViewerState renderer mode values remain stable")
+  {
+    REQUIRE(static_cast<int>(Serialize::RendererType_PID::PATHTRACE) == 0);
+    REQUIRE(static_cast<int>(Serialize::RendererType_PID::RAYMARCH) == 1);
+    REQUIRE(static_cast<int>(Serialize::RendererType_PID::SLICE_Z) == 2);
+    REQUIRE(static_cast<int>(Serialize::RendererType_PID::SLICE_Y) == 3);
+    REQUIRE(static_cast<int>(Serialize::RendererType_PID::SLICE_X) == 4);
+    REQUIRE(static_cast<int>(Serialize::RendererType_PID::TRIPLE) == 5);
+  }
+
+  SECTION("Old ViewerState json defaults slice indices")
+  {
+    const auto json = nlohmann::json::parse(R"({"rendererType": 1})");
+    const auto settings = json.get<Serialize::ViewerState>();
+
+    REQUIRE(settings.rendererType == Serialize::RendererType_PID::RAYMARCH);
+    REQUIRE(settings.sliceIndices == std::array<uint32_t, 3>{ 0, 0, 0 });
+  }
+
   SECTION("Use defaults and error out on bad json")
   {
     // missing fields use the struct defaults

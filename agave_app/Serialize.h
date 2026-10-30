@@ -12,7 +12,11 @@ namespace Serialize {
 enum class RendererType_PID : int
 {
   PATHTRACE = 0,
-  RAYMARCH = 1
+  RAYMARCH = 1,
+  SLICE_Z = 2,
+  SLICE_Y = 3,
+  SLICE_X = 4,
+  TRIPLE = 5
 };
 
 struct LoadSettings
@@ -111,6 +115,9 @@ struct ViewerState
   std::array<uint32_t, 3> version{ 0, 0, 0 };
 
   RendererType_PID rendererType = RendererType_PID::PATHTRACE;
+  // Current X/Y/Z slice indices. These are retained for all render modes so
+  // switching between the 2D views restores the last slice on each axis.
+  std::array<uint32_t, 3> sliceIndices = { 0, 0, 0 };
   PathTraceSettings_V1 pathTracer; // m_primaryStepSize, m_secondaryStepSize
   TimelineSettings_V1 timeline;    // m_minTime, m_maxTime, m_currentTime
 
@@ -144,7 +151,8 @@ struct ViewerState
 
   bool operator==(const ViewerState& other) const
   {
-    return datasets == other.datasets && version == other.version && pathTracer == other.pathTracer &&
+    return datasets == other.datasets && version == other.version && rendererType == other.rendererType &&
+           sliceIndices == other.sliceIndices && pathTracer == other.pathTracer &&
            timeline == other.timeline && clipRegion == other.clipRegion && clipPlane == other.clipPlane &&
            scale == other.scale && flipAxis == other.flipAxis && camera == other.camera &&
            backgroundColor == other.backgroundColor && boundingBoxColor == other.boundingBoxColor &&
@@ -157,6 +165,7 @@ struct ViewerState
                                               datasets,
                                               version,
                                               rendererType,
+                                              sliceIndices,
                                               pathTracer,
                                               timeline,
                                               clipRegion,

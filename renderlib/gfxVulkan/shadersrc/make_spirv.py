@@ -30,6 +30,8 @@ SHADERS = [
     "pathTraceVolume.frag",
     "ptAccum.vert",
     "ptAccum.frag",
+    "slice.vert",
+    "slice.frag",
     "thickLines.vert",
     "thickLines.frag",
     "toneMap.vert",

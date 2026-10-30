@@ -15,6 +15,8 @@ set(SHADERS_CPP
 "pathTraceVolume_vert_gen.hpp"
 "ptAccum_frag_gen.hpp"
 "ptAccum_vert_gen.hpp"
+"slice_frag_gen.hpp"
+"slice_vert_gen.hpp"
 "thickLines_frag_gen.hpp"
 "thickLines_vert_gen.hpp"
 "toneMap_frag_gen.hpp"

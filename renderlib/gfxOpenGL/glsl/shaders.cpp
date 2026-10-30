@@ -16,6 +16,8 @@
 #include "shadersrc/pathTraceVolume_vert_gen.hpp"
 #include "shadersrc/ptAccum_frag_gen.hpp"
 #include "shadersrc/ptAccum_vert_gen.hpp"
+#include "shadersrc/slice_frag_gen.hpp"
+#include "shadersrc/slice_vert_gen.hpp"
 #include "shadersrc/thickLines_frag_gen.hpp"
 #include "shadersrc/thickLines_vert_gen.hpp"
 #include "shadersrc/toneMap_frag_gen.hpp"
@@ -38,6 +40,8 @@ std::map<std::string, std::string> shaderSources = {
   { "pathTraceVolume_vert", pathTraceVolume_vert_src },
   { "ptAccum_frag", ptAccum_frag_src },
   { "ptAccum_vert", ptAccum_vert_src },
+  { "slice_frag", slice_frag_src },
+  { "slice_vert", slice_vert_src },
   { "thickLines_frag", thickLines_frag_src },
   { "thickLines_vert", thickLines_vert_src },
   { "toneMap_frag", toneMap_frag_src },

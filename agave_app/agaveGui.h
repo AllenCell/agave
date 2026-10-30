@@ -21,6 +21,7 @@ class QAppearanceDockWidget;
 class QCameraDockWidget;
 class QStatisticsDockWidget;
 class QTimelineDockWidget;
+class SliceDockWidget;
 class CacheSettingsDockWidget;
 
 class IFileReader;
@@ -79,6 +80,8 @@ private slots:
   void savePython();
   void onRenderAction();
   void OnUpdateRenderer();
+  void onViewModeChanged(int rendererType);
+  void onSliceChanged(SliceViewMode mode, int index);
   void onAboutDialogAction();
   void onSupportForumAction();
   void onDocumentationAction();
@@ -103,6 +106,7 @@ private:
   void createMenus();
   void createToolbars();
   void createDockWindows();
+  void refreshSliceState(bool centerIndices);
 
   void showOpenFailedMessageBox(QString path, QString details = "");
 
@@ -148,9 +152,11 @@ private:
   // THE camera parameter container
   QCamera m_qcamera;
   // Camera UI
-  QCameraDockWidget* m_cameradock;
+  QCameraDockWidget* m_cameradock = nullptr;
   // Timeline UI
-  QTimelineDockWidget* m_timelinedock;
+  QTimelineDockWidget* m_timelinedock = nullptr;
+  // Single-plane slice navigation and playback UI
+  SliceDockWidget* m_slicedock = nullptr;
 
   QRenderSettings m_qrendersettings;
   QAppearanceDockWidget* m_appearanceDockWidget;
@@ -165,7 +171,7 @@ private:
   // QOffscreenSurface created lazily during rendering. RenderDialog borrows
   // this pointer for the duration of its lifetime, which is bounded by agaveGui.
   std::unique_ptr<QtGLContext> m_glContext;
-  ViewToolbar* m_viewToolbar;
+  ViewToolbar* m_viewToolbar = nullptr;
   QWidget* m_viewWithToolbar;
 
   // THE underlying render settings container.

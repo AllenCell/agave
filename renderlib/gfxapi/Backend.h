@@ -54,6 +54,7 @@ enum class RenderWindowKind : uint8_t
 {
   PathTrace,
   RaymarchBlended,
+  Slice,
 };
 
 // Abstract graphics backend. A backend owns the concrete IGraphicsDevice and

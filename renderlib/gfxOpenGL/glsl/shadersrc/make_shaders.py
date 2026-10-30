@@ -46,7 +46,7 @@ def convert_shader_to_c(input_file, output_file, chunk_size=12 * 1024):
             )
             num_chunks += 1
 
-        cpp_file.write(f"const std::string {shadername}_src = \n")
+        cpp_file.write(f"const std::string {shadername}_src =\n")
         for i in range(num_chunks):
             cpp_file.write(f"    {shadername}_chunk_{i}")
             if i < num_chunks - 1:
@@ -71,6 +71,8 @@ if __name__ == "__main__":
         "pathTraceVolume.frag",
         "ptAccum.vert",
         "ptAccum.frag",
+        "slice.vert",
+        "slice.frag",
         "thickLines.vert",
         "thickLines.frag",
         "toneMap.vert",

@@ -62,8 +62,18 @@ struct Gesture
     // Call to update the action state of a pointer button.
     void setButtonEvent(uint32_t buttonIndex, Action action, int mods, glm::vec2 position, double time);
 
+    // Call when the platform reports a distinct double-click event instead of a second press.
+    // The event remains latched until it is explicitly consumed or the current frame ends.
+    void setDoubleClickEvent(uint32_t buttonIndex, int mods, glm::vec2 position, double time);
+    bool consumeDoubleClick(ButtonId id, int mods = 0);
+
     // Call to provide a new screen position of the pointer.
     void setPointerPosition(glm::vec2 position);
+
+    // Accumulate wheel movement until it is handled during the next update. The caller chooses
+    // the unit; camera manipulation expects conventional wheel steps (120 angle units per step).
+    void addWheelDelta(float delta);
+    float consumeWheelDelta();
 
     void reset(int mbIndex)
     {
@@ -80,6 +90,7 @@ struct Gesture
       for (int mbIndex = 0; mbIndex < kButtonsCount; ++mbIndex) {
         reset(mbs[mbIndex]);
       }
+      m_wheelDelta = 0.0f;
     }
 
     // Call this function at the end of a frame before polling new events.
@@ -90,8 +101,12 @@ struct Gesture
       for (int mbIndex = 0; mbIndex < kButtonsCount; ++mbIndex) {
         if (mbs[mbIndex].action == kRelease) {
           reset(mbs[mbIndex]);
+        } else {
+          // Double-click is a one-frame event, while press/drag state may span frames.
+          mbs[mbIndex].doubleClick = false;
         }
       }
+      m_wheelDelta = 0.0f;
     }
 
     struct Button
@@ -114,6 +129,7 @@ struct Gesture
 
     Button mbs[kButtonsCount];
     glm::vec2 cursorPos = glm::vec2(0);
+    float m_wheelDelta = 0.0f;
 
     bool hasButtonAction(ButtonId id, int mods) const
     {

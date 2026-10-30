@@ -27,4 +27,7 @@ main()
   }
 
   gl_Position = guiVertParams.projection * vec4(vPos, 1.0);
+  // This shader is shared by triangle, line, and point-list gesture
+  // pipelines. Vulkan requires a point size to be written for the latter.
+  gl_PointSize = 1.0;
 }
