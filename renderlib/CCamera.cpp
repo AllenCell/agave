@@ -252,17 +252,66 @@ CCamera::ComputeFitToBounds(const CBoundingBox& sceneBBox, glm::vec3& newPositio
   }
 }
 
+namespace {
+
+constexpr float MIN_PLANAR_ZOOM = 0.05f;
+constexpr float MAX_PLANAR_ZOOM = 100.0f;
+constexpr float MIN_ORTHO_SCALE = 0.000001f;
+
+float
+planarFitScale(const CCamera& camera, const glm::vec2& viewportSize)
+{
+  if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f) {
+    return glm::max(camera.m_OrthoScale, MIN_ORTHO_SCALE);
+  }
+
+  const glm::vec3 extent = camera.m_SceneBoundingBox.GetExtent();
+  const float planeWidth = glm::dot(glm::abs(camera.m_U), extent);
+  const float planeHeight = glm::dot(glm::abs(camera.m_V), extent);
+  const float aspect = viewportSize.x / viewportSize.y;
+  return glm::max(0.5f * glm::max(planeHeight, planeWidth / aspect), MIN_ORTHO_SCALE);
+}
+
+float
+boundedPlanarZoomFactor(const CCamera& camera, const glm::vec2& viewportSize, float requestedFactor)
+{
+  const float fitScale = planarFitScale(camera, viewportSize);
+  const float minScale = fitScale / MAX_PLANAR_ZOOM;
+  const float maxScale = fitScale / MIN_PLANAR_ZOOM;
+  const float currentScale = glm::clamp(camera.m_OrthoScale, minScale, maxScale);
+  const float requestedScale = currentScale * requestedFactor;
+  return glm::clamp(requestedScale, minScale, maxScale) / currentScale;
+}
+
+} // namespace
+
 glm::vec3
 cameraTrack(glm::vec2 drag, CCamera& camera, const glm::vec2 viewportSize)
 {
   float width = viewportSize.x;
   glm::vec3 v = camera.m_From - camera.m_Target;
-  float distance = length(v);
 
-  // Project the drag movement in pixels to the image plane set at the distance of the
-  // camera target.
-  float halfHorizontalAperture = camera.getHalfHorizontalAperture();
-  float dragScale = distance * halfHorizontalAperture / (width * 0.5f);
+  float dragScale = 0.0f;
+  if (camera.m_Projection == ORTHOGRAPHIC) {
+    // m_OrthoScale is the vertical half-extent of the projection, so the full
+    // viewport height spans twice that many world units.
+    const float height = viewportSize.y;
+    if (height <= 0.0f) {
+      return glm::vec3(0);
+    }
+    dragScale = camera.m_OrthoScale / (height * 0.5f);
+  } else {
+    if (width <= 0.0f) {
+      return glm::vec3(0);
+    }
+
+    // Project the drag movement in pixels to the image plane set at the distance of the
+    // camera target.
+    const float distance = length(v);
+    const float halfHorizontalAperture = camera.getHalfHorizontalAperture();
+    dragScale = distance * halfHorizontalAperture / (width * 0.5f);
+  }
+
   drag *= dragScale;
   glm::vec3 x = glm::normalize(glm::cross(v, camera.m_Up));
   glm::vec3 y = glm::normalize(glm::cross(x, v));
@@ -308,27 +357,33 @@ bool
 cameraManipulationDolly(const glm::vec2 viewportSize,
                         Gesture::Input::Button& button,
                         CCamera& camera,
-                        CameraModifier& cameraMod)
+                        CameraModifier& cameraMod,
+                        bool allowLinearMotion = true,
+                        bool verticalOnly = false,
+                        float pixelsPerUnit = 700.0f,
+                        float exponentialDirection = -1.0f)
 {
 
   bool cameraEdit = true;
-  static const int DOLLY_PIXELS_PER_UNIT = 700;
-  const float dragScale = 1.0f / DOLLY_PIXELS_PER_UNIT;
+  const float dragScale = 1.0f / pixelsPerUnit;
 
   glm::vec2 drag = button.drag;
-  float dragDist = drag.x + drag.y; // reduce_add(drag);
+  float dragDist = verticalOnly ? drag.y : drag.x + drag.y;
   glm::vec3 v = camera.m_From - camera.m_Target;
   glm::vec3 motion, targetMotion;
 
-  if (drag.x == 0 && drag.y == 0) {
+  if (dragDist == 0.0f) {
     cameraEdit = false;
   }
 
   float factor = 1.0f;
-  if ((button.modifier & Gesture::Input::kShift) == 0) {
+  if (!allowLinearMotion || (button.modifier & Gesture::Input::kShift) == 0) {
     // Exponential motion, the closer to the target, the slower the motion,
     // the further away the faster.
-    factor = expf(-dragDist * dragScale);
+    factor = expf(exponentialDirection * dragDist * dragScale);
+    if (!allowLinearMotion && camera.m_Projection == ORTHOGRAPHIC) {
+      factor = boundedPlanarZoomFactor(camera, viewportSize, factor);
+    }
     glm::vec3 v_scaled = v * factor;
     motion = v_scaled - v;
     targetMotion = glm::vec3(0);
@@ -358,9 +413,57 @@ cameraManipulationDolly(const glm::vec2 viewportSize,
 }
 
 bool
-cameraManipulation(const glm::vec2 viewportSize, Gesture& gesture, CCamera& camera, CameraModifier& cameraMod)
+cameraManipulationWheel(const glm::vec2 viewportSize, Gesture::Input& input, CCamera& camera)
+{
+  const float wheelDelta = input.consumeWheelDelta();
+  if (wheelDelta == 0.0f) {
+    return false;
+  }
+
+  // Positive wheel movement zooms in. Scale both camera distance and the
+  // orthographic projection so this has equivalent behavior in either projection.
+  static constexpr float WHEEL_ZOOM_EXPONENT_PER_STEP = 0.15f;
+  float factor = expf(-wheelDelta * WHEEL_ZOOM_EXPONENT_PER_STEP);
+  if (camera.m_Projection == ORTHOGRAPHIC) {
+    factor = boundedPlanarZoomFactor(camera, viewportSize, factor);
+  }
+  const glm::vec3 reverseLineOfSight = camera.m_From - camera.m_Target;
+  camera.m_From = camera.m_Target + reverseLineOfSight * factor;
+  camera.m_OrthoScale *= factor;
+  camera.Update();
+  return true;
+}
+
+bool
+cameraManipulation(const glm::vec2 viewportSize,
+                   Gesture& gesture,
+                   CCamera& camera,
+                   CameraModifier& cameraMod,
+                   CameraManipulationMode mode)
 {
   bool cameraEdit = false;
+
+  if (mode == CameraManipulationMode::Planar2D) {
+    const bool wheelEdit = cameraManipulationWheel(viewportSize, gesture.input, camera);
+
+    // Planar views use direct manipulation: left-drag pans and right-drag zooms.
+    // Rotation gestures are intentionally disabled.
+    if (gesture.input.hasButtonAction(Gesture::Input::kButtonLeft, 0)) {
+      cameraEdit =
+        cameraManipulationTrack(viewportSize, gesture.input.mbs[Gesture::Input::kButtonLeft], camera, cameraMod);
+    } else if (gesture.input.hasButtonAction(Gesture::Input::kButtonRight, 0)) {
+      cameraEdit = cameraManipulationDolly(viewportSize,
+                                           gesture.input.mbs[Gesture::Input::kButtonRight],
+                                           camera,
+                                           cameraMod,
+                                           false,
+                                           true,
+                                           100.0f,
+                                           1.0f);
+    }
+
+    return cameraEdit || wheelEdit;
+  }
 
   // Camera Track
   // middle-drag or alt-left-drag (option-left-drag on Mac)

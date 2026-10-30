@@ -15,6 +15,7 @@ public:
   ViewToolbar(QWidget* parent = nullptr);
   ~ViewToolbar() override;
   void initFromCamera(const CCamera& camera);
+  void setRendererMode(int rendererType);
 
   QPushButton* axisViewButton;
 

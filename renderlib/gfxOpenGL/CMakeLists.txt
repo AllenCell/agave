@@ -34,6 +34,8 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/RenderGL.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RenderGLPT.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RenderGLPT.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/RenderGLSlice.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/RenderGLSlice.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Util.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Util.h"
 )

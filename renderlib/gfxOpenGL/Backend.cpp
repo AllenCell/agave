@@ -6,6 +6,7 @@
 #include "Logging.h"
 #include "RenderGL.h"
 #include "RenderGLPT.h"
+#include "RenderGLSlice.h"
 #include "RendererGLContext.h"
 
 // EGL is only available on Linux in this project.
@@ -56,6 +57,8 @@ std::unique_ptr<gfxApi::IRenderWindow>
 Backend::createRenderWindow(gfxApi::RenderWindowKind kind, RenderSettings* renderSettings)
 {
   switch (kind) {
+    case gfxApi::RenderWindowKind::Slice:
+      return std::make_unique<RenderGLSlice>(renderSettings);
     case gfxApi::RenderWindowKind::RaymarchBlended:
       return std::make_unique<RenderGL>(renderSettings);
     case gfxApi::RenderWindowKind::PathTrace:

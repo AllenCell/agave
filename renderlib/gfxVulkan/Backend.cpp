@@ -6,6 +6,7 @@
 #include "NativeSurface.h"
 #include "RenderVk.h"
 #include "RenderVkPT.h"
+#include "RenderVkSlice.h"
 #include "RendererVkContext.h"
 
 #include <algorithm>
@@ -473,6 +474,8 @@ Backend::createRenderWindow(gfxApi::RenderWindowKind kind, RenderSettings* rende
     return nullptr;
   }
   switch (kind) {
+    case gfxApi::RenderWindowKind::Slice:
+      return std::make_unique<RenderVkSlice>(*this, renderSettings);
     case gfxApi::RenderWindowKind::RaymarchBlended:
       return std::make_unique<RenderVk>(*this, renderSettings);
     case gfxApi::RenderWindowKind::PathTrace:
