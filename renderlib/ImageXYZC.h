@@ -69,9 +69,9 @@ class ImageXYZC
 {
 public:
   // how many channels to enable on first load by default
-  static const int FIRST_N_CHANNELS = 1;
+  static constexpr int FIRST_N_CHANNELS = 1;
 
-  static const size_t IN_MEMORY_BPP = 16;
+  static constexpr size_t IN_MEMORY_BPP = 16;
   ImageXYZC(uint32_t x,
             uint32_t y,
             uint32_t z,

@@ -1,6 +1,7 @@
 #include "agaveGui.h"
 
 #include "mainwindow.h"
+#include "renderlib/CacheManager.h"
 #include "renderlib/Logging.h"
 #include "renderlib/io/FileReader.h"
 #include "renderlib/renderlib.h"
@@ -10,6 +11,7 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDir>
+#include <QStandardPaths>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -134,6 +136,22 @@ getUrlToOpen(const QUrl& agaveUrl)
   return "";
 }
 
+// Platform-appropriate cache directory for AGAVE's volume cache. Cache files
+// are not user data, so the location is fixed (not user-configurable) and
+// resolved once at startup, the same way the assets path is.
+std::string
+getCacheDirectory()
+{
+  QString baseDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+  if (baseDir.isEmpty()) {
+    baseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+  }
+  if (baseDir.isEmpty()) {
+    baseDir = QDir::currentPath();
+  }
+  return QDir(baseDir).filePath("agave-cache").toStdString();
+}
+
 class AgaveApplication : public QApplication
 {
 public:
@@ -253,6 +271,12 @@ main(int argc, char* argv[])
       renderlib::cleanup();
       return 0;
     }
+
+    // Register the cache directory once for the lifetime of the process, after
+    // renderlib has successfully initialized. Resolving the platform path needs
+    // the Qt application name (set above). Applies to both server and GUI mode;
+    // caching stays inert until a CacheConfig enables it.
+    CacheManager::initialize(getCacheDirectory());
 
     if (isServer) {
       QString configPath = parser.value(serverConfigOption);
