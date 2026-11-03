@@ -23,7 +23,7 @@ packages = ["agave_pyvk"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-agave_pyvk = ["*.pyd", "*.dll", "*.so", "*.so.*", "*.dylib", "assets/**/*"]
+agave_pyvk = ["*.pyd", "*.dll", "*.so", "*.so.*", "*.dylib", "share/vulkan/icd.d/*.json", "assets/**/*"]
 
 [tool.cibuildwheel]
 build = "cp3{11,12,13,14}-*"
@@ -32,7 +32,7 @@ archs = ["auto64"]
 
 [tool.cibuildwheel.linux]
 manylinux-x86_64-image = "manylinux_2_34"
-environment = {VULKAN_SDK = "/opt/1.4.350.1/x86_64", LD_LIBRARY_PATH = "/opt/curl/lib", PKG_CONFIG_PATH = "/opt/curl/lib/pkgconfig"}
+environment = {VULKAN_SDK = "/opt/1.4.363.0/x86_64", LD_LIBRARY_PATH = "/opt/curl/lib", PKG_CONFIG_PATH = "/opt/curl/lib/pkgconfig"}
 before-all = [
     "dnf update -y",
     "dnf install -y epel-release",
@@ -44,8 +44,8 @@ before-all = [
     "cmake --build /tmp/zstd-build --parallel",
     "cmake --install /tmp/zstd-build",
 
-    "curl --fail --location https://sdk.lunarg.com/sdk/download/1.4.350.1/linux/vulkan_sdk.tar.xz --output /tmp/vulkan_sdk.tar.xz",
-    "echo '6cce33c7e5383814150c5041820769d93c65a1fd883002e5949b067045a07daa  /tmp/vulkan_sdk.tar.xz' | sha256sum --check",
+    "curl --fail --location https://sdk.lunarg.com/sdk/download/1.4.363.0/linux/vulkan_sdk.tar.xz --output /tmp/vulkan_sdk.tar.xz",
+    "echo '197962f5cbf80baf2775a03336a01cee7c8745686c65aaa70d3f751ade4d7e43  /tmp/vulkan_sdk.tar.xz' | sha256sum --check",
     "mkdir -p /opt && tar -xf /tmp/vulkan_sdk.tar.xz -C /opt",
 
     "curl --fail --location https://curl.se/download/curl-8.10.1.tar.gz --output /tmp/curl-8.10.1.tar.gz",

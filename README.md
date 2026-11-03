@@ -22,8 +22,16 @@ The commands below build the desktop application, unit tests, and the
 Python native module (use Python 3.10 or later).
 CMake options are provided for AGAVE_BUILD_APP and AGAVE_BUILD_TESTS, and both default to "ON".
 
-Building requires the Vulkan SDK. CMake uses the SDK named by `VULKAN_SDK`,
+Building requires Vulkan SDK **1.4.363.0** or later. CMake uses the SDK named by `VULKAN_SDK`,
 or searches the platform's usual Vulkan SDK installation directory.
+On macOS, AGAVE supports Apple Silicon and uses KosmicKrisp through the Vulkan
+loader. KosmicKrisp rendering requires macOS 26 or later; on older macOS versions,
+launch the desktop app with `--graphics_backend opengl`. Install the SDK with
+KosmicKrisp included and set `VULKAN_SDK=~/VulkanSDK/1.4.363.0/macOS` before configuring a fresh build.
+The app and `agave_pyvk` wheels bundle the loader, KosmicKrisp, and its ICD
+manifest; no system Vulkan installation is needed to run them. Development
+builds use the selected SDK's manifest. An explicit `VK_DRIVER_FILES` (or legacy
+`VK_ICD_FILENAMES`) overrides this selection for driver testing.
 
 You may also refer to the github actions workflows for reference building AGAVE.
 
