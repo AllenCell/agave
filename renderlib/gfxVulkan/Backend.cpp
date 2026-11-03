@@ -9,6 +9,10 @@
 #include "RenderVkSlice.h"
 #include "RendererVkContext.h"
 
+#if defined(__APPLE__)
+#include "MacOSVulkanDriver.h"
+#endif
+
 #include <algorithm>
 #include <cstring>
 #include <set>
@@ -437,6 +441,12 @@ logWindowedSelectionHint()
 Backend::Backend(const gfxApi::InitParams& params)
   : m_params(params)
 {
+#if defined(__APPLE__)
+  if (!ConfigureMacOSVulkanDriver()) {
+    LOG_ERROR << "Cannot locate the KosmicKrisp ICD manifest; reinstall AGAVE or set VK_DRIVER_FILES";
+    return;
+  }
+#endif
   m_valid = createInstance() && setupDebugMessenger();
 }
 
