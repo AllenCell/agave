@@ -1,0 +1,23 @@
+name: Auto-label UX issues
+
+on:
+  issues:
+    types: [opened, assigned, edited]
+
+jobs:
+  add-ux-label:
+    runs-on: ubuntu-latest
+    if: >
+      github.event.issue.assignees &&
+      (
+        contains(toJson(github.event.issue.assignees), 'traviskroeker') ||
+        contains(toJson(github.event.issue.assignees), 'thao-do') ||
+        contains(toJson(github.event.issue.assignees), 'lynwilhelm')
+      )
+
+    steps:
+      - name: Add UX label
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          labels: ux
