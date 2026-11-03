@@ -141,6 +141,9 @@ elseif(APPLE)
     DESTINATION agave.app/Contents/Frameworks/
   )
 
+  agave_install_macos_vulkan(agave.app/Contents/Frameworks
+                            agave.app/Contents/Resources/vulkan/icd.d)
+
   # calls cmake install command and also adds to the QT_PLUGINS list for use below
   install_qt6_plugin("Qt6::QCocoaIntegrationPlugin" QT_PLUGINS agave.app)
   install_qt6_plugin("Qt6::QTiffPlugin" QT_PLUGINS agave.app)
@@ -198,7 +201,7 @@ elseif(APPLE)
     include(InstallRequiredSystemLibraries)
     include(BundleUtilities)
     set(BU_CHMOD_BUNDLE_ITEMS TRUE)
-    fixup_bundle(\"\${CMAKE_INSTALL_PREFIX}/agave.app\" \"${QT_PLUGINS}\" \"${DIRS}\" )")
+    fixup_bundle(\"\${CMAKE_INSTALL_PREFIX}/agave.app\" \"${QT_PLUGINS};\${CMAKE_INSTALL_PREFIX}/agave.app/Contents/Frameworks/libvulkan_kosmickrisp.dylib\" \"${DIRS}\" )")
 
   set(CPACK_GENERATOR "DragNDrop")
   set(CPACK_PRE_BUILD_SCRIPTS "${CMAKE_SOURCE_DIR}/CMake/MacOSPreBuild.cmake")

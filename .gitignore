@@ -12,6 +12,7 @@ agave_pyvk/agave_pyvk/*.dll
 agave_pyvk/agave_pyvk/*.dylib
 agave_pyvk/agave_pyvk/*.so.*
 agave_pyvk/agave_pyvk/assets/
+agave_pyvk/agave_pyvk/share/vulkan/icd.d/
 renderlib/version.h
 docs/_build/
 GeneratedFiles/

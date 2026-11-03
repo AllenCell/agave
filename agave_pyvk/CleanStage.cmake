@@ -10,4 +10,5 @@ file(GLOB _agave_pyvk_vulkan_loaders
   "${AGAVE_PYVK_PACKAGE_DIR}/libvulkan*.dylib"
 )
 file(REMOVE ${_agave_pyvk_native_modules} ${_agave_pyvk_vulkan_loaders})
+file(REMOVE_RECURSE "${AGAVE_PYVK_PACKAGE_DIR}/share/vulkan/icd.d")
 file(REMOVE_RECURSE "${AGAVE_PYVK_PROJECT_DIR}/build")

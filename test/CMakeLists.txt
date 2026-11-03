@@ -43,6 +43,10 @@ target_link_libraries(agave_test PRIVATE
   Catch2WithMain
 )
 
+if(APPLE)
+  target_sources(agave_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/test_macosVulkanDriver.cpp")
+endif()
+
 add_custom_command(TARGET agave_test POST_BUILD
   COMMAND agave_test
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/test

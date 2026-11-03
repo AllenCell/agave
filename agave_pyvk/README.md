@@ -36,8 +36,11 @@ channel-major `uint16` storage. `uint8` values are widened without rescaling;
 each `float32` channel is independently min-max normalized to the full 16-bit
 range. A new call replaces the current volume and represents one time point.
 
-A Vulkan 1.3-capable driver and the Vulkan SDK are required to build. The
+A Vulkan 1.3-capable driver and Vulkan SDK 1.4.363.0 or later are required to build. The
 remaining native dependencies are the same ones used by renderlib.
+On macOS, Apple Silicon is required. The wheel bundles the Vulkan loader,
+KosmicKrisp driver, and its ICD manifest. Rendering with the bundled KosmicKrisp
+driver requires macOS 26 or later. AGAVE selects this bundled driver unless `VK_DRIVER_FILES` or `VK_ICD_FILENAMES` is explicitly set.
 
 ## Editable development install
 

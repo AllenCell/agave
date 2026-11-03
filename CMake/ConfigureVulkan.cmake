@@ -3,7 +3,6 @@
 # available to the renderlib and Python subdirectories.
 
 set(AGAVE_HAS_VULKAN OFF)
-set(AGAVE_VULKAN_RUNTIME_LIBRARY "")
 set(AGAVE_VULKAN_SDK_ROOT "$ENV{VULKAN_SDK}" CACHE PATH "Path to the Vulkan SDK platform directory")
 if(NOT AGAVE_VULKAN_SDK_ROOT)
   # No VULKAN_SDK env var and no cached value: look for a locally-installed
@@ -19,7 +18,7 @@ if(NOT AGAVE_VULKAN_SDK_ROOT)
     set(_agave_vulkan_platform_subdir "x86_64")
   endif()
   file(GLOB _agave_vulkan_candidates LIST_DIRECTORIES true "${_agave_vulkan_search_glob}")
-  list(SORT _agave_vulkan_candidates)
+  list(SORT _agave_vulkan_candidates COMPARE NATURAL)
   list(REVERSE _agave_vulkan_candidates)
   foreach(_agave_vulkan_candidate IN LISTS _agave_vulkan_candidates)
     if(_agave_vulkan_platform_subdir)
@@ -86,7 +85,7 @@ message(STATUS "  Vulkan loader files in SDK: ${_agave_vulkan_loader_candidates}
 message(STATUS "  glslc files in SDK: ${_agave_vulkan_glslc_candidates}")
 message(STATUS "  shaderc files in SDK: ${_agave_vulkan_shaderc_candidates}")
 
-find_package(Vulkan COMPONENTS glslc shaderc_combined)
+find_package(Vulkan 1.4.363 COMPONENTS glslc shaderc_combined)
 
 if(TARGET Vulkan::shaderc_combined)
   set(_agave_vulkan_shaderc_target_found TRUE)
@@ -108,22 +107,9 @@ message(STATUS "  Vulkan::shaderc_combined target exists: ${_agave_vulkan_shader
 
 if(Vulkan_FOUND AND TARGET Vulkan::shaderc_combined)
   set(AGAVE_HAS_VULKAN ON)
-  set(AGAVE_VULKAN_RUNTIME_LIBRARY "${Vulkan_LIBRARY}")
   if(APPLE)
-    find_library(AGAVE_VULKAN_KOSMICKRISP_LIBRARY
-      NAMES vulkan_kosmickrisp
-      PATHS
-        "${AGAVE_VULKAN_SDK_ROOT}/lib"
-        "$ENV{VULKAN_SDK}/lib"
-        "${Vulkan_LIBRARY_DIR}"
-      NO_DEFAULT_PATH
-    )
-    if(AGAVE_VULKAN_KOSMICKRISP_LIBRARY)
-      set(AGAVE_VULKAN_RUNTIME_LIBRARY "${AGAVE_VULKAN_KOSMICKRISP_LIBRARY}")
-      message(STATUS "Using macOS Vulkan runtime: ${AGAVE_VULKAN_RUNTIME_LIBRARY}")
-    else()
-      message(WARNING "libvulkan_kosmickrisp.dylib was not found; falling back to ${Vulkan_LIBRARY}")
-    endif()
+    include("${CMAKE_CURRENT_LIST_DIR}/MacOSVulkan.cmake")
+    agave_configure_macos_vulkan()
   endif()
   message(STATUS "Vulkan backend enabled: SDK ${Vulkan_VERSION}")
 else()
