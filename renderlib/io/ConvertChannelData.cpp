@@ -4,6 +4,10 @@
 #include "Logging.h"
 #include "VolumeDimensions.h"
 
+#include <cfloat>
+#include <cmath>
+#include <cstring>
+
 namespace FileReaderUtil {
 // convert pixels
 // this assumes tight packing of pixels in both buf(source) and dataptr(dest)
@@ -37,6 +41,10 @@ convertChannelData(uint8_t* dest, const uint8_t* src, const VolumeDimensions& di
     float f;
     for (size_t b = 0; b < numPixels; ++b) {
       f = src32[b];
+      if (!std::isfinite(f)) {
+        LOG_ERROR << "Float volume data contains a non-finite value";
+        return 0;
+      }
       if (f < lowest) {
         lowest = f;
       }
@@ -44,16 +52,19 @@ convertChannelData(uint8_t* dest, const uint8_t* src, const VolumeDimensions& di
         highest = f;
       }
     }
+    if (highest == lowest) {
+      memset(dest, 0, numPixels * (ImageXYZC::IN_MEMORY_BPP / 8));
+      return 1;
+    }
     for (size_t b = 0; b < numPixels; ++b) {
       *dataptr16 = (uint16_t)((src32[b] - lowest) / (highest - lowest) * 65535.0);
       dataptr16++;
     }
     return 1;
   } else {
-    LOG_ERROR << "Unexpected tiff pixel size " << srcBitsPerPixel << " bits";
+    LOG_ERROR << "Unexpected source pixel size " << srcBitsPerPixel << " bits";
     return 0;
   }
-  return 0;
 }
 
 } // namespace FileReaderUtil
