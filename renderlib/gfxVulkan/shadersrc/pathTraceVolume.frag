@@ -74,6 +74,8 @@ layout(set = 0, binding = 0, std140) uniform PathTraceVolumeParams
   vec3 gPosToUVW;
   int g_nChannels;
   int gShadingType;
+  int gUseWoodcockTracking;
+  float gExtinctionMajorant;
   vec3 gGradientDeltaX;
   vec3 gGradientDeltaY;
   vec3 gGradientDeltaZ;
@@ -119,6 +121,8 @@ pathTraceVolumeParams;
 #define gPosToUVW pathTraceVolumeParams.gPosToUVW
 #define g_nChannels pathTraceVolumeParams.g_nChannels
 #define gShadingType pathTraceVolumeParams.gShadingType
+#define gUseWoodcockTracking pathTraceVolumeParams.gUseWoodcockTracking
+#define gExtinctionMajorant pathTraceVolumeParams.gExtinctionMajorant
 #define gGradientDeltaX pathTraceVolumeParams.gGradientDeltaX
 #define gGradientDeltaY pathTraceVolumeParams.gGradientDeltaY
 #define gGradientDeltaZ pathTraceVolumeParams.gGradientDeltaZ
@@ -206,13 +210,24 @@ evalTf4ch(in vec4 intensity)
 }
 
 // from iq https://www.shadertoy.com/view/4tXyWN
+uint hash21( inout uvec2 p )
+{
+    p *= uvec2(73333,7777);
+    p ^= (uvec2(3333777777)>>(p>>28));
+    uint n = p.x*p.y;
+    return n^(n>>15);
+}
+
 float
 rand(inout uvec2 seed)
 {
-  seed += uvec2(1);
-  uvec2 q = 1103515245U * ((seed >> 1U) ^ (seed.yx));
-  uint n = 1103515245U * ((q.x) ^ (q.y >> 3U));
-  return float(n) * (1.0 / float(0xffffffffU));
+    // we only need the top 24 bits to be good really
+    uint h = hash21( seed );
+
+    // straight to float, see https://iquilezles.org/articles/sfrand/
+    // return uintBitsToFloat((h>>9)|0x3f800000u)-1.0;
+    
+    return float(h)*(1.0/float(0xffffffffU));
 }
 
 vec3
@@ -966,9 +981,9 @@ PowerHeuristic(float nf, float fPdf, float ng, float gPdf)
   return (f * f) / (f * f + g * g);
 }
 
-// "shadow ray" using gStepSizeShadow, test whether it can exit the volume or not
+// Test whether a shadow ray has a medium interaction before it exits the volume.
 bool
-FreePathRM(inout Ray R, inout uvec2 seed)
+FreePath(inout Ray R, inout uvec2 seed)
 {
   float MinT;
   float MaxT;
@@ -980,14 +995,43 @@ FreePathRM(inout Ray R, inout uvec2 seed)
   MinT = max(MinT, R.m_MinT);
   MaxT = min(MaxT, R.m_MaxT);
 
-  float S = -log(rand(seed)) / gDensityScale;
+  if (gDensityScale <= 0.0f || MinT > MaxT)
+    return false;
+
+  if (gUseWoodcockTracking != 0) {
+    float majorant = gExtinctionMajorant;
+    if (majorant <= 0.0f)
+      return false;
+
+    // Sample candidate collisions from the homogeneous majorant. Rejected
+    // candidates are null collisions.
+    while (true) {
+      float U = clamp(rand(seed), 1.0e-7f, 1.0f - 1.0e-7f);
+      MinT += -log(U) / majorant;
+
+      if (MinT > MaxT)
+        return false;
+
+      Ps = rayAt(R, MinT);
+      int ch = 0;
+      float intensity = GetNormalizedIntensityMax4ch(Ps, ch);
+      float sigmaT = gDensityScale * max(GetOpacity(intensity, ch), 0.0f);
+      float acceptance = clamp(sigmaT / majorant, 0.0f, 1.0f);
+      if (rand(seed) < acceptance)
+        return true;
+    }
+  }
+
+  // Basic fixed-step raymarching.
+  float U = clamp(rand(seed), 1.0e-7f, 1.0f - 1.0e-7f);
+  float opticalDepth = -log(U);
   float Sum = 0.0f;
   float SigmaT = 0.0f;
 
   MinT += rand(seed) * gStepSizeShadow;
   int ch = 0;
   float intensity = 0.0;
-  while (Sum < S) {
+  while (Sum < opticalDepth) {
     Ps = rayAt(R, MinT); // R.m_O + MinT * R.m_D;
 
     if (MinT > MaxT)
@@ -1059,7 +1103,7 @@ EstimateDirectLight(int shaderType,
 
   ShaderPdf = Shader_Pdf(Shader, Wo, Wi);
 
-  if (!IsBlack(Li) && (ShaderPdf > 0.0f) && (LightPdf > 0.0f) && !FreePathRM(Rl, seed)) {
+  if (!IsBlack(Li) && (ShaderPdf > 0.0f) && (LightPdf > 0.0f) && !FreePath(Rl, seed)) {
     float WeightMIS = PowerHeuristic(1.0f, LightPdf, 1.0f, ShaderPdf);
 
     if (shaderType == ShaderType_Brdf) {
@@ -1082,7 +1126,7 @@ EstimateDirectLight(int shaderType,
 
       if ((LightPdf > 0.0f) && !IsBlack(Li)) {
         Ray rr = Ray(Pl, normalize(Pe - Pl), 0.0f, length(Pe - Pl));
-        if (!FreePathRM(rr, seed)) {
+        if (!FreePath(rr, seed)) {
           float WeightMIS = PowerHeuristic(1.0f, ShaderPdf, 1.0f, LightPdf);
 
           if (shaderType == ShaderType_Brdf) {
@@ -1120,7 +1164,7 @@ UniformSampleOneLight(int shaderType, float Density, int ch, in vec3 Wo, in vec3
 }
 
 bool
-SampleDistanceRM(inout Ray R, inout uvec2 seed, out vec3 Ps, out float intensity, out int ch)
+SampleDistance(inout Ray R, inout uvec2 seed, out vec3 Ps, out float intensity, out int ch)
 {
   float MinT;
   float MaxT;
@@ -1131,6 +1175,32 @@ SampleDistanceRM(inout Ray R, inout uvec2 seed, out vec3 Ps, out float intensity
   MinT = max(MinT, R.m_MinT);
   MaxT = min(MaxT, R.m_MaxT);
 
+  if (gDensityScale <= 0.0f || MinT > MaxT)
+    return false;
+
+  if (gUseWoodcockTracking != 0) {
+    float majorant = gExtinctionMajorant;
+    if (majorant <= 0.0f)
+      return false;
+
+    // Delta (Woodcock) tracking. Each rejected candidate is a null collision.
+    while (true) {
+      float U = clamp(rand(seed), 1.0e-7f, 1.0f - 1.0e-7f);
+      MinT += -log(U) / majorant;
+
+      if (MinT > MaxT)
+        return false;
+
+      Ps = rayAt(R, MinT);
+      intensity = GetNormalizedIntensityMax4ch(Ps, ch);
+      float sigmaT = gDensityScale * max(GetOpacity(intensity, ch), 0.0f);
+      float acceptance = clamp(sigmaT / majorant, 0.0f, 1.0f);
+      if (rand(seed) < acceptance)
+        return true;
+    }
+  }
+
+  // Basic fixed-step raymarching.
   // ray march along the ray's projected path and keep an average sigmaT value.
   // The distance is weighted by the intensity at each ray step sample. High intensity increases the apparent distance.
   // When the distance has become greater than the average sigmaT value given by -log(RandomFloat[0, 1]) / averageSigmaT
@@ -1139,21 +1209,20 @@ SampleDistanceRM(inout Ray R, inout uvec2 seed, out vec3 Ps, out float intensity
   // sigmaT = sigmaA + sigmaS = absorption coeff + scattering coeff = extinction coeff
 
   // Beer-Lambert law: transmittance T(t) = exp(-sigmaT*t)
-  // importance sampling the exponential function to produce a free path distance S
-  // the PDF is p(t) = sigmaT * exp(-sigmaT * t)
-  // S is the free-path distance = -ln(1-zeta)/sigmaT where zeta is a random variable
-  float S = -log(rand(seed)) / gDensityScale; // note that ln(x:0..1) is negative
+  // Sample a unit-rate exponential optical depth, then ray march until the
+  // integrated extinction reaches it. gDensityScale is already part of SigmaT
+  // below and must not also be applied to this threshold.
+  float U = clamp(rand(seed), 1.0e-7f, 1.0f - 1.0e-7f);
+  float opticalDepth = -log(U);
 
-  // density scale 0... S --> 0..inf.  Low density means randomly sized ray paths
-  // density scale inf... S --> 0.   High density means short ray paths!
   float Sum = 0.0f;
   float SigmaT = 0.0f; // accumulated extinction along ray march
 
   MinT += rand(seed) * gStepSize;
   // int ch = 0;
   // float intensity = 0.0;
-  //  ray march until we have traveled S (or hit the maxT of the ray)
-  while (Sum < S) {
+  // Ray march until the sampled optical depth is reached (or the ray exits).
+  while (Sum < opticalDepth) {
     Ps = rayAt(R, MinT); // R.m_O + MinT * R.m_D;
 
     if (MinT > MaxT)
@@ -1263,7 +1332,7 @@ CalculateRadiance(inout uvec2 seed)
   int ch;
   float D;
   // find point Pe along ray Re, and get its normalized intensity D and channel ch
-  if (SampleDistanceRM(Re, seed, Pe, D, ch)) {
+  if (SampleDistance(Re, seed, Pe, D, ch)) {
     alpha = 1.0;
     // return vec4(1.0, 1.0, 1.0, 1.0);
 
