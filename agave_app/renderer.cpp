@@ -7,6 +7,7 @@
 #include "renderlib/RenderSettings.h"
 #include "renderlib/ScaleBarTool.h"
 #include "renderlib/SceneView.h"
+#include "renderlib/gfxapi/Backend.h"
 #include "renderlib/gfxapi/IRenderWindow.h"
 #include "renderlib/io/FileReader.h"
 
@@ -17,7 +18,6 @@
 #include <QElapsedTimer>
 #include <QMessageBox>
 #include <QMutexLocker>
-#include <QOpenGLFramebufferObjectFormat>
 
 Renderer::Renderer(const QString& id, QObject* parent, QMutex& mutex)
   : QThread(parent)
@@ -337,7 +337,7 @@ Renderer::render()
   m_fbo->release();
 
   // main scene rendering
-  m_myVolumeData.m_renderer->renderTo(sceneView.camera, m_fbo);
+  m_myVolumeData.m_renderer->renderTo(sceneView.camera, m_fbo.get());
 
   m_fbo->bind();
   m_myVolumeData.m_gestureRenderer.draw(sceneView, nullptr, m_myVolumeData.m_gesture.graphics);
@@ -367,8 +367,10 @@ Renderer::resizeGL(int width, int height)
     m_myVolumeData.m_renderer->resize(width, height);
   }
 
-  delete this->m_fbo;
-  this->m_fbo = new GLFramebufferObject(width, height, GL_RGBA8);
+  this->m_fbo = renderlib::graphicsBackend()->createFramebuffer({ static_cast<uint32_t>(width),
+                                                                  static_cast<uint32_t>(height),
+                                                                  gfxApi::FramebufferColorFormat::Rgba8,
+                                                                  true });
 
   glViewport(0, 0, width, height);
 
@@ -405,7 +407,7 @@ Renderer::shutDown()
 {
   m_rglContext.makeCurrent();
 
-  delete this->m_fbo;
+  this->m_fbo.reset();
 
   delete m_myVolumeData.m_captureSettings;
   m_myVolumeData.m_captureSettings = nullptr;

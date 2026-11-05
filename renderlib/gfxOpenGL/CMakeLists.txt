@@ -16,6 +16,8 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/FontGL.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/FSQ.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/FSQ.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/GLFramebufferObject.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/GLFramebufferObject.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/GestureGraphicsGL.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/GestureGraphicsGL.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/GestureRenderer.cpp"
