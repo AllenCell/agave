@@ -20,6 +20,7 @@ public:
   ~Backend() override = default;
 
   gfxApi::IGraphicsDevice& device() override { return m_device; }
+  std::unique_ptr<gfxApi::IGestureRenderer> createGestureRenderer() override;
   gfxApi::BackendKind kind() const override { return gfxApi::BackendKind::OpenGL; }
 
 private:
