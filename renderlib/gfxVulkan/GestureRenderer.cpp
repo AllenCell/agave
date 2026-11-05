@@ -313,7 +313,7 @@ GestureRenderer::ensureCommonResources()
 }
 
 bool
-GestureRenderer::ensureFontResources(const Font& font)
+GestureRenderer::ensureFontResources(const AgaveFont& font)
 {
   // Nothing to do until the font atlas has been baked, or if we've already
   // uploaded it. Font atlas contents are baked once at load time and never

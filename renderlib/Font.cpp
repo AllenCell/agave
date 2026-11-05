@@ -7,15 +7,15 @@
 
 static const int s_textureSize = 512;
 
-Font::Font() {}
+AgaveFont::AgaveFont() {}
 
-Font::~Font()
+AgaveFont::~AgaveFont()
 {
   unload();
 }
 
 void
-Font::load(const char* filename)
+AgaveFont::load(const char* filename)
 {
   FILE* file = fopen(filename, "rb");
   if (!file) {
@@ -52,7 +52,7 @@ Font::load(const char* filename)
 }
 
 void
-Font::unload()
+AgaveFont::unload()
 {
   m_textureData.clear();
   m_w = 0;
@@ -60,7 +60,7 @@ Font::unload()
 }
 
 bool
-Font::getBakedQuad(char char_index, float* x, float* y, stbtt_aligned_quad* q)
+AgaveFont::getBakedQuad(char char_index, float* x, float* y, stbtt_aligned_quad* q)
 {
   if (char_index >= m_firstChar && char_index < (m_firstChar + m_numChars)) {
     stbtt_GetBakedQuad(
@@ -81,7 +81,7 @@ Font::getBakedQuad(char char_index, float* x, float* y, stbtt_aligned_quad* q)
 }
 
 float
-Font::getStringWidth(std::string stext)
+AgaveFont::getStringWidth(std::string stext)
 {
   const char* text = stext.c_str();
   float xpos = 0;
@@ -100,7 +100,7 @@ Font::getStringWidth(std::string stext)
 }
 
 float
-Font::getStringHeight(std::string stext)
+AgaveFont::getStringHeight(std::string stext)
 {
   const char* text = stext.c_str();
   float xpos = 0;
