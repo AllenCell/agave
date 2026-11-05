@@ -504,3 +504,71 @@ TEST_CASE("Commands can write and read from binary", "[command]")
     REQUIRE(cmd->m_data.m_format == data.m_format);
   }
 }
+
+TEST_CASE("ExecutionContext reuses the reader for the same file", "[commands]")
+{
+  // Stepping through time used to build a fresh reader per time step, throwing
+  // away everything the reader memoizes -- zarr's multiscale dims, czi's
+  // subblock directory and metadata XML. getReader only dispatches on the path,
+  // so this exercises the caching without touching a real file.
+  ExecutionContext ctx;
+
+  LoadSpec spec;
+  spec.filepath = "some_volume.tif";
+
+  auto first = ctx.readerFor(spec);
+  REQUIRE(first != nullptr);
+
+  SECTION("The same file returns the very same reader instance")
+  {
+    LoadSpec later = spec;
+    later.time = 7; // a different time step is still the same file
+    auto second = ctx.readerFor(later);
+    CHECK(second.get() == first.get());
+  }
+
+  SECTION("A different file gets a different reader")
+  {
+    LoadSpec other;
+    other.filepath = "another_volume.tif";
+    auto second = ctx.readerFor(other);
+    REQUIRE(second != nullptr);
+    CHECK(second.get() != first.get());
+
+    // And switching back builds a fresh one rather than resurrecting the old.
+    auto third = ctx.readerFor(spec);
+    REQUIRE(third != nullptr);
+    CHECK(third.get() != second.get());
+  }
+
+  SECTION("Toggling image-sequence mode gets a different reader")
+  {
+    // Same path but a different reader type, so the cached one must not be used.
+    //
+    // Note the explicit "./": FileReaderImageSequence scans its parent directory
+    // in its constructor and throws if that directory does not exist, and a bare
+    // filename has an empty parent path. Unlike the other readers, constructing
+    // this one touches the filesystem.
+    LoadSpec asSequence;
+    asSequence.filepath = "./some_volume.tif";
+    auto plain = ctx.readerFor(asSequence);
+    REQUIRE(plain != nullptr);
+
+    asSequence.isImageSequence = true;
+    auto second = ctx.readerFor(asSequence);
+    REQUIRE(second != nullptr);
+    CHECK(second.get() != plain.get());
+  }
+
+  SECTION("setReader seeds the cache, as the load commands do")
+  {
+    ExecutionContext seeded;
+    LoadSpec other;
+    other.filepath = "seeded.tif";
+    auto reader = std::shared_ptr<IFileReader>(FileReader::getReader(other.filepath));
+    REQUIRE(reader != nullptr);
+
+    seeded.setReader(other, reader);
+    CHECK(seeded.readerFor(other).get() == reader.get());
+  }
+}

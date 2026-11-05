@@ -279,7 +279,11 @@ Swapchain::acquireNextImage(uint32_t& imageIndex)
     return false;
   }
 
-  vkWaitForFences(device, 1, &acquireFence, VK_TRUE, UINT64_MAX);
+  VkResult waitResult = vkWaitForFences(device, 1, &acquireFence, VK_TRUE, UINT64_MAX);
+  if (waitResult != VK_SUCCESS) {
+    LOG_ERROR << "vkWaitForFences for swapchain acquire failed with VkResult " << waitResult;
+    return false;
+  }
   if (result == VK_SUBOPTIMAL_KHR) {
     m_needsRecreate = true;
   }

@@ -18,7 +18,6 @@ class CStatus;
 class QCamera;
 class QPaintEngine;
 class QRenderSettings;
-class QTimer;
 class RenderSettings;
 class Scene;
 class SceneObject;
@@ -82,6 +81,7 @@ public slots:
   void OnSelectionChanged(SceneObject* so);
 
 protected:
+  bool event(QEvent* event) override;
   void resizeEvent(QResizeEvent* event) override;
   void mousePressEvent(QMouseEvent* event) override;
   void mouseReleaseEvent(QMouseEvent* event) override;
@@ -91,14 +91,19 @@ protected:
 
 private:
   void renderFrame();
+  // Ask the native QWindow to schedule the next UpdateRequest. On desktop
+  // platforms this is throttled to the compositor's refresh cadence rather than
+  // firing as fast as the event loop can drain -- which is what a 0ms QTimer
+  // used to do, and what left no room in the event queue for the pause click.
+  void scheduleNextFrame();
 
   QCamera* m_qcamera = nullptr;
   QRenderSettings* m_qrendersettings = nullptr;
-  QTimer* m_timer = nullptr;
   std::unique_ptr<ViewerWindow> m_viewerWindow;
   std::unique_ptr<QtVulkanSurface> m_surface;
   std::unique_ptr<gfxvulkan::Swapchain> m_swapchain;
   MANIPULATOR_MODE m_manipulatorMode = MANIPULATOR_MODE::NONE;
+  bool m_renderPaused = false;
 };
 
 #endif // AGAVE_HAS_VULKAN
