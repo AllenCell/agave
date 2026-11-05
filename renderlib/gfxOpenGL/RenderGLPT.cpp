@@ -351,7 +351,15 @@ RenderGLPT::doRender(const CCamera& camera)
 
   glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
   glDepthMask(GL_FALSE);
-  glEnable(GL_BLEND);
+  // Blending was previously enabled here, but m_fb was just cleared to
+  // (0,0,0,0), so SRC_ALPHA blending against zero was effectively pre-
+  // multiplying the tone-map output by its own alpha. drawImage() then
+  // blends m_fb onto the destination framebuffer with SRC_ALPHA again,
+  // which squared the coverage a second time and darkened partial-
+  // coverage pixels far more than intended. Write the tone-mapped color
+  // straight into m_fb so drawImage() performs a single, correct
+  // SRC_ALPHA composite against the underlay (matching the Vulkan path).
+  glDisable(GL_BLEND);
 
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, m_fbF32Accum->colorTextureId());

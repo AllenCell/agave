@@ -47,6 +47,7 @@ target_sources(agaveapp PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/Focus.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/GLView3D.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/GLView3D.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/IAppView3D.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/loadDialog.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/loadDialog.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/mainwindow.cpp"
@@ -88,6 +89,14 @@ target_sources(agaveapp PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/ViewToolbar.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/ViewToolbar.h"
 )
+if(AGAVE_HAS_VULKAN)
+	target_sources(agaveapp PRIVATE
+		"${CMAKE_CURRENT_SOURCE_DIR}/QtVulkanSurface.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/QtVulkanSurface.h"
+		"${CMAKE_CURRENT_SOURCE_DIR}/VulkanView3D.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/VulkanView3D.h"
+	)
+endif()
 option(AGAVE_ENABLE_PYRENDERER "Build the legacy unused Python offscreen renderer." OFF)
 if(AGAVE_ENABLE_PYRENDERER)
 	add_subdirectory(python)
