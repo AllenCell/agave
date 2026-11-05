@@ -6,7 +6,7 @@
 #include "renderlib/RenderSettings.h"
 #include "renderlib/ViewerWindow.h"
 #include "renderlib/command.h"
-#include "renderlib/graphics/IRenderWindow.h"
+#include "renderlib/gfxapi/IRenderWindow.h"
 
 #include <QApplication>
 #include <QButtonGroup>

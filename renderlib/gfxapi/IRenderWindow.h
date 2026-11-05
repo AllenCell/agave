@@ -10,6 +10,8 @@ class Scene;
 
 #include <memory>
 
+namespace gfxApi {
+
 class IRenderWindow
 {
 public:
@@ -34,3 +36,5 @@ public:
   virtual Scene* scene() = 0;
   virtual void setScene(Scene* s) = 0;
 };
+
+} // namespace gfxApi

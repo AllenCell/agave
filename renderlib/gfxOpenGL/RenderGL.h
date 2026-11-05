@@ -1,18 +1,19 @@
 #pragma once
 #include "AppScene.h"
-#include "IRenderWindow.h"
 #include "Status.h"
 #include "Timing.h"
+#include "gfxapi/IRenderWindow.h"
 
 #include <chrono>
 #include <memory>
+#include <string>
 
 class BoundingBoxDrawable;
 class Image3D;
 class ImageXYZC;
 class RenderSettings;
 
-class RenderGL : public IRenderWindow
+class RenderGL : public gfxApi::IRenderWindow
 {
 public:
   static const std::string TYPE_NAME;
