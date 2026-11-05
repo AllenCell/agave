@@ -55,6 +55,8 @@ target_sources(agaveapp PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/ObjectTransformMode.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Projection.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Projection.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/QtGLContext.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/QtGLContext.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/QRenderSettings.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/QRenderSettings.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RangeWidget.cpp"
