@@ -4,6 +4,7 @@
 #include "IGestureRenderer.h"
 #include "IRenderWindow.h"
 #include "Framebuffer.h"
+#include "WindowSurface.h"
 
 #include <cstdint>
 #include <memory>
@@ -15,6 +16,9 @@ class RenderSettings;
 namespace gfxApi {
 
 class IGLContext;
+
+// InitParams::selectedGpu value meaning "pick the best compatible device".
+constexpr int kAutoSelectGpu = -1;
 
 // Parameters supplied to a backend at construction time.
 struct InitParams
@@ -30,8 +34,12 @@ struct InitParams
   std::string assetPath;
   // Run without an on-screen surface (offscreen / EGL rendering).
   bool headless = false;
-  // Index of the GPU to use when more than one is available.
-  int selectedGpu = 0;
+  // Zero-based index of the GPU to use, in the backend's own enumeration order
+  // (the order reported by --list_devices). kAutoSelectGpu means the backend
+  // picks the best device that is compatible with the requested mode; an
+  // explicit index disables that fallback, so an incompatible device is an
+  // error rather than a silent switch to another one.
+  int selectedGpu = kAutoSelectGpu;
   // Install a GL debug logger (verbose; for development).
   bool enableDebug = false;
   // Non-headless OpenGL context supplied by the application/windowing layer.
@@ -82,6 +90,21 @@ public:
 
   // The kind of backend this is.
   virtual BackendKind kind() const = 0;
+
+  // Two-part initialization when windowed.
+  // We would like to initialize the renderlib graphics backend as early
+  // as possible.  But some backends require the native window surface to
+  // be available before they can select a suitable device that can
+  // actually present to that surface. Call this once, after the
+  // window exists and before creating any renderers.
+  //
+  // A null surface is only valid for a headless backend; in windowed mode it
+  // is an error. 
+  virtual bool initDeviceForWindow(IWindowSurface* surface = nullptr)
+  {
+    (void)surface;
+    return true;
+  }
 };
 
 } // namespace gfxApi

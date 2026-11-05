@@ -3,6 +3,7 @@
 #include "Framebuffer.h"
 #include "GestureRenderer.h"
 #include "Logging.h"
+#include "NativeSurface.h"
 #include "RenderVk.h"
 #include "RenderVkPT.h"
 #include "RendererVkContext.h"
@@ -10,6 +11,7 @@
 #include <algorithm>
 #include <cstring>
 #include <set>
+#include <sstream>
 #include <utility>
 
 namespace gfxvulkan {
@@ -26,7 +28,7 @@ containsName(const std::vector<std::string>& names, const char* name)
 }
 
 bool
-containsExtension(const std::vector<const char*>& names, const char* name)
+containsName(const std::vector<const char*>& names, const char* name)
 {
   return std::any_of(
     names.begin(), names.end(), [name](const char* current) { return std::strcmp(current, name) == 0; });
@@ -40,7 +42,7 @@ appendIfAvailable(std::vector<const char*>& enabledExtensions,
   if (!containsName(availableExtensions, extensionName)) {
     return;
   }
-  if (containsExtension(enabledExtensions, extensionName)) {
+  if (containsName(enabledExtensions, extensionName)) {
     return;
   }
   enabledExtensions.push_back(extensionName);
@@ -144,16 +146,297 @@ scorePhysicalDevice(VkPhysicalDevice physicalDevice)
   return score;
 }
 
+std::string
+physicalDeviceName(VkPhysicalDevice physicalDevice)
+{
+  VkPhysicalDeviceProperties properties = {};
+  vkGetPhysicalDeviceProperties(physicalDevice, &properties);
+  return properties.deviceName;
+}
+
+std::string
+apiVersionToString(uint32_t version)
+{
+  std::ostringstream ss;
+  ss << VK_API_VERSION_MAJOR(version) << "." << VK_API_VERSION_MINOR(version) << "." << VK_API_VERSION_PATCH(version);
+  return ss.str();
+}
+
+/**
+ * Parses the raw driverVersion bitfield from VkPhysicalDeviceProperties
+ * into a vendor-specific formatted version string.
+ *
+ * @param vendorID The unique PCI/Khronos vendor identifier (properties.vendorID)
+ * @param driverVersion The raw encoded integer (properties.driverVersion)
+ * @return A human-readable version string matching the vendor platform's layout
+ */
+std::string
+driverVersionToString(uint32_t driverVersion, uint32_t vendorID)
+{
+    std::stringstream ss;
+
+    // 1. NVIDIA (Vendor ID: 0x10DE)
+    if (vendorID == 0x10DE) {
+        uint32_t major    = (driverVersion >> 22) & 0x3FF;
+        uint32_t minor    = (driverVersion >> 14) & 0x0FF;
+        uint32_t subMinor = (driverVersion >> 6)  & 0x0FF;
+        uint32_t patch    = (driverVersion)       & 0x03F;
+        
+        ss << major << "." << minor << "." << subMinor << "." << patch;
+    }
+    // 2. INTEL (Vendor ID: 0x8086)
+    else if (vendorID == 0x8086) {
+        // Intel encodes differently depending on Windows vs Linux (Mesa)
+        // If the standard major mask results in 0, it indicates Windows WHQL encoding layout
+        if (VK_VERSION_MAJOR(driverVersion) == 0) {
+            uint32_t baselineBuild = (driverVersion >> 18) & 0x3FFF;
+            uint32_t finalBuild    = (driverVersion)       & 0x3FFFF;
+            ss << "101." << baselineBuild << "." << finalBuild; // e.g., 101.5445
+        } else {
+            // Standard Khronos format used by Intel open-source ANV / Mesa drivers
+            ss << VK_VERSION_MAJOR(driverVersion) << "."
+               << VK_VERSION_MINOR(driverVersion) << "."
+               << VK_VERSION_PATCH(driverVersion);
+        }
+    }
+    // 3. AMD (Vendor ID: 0x1002)
+    else if (vendorID == 0x1002) {
+        // AMD uses a modified layout: Major (10 bits), Minor (0/Unassigned), Patch (22 bits)
+        uint32_t major = (driverVersion >> 22) & 0x3FF;
+        uint32_t patch = (driverVersion)       & 0x3FFFFF; // 22 bits
+        
+        // Note: For Mesa RADV on Linux, it defaults back to standard Khronos format
+        if (VK_VERSION_MINOR(driverVersion) != 0) {
+            ss << VK_VERSION_MAJOR(driverVersion) << "."
+               << VK_VERSION_MINOR(driverVersion) << "."
+               << VK_VERSION_PATCH(driverVersion);
+        } else {
+            ss << major << "." << patch; // e.g., 2.0.94
+        }
+    }
+    // 4. APPLE / MOLTENVK (Vendor ID: 0x106B)
+    else if (vendorID == 0x106B) {
+        // MoltenVK maps directly to standard Khronos layout formatting
+        ss << VK_VERSION_MAJOR(driverVersion) << "."
+           << VK_VERSION_MINOR(driverVersion) << "."
+           << VK_VERSION_PATCH(driverVersion);
+    }
+    // 5. FALLBACK (Unknown or standard conformance driver layers)
+    else {
+        // Fall back to standard Khronos Core API Version layout macros
+        ss << VK_VERSION_MAJOR(driverVersion) << "."
+           << VK_VERSION_MINOR(driverVersion) << "."
+           << VK_VERSION_PATCH(driverVersion);
+    }
+    return ss.str();
+}
+
+// VkPhysicalDeviceDriverProperties carries the driver's own name and version
+// string -- what the vendor actually publishes -- instead of the packed
+// driverVersion integer whose layout the spec leaves undefined. Core since
+// Vulkan 1.2, and reachable on 1.1 devices via VK_KHR_driver_properties.
+bool
+queryDriverProperties(VkPhysicalDevice physicalDevice,
+                      const VkPhysicalDeviceProperties& properties,
+                      VkPhysicalDeviceDriverProperties& driverProperties)
+{
+  // vkGetPhysicalDeviceProperties2 is only core from Vulkan 1.1.
+  if (properties.apiVersion < VK_API_VERSION_1_1) {
+    return false;
+  }
+  if (properties.apiVersion < VK_API_VERSION_1_2 &&
+      !containsName(availableDeviceExtensions(physicalDevice), VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME)) {
+    return false;
+  }
+
+  driverProperties = {};
+  driverProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
+
+  VkPhysicalDeviceProperties2 properties2 = {};
+  properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+  properties2.pNext = &driverProperties;
+  vkGetPhysicalDeviceProperties2(physicalDevice, &properties2);
+  return true;
+}
+
+// Prefer the driver-reported version string; fall back to decoding the packed
+// driverVersion when the device cannot report driver properties.
+std::string
+driverDescription(VkPhysicalDevice physicalDevice, const VkPhysicalDeviceProperties& properties)
+{
+  VkPhysicalDeviceDriverProperties driverProperties = {};
+  if (queryDriverProperties(physicalDevice, properties, driverProperties)) {
+    const std::string driverInfo = driverProperties.driverInfo;
+    const std::string driverName = driverProperties.driverName;
+    if (!driverInfo.empty()) {
+      return driverName.empty() ? driverInfo : driverInfo + " (" + driverName + ")";
+    }
+    if (!driverName.empty()) {
+      return driverVersionToString(properties.driverVersion, properties.vendorID) + " (" + driverName + ")";
+    }
+  }
+
+  return driverVersionToString(properties.driverVersion, properties.vendorID);
+}
+
+const char*
+deviceTypeToString(VkPhysicalDeviceType deviceType)
+{
+  switch (deviceType) {
+    case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+      return "integrated GPU";
+    case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+      return "discrete GPU";
+    case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+      return "virtual GPU";
+    case VK_PHYSICAL_DEVICE_TYPE_CPU:
+      return "CPU";
+    case VK_PHYSICAL_DEVICE_TYPE_OTHER:
+    default:
+      return "other";
+  }
+}
+
+// What a physical device can do, evaluated once per device and then reused for
+// both the startup log and the selection decision.
+struct DeviceCapabilities
+{
+  // First queue family with VK_QUEUE_GRAPHICS_BIT.
+  uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
+  // First queue family with both VK_QUEUE_GRAPHICS_BIT and presentation
+  // support for the surface that was queried. UINT32_MAX when no surface was
+  // supplied (headless) or when no single family can do both.
+  uint32_t graphicsPresentQueueFamilyIndex = UINT32_MAX;
+  bool hasSwapchainExtension = false;
+};
+
+// Presentation support is a property of a (device, queue family, surface)
+// triple, so this must be given the surface the window will actually present
+// to. Pass VK_NULL_HANDLE to skip the presentation queries entirely.
+DeviceCapabilities
+inspectPhysicalDevice(VkPhysicalDevice physicalDevice, VkSurfaceKHR presentationSurface)
+{
+  DeviceCapabilities capabilities;
+  capabilities.hasSwapchainExtension =
+    containsName(availableDeviceExtensions(physicalDevice), VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+
+  uint32_t queueFamilyCount = 0;
+  vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, nullptr);
+  std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+  vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies.data());
+
+  for (uint32_t i = 0; i < queueFamilyCount; ++i) {
+    if ((queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0) {
+      continue;
+    }
+    if (capabilities.graphicsQueueFamilyIndex == UINT32_MAX) {
+      capabilities.graphicsQueueFamilyIndex = i;
+    }
+
+    if (presentationSurface == VK_NULL_HANDLE || capabilities.graphicsPresentQueueFamilyIndex != UINT32_MAX) {
+      continue;
+    }
+
+    VkBool32 supported = VK_FALSE;
+    VkResult result = vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, presentationSurface, &supported);
+    if (result != VK_SUCCESS) {
+      LOG_WARNING << "vkGetPhysicalDeviceSurfaceSupportKHR failed for " << physicalDeviceName(physicalDevice)
+                  << " queue family " << i << " with VkResult " << result;
+      continue;
+    }
+    if (supported == VK_TRUE) {
+      capabilities.graphicsPresentQueueFamilyIndex = i;
+    }
+  }
+
+  return capabilities;
+}
+
+// Requirements differ by mode: headless only needs a graphics queue, while
+// windowed additionally needs to be able to present to the window's surface
+// and to create a swapchain. On failure, reason describes what is missing.
+bool
+isDeviceCompatible(const DeviceCapabilities& capabilities, bool requiresPresent, std::string& reason)
+{
+  if (capabilities.graphicsQueueFamilyIndex == UINT32_MAX) {
+    reason = "has no graphics-capable queue family";
+    return false;
+  }
+  if (!requiresPresent) {
+    return true;
+  }
+  if (!capabilities.hasSwapchainExtension) {
+    reason = std::string("does not support ") + VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+    return false;
+  }
+  if (capabilities.graphicsPresentQueueFamilyIndex == UINT32_MAX) {
+    // AGAVE renders and presents on one queue, so a device that can present
+    // only from a compute/transfer-style family is rejected here rather than
+    // handled with a separate present queue and image ownership transfers.
+    reason = "has no queue family that supports both graphics and presentation to this window surface";
+    return false;
+  }
+  return true;
+}
+
+// Human-readable capability summary for the device list logged at startup.
+std::string
+describeCapabilities(const DeviceCapabilities& capabilities, bool requiresPresent)
+{
+  std::string description = capabilities.graphicsQueueFamilyIndex == UINT32_MAX ? "no graphics queue" : "graphics";
+  if (requiresPresent) {
+    description += capabilities.graphicsPresentQueueFamilyIndex == UINT32_MAX ? ", cannot present to this window"
+                                                                              : ", can present to this window";
+    if (!capabilities.hasSwapchainExtension) {
+      description += ", no swapchain extension";
+    }
+  }
+  return description;
+}
+
+// Multi-line dump of a device's name, versions, type, and capabilities. Shared
+// by --list_devices and the selected-device log so both read identically.
+void
+logDeviceInfo(uint32_t index, VkPhysicalDevice physicalDevice, const DeviceCapabilities& capabilities)
+{
+  VkPhysicalDeviceProperties properties = {};
+  vkGetPhysicalDeviceProperties(physicalDevice, &properties);
+
+  LOG_INFO << "Vulkan device " << index << ": " << properties.deviceName;
+  LOG_INFO << "  API version: " << apiVersionToString(properties.apiVersion);
+  LOG_INFO << "  Driver version: " << driverDescription(physicalDevice, properties);
+  LOG_INFO << "  Device type: " << deviceTypeToString(properties.deviceType);
+  LOG_INFO << "  Capabilities: "
+           << (capabilities.graphicsQueueFamilyIndex == UINT32_MAX ? "no graphics queue" : "graphics")
+           << (capabilities.hasSwapchainExtension ? ", swapchain" : ", no swapchain");
+}
+
+// Extra guidance for the windowed case, where "no device can present" usually
+// means a platform/driver mismatch rather than missing hardware.
+void
+logWindowedSelectionHint()
+{
+#if defined(_WIN32) || defined(__APPLE__)
+  LOG_ERROR << "Try a different --gpu index (see --list_devices) or --graphics_backend opengl.";
+#else
+  LOG_ERROR << "Try a different --gpu index (see --list_devices), --graphics_backend opengl, or "
+               "QT_QPA_PLATFORM=xcb.";
+#endif
+}
+
 } // namespace
 
+// Construction only brings up the VkInstance. Device selection is a separate,
+// explicit step because it depends on something the constructor cannot know:
+// which physical device and queue family are usable is a property of the
+// surface that has to be presentable. Windowed callers therefore wait for
+// their window and call initDeviceForWindow(); headless callers have no
+// surface to wait for and call initDeviceHeadless() immediately; device
+// enumeration (--list_devices) needs the instance and nothing more.
 Backend::Backend(const gfxApi::InitParams& params)
   : m_params(params)
 {
-  m_valid = createInstance() && setupDebugMessenger() && pickPhysicalDevice() && createLogicalDevice();
-  if (m_valid) {
-    m_device.initialize(m_physicalDevice, m_deviceHandle);
-    m_valid = createCommandPool();
-  }
+  m_valid = createInstance() && setupDebugMessenger();
 }
 
 Backend::~Backend()
@@ -164,6 +447,10 @@ Backend::~Backend()
 std::unique_ptr<gfxApi::IGestureRenderer>
 Backend::createGestureRenderer()
 {
+  if (!m_deviceReady) {
+    LOG_ERROR << "Cannot create a Vulkan gesture renderer before device initialization";
+    return nullptr;
+  }
   return std::make_unique<GestureRenderer>();
 }
 
@@ -171,12 +458,20 @@ std::unique_ptr<gfxApi::IGLContext>
 Backend::createRendererContext(gfxApi::IGLContext* externalContext)
 {
   (void)externalContext;
+  if (!m_deviceReady) {
+    LOG_ERROR << "Cannot create a Vulkan renderer context before device initialization";
+    return nullptr;
+  }
   return std::make_unique<RendererVkContext>(*this);
 }
 
 std::unique_ptr<gfxApi::IRenderWindow>
 Backend::createRenderWindow(gfxApi::RenderWindowKind kind, RenderSettings* renderSettings)
 {
+  if (!m_deviceReady) {
+    LOG_ERROR << "Cannot create a Vulkan render window before device initialization";
+    return nullptr;
+  }
   switch (kind) {
     case gfxApi::RenderWindowKind::RaymarchBlended:
       return std::make_unique<RenderVk>(*this, renderSettings);
@@ -189,6 +484,10 @@ Backend::createRenderWindow(gfxApi::RenderWindowKind kind, RenderSettings* rende
 std::unique_ptr<gfxApi::Framebuffer>
 Backend::createFramebuffer(const gfxApi::FramebufferDesc& desc)
 {
+  if (!m_deviceReady) {
+    LOG_ERROR << "Cannot create a Vulkan framebuffer before device initialization";
+    return nullptr;
+  }
   return std::make_unique<Framebuffer>(*this, desc);
 }
 
@@ -198,6 +497,61 @@ Backend::clearCurrentFramebuffer(const gfxApi::ClearColor& color)
   (void)color;
   // Vulkan has no implicit current framebuffer. Window rendering must clear the
   // active swapchain image inside a command buffer.
+}
+
+bool
+Backend::initDeviceHeadless()
+{
+  if (m_deviceReady) {
+    return true;
+  }
+  if (!m_valid) {
+    LOG_ERROR << "Cannot initialize a Vulkan device from an invalid backend";
+    return false;
+  }
+  if (!m_params.headless) {
+    LOG_ERROR << "initDeviceHeadless called on a windowed Vulkan backend; use initDeviceForWindow so the device is "
+                 "chosen against the window surface";
+    return false;
+  }
+
+  return initializeDevice(VK_NULL_HANDLE);
+}
+
+bool
+Backend::initDeviceForWindow(gfxApi::IWindowSurface* surface)
+{
+  if (m_deviceReady) {
+    return true;
+  }
+  if (!m_valid) {
+    LOG_ERROR << "Cannot initialize a Vulkan window device from an invalid backend";
+    return false;
+  }
+  if (m_params.headless) {
+    LOG_ERROR << "initDeviceForWindow called on a headless Vulkan backend; use initDeviceHeadless";
+    return false;
+  }
+  // A null surface must never be read as "headless". In windowed mode it means
+  // the caller created renderers before the window existed, which is exactly
+  // the ordering bug this hook is here to catch.
+  if (!surface) {
+    LOG_ERROR << "Windowed Vulkan initialization requires a native window surface";
+    return false;
+  }
+
+  // This surface exists only to answer "which device can present here?". The
+  // Swapchain creates and owns its own VkSurfaceKHR for the same window, since
+  // it has to be able to drop and rebuild it across resizes.
+  VkSurfaceKHR presentationSurface = createNativeWindowSurface(m_instance, surface);
+  if (presentationSurface == VK_NULL_HANDLE) {
+    LOG_ERROR << "Unable to create a Vulkan surface for device selection";
+    return false;
+  }
+
+  const bool initialized = initializeDevice(presentationSurface);
+  vkDestroySurfaceKHR(m_instance, presentationSurface, nullptr);
+  return initialized;
 }
 
 bool
@@ -230,14 +584,14 @@ Backend::createInstance()
 
   VkInstanceCreateFlags instanceFlags = 0;
   if (containsName(availableExtensions, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) &&
-      !containsExtension(enabledExtensions, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) {
+      !containsName(enabledExtensions, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) {
     enabledExtensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
     instanceFlags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
   }
 
   VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo = {};
   if (m_params.enableDebug && containsName(availableExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME) &&
-      !containsExtension(enabledExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
+      !containsName(enabledExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
     enabledExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     debugCreateInfo = debugMessengerCreateInfo();
   }
@@ -296,7 +650,35 @@ Backend::setupDebugMessenger()
 }
 
 bool
-Backend::pickPhysicalDevice()
+Backend::initializeDevice(VkSurfaceKHR presentationSurface)
+{
+  if (m_deviceReady) {
+    return true;
+  }
+  if (!m_params.headless && presentationSurface == VK_NULL_HANDLE) {
+    LOG_ERROR << "Windowed Vulkan device selection requires a presentation surface";
+    return false;
+  }
+
+  if (!pickPhysicalDevice(presentationSurface)) {
+    return false;
+  }
+  if (!createLogicalDevice()) {
+    destroyDevice();
+    return false;
+  }
+  m_device.initialize(m_physicalDevice, m_deviceHandle);
+  if (!createCommandPool()) {
+    destroyDevice();
+    return false;
+  }
+
+  m_deviceReady = true;
+  return true;
+}
+
+bool
+Backend::pickPhysicalDevice(VkSurfaceKHR presentationSurface)
 {
   uint32_t deviceCount = 0;
   vkEnumeratePhysicalDevices(m_instance, &deviceCount, nullptr);
@@ -308,63 +690,110 @@ Backend::pickPhysicalDevice()
   std::vector<VkPhysicalDevice> devices(deviceCount);
   vkEnumeratePhysicalDevices(m_instance, &deviceCount, devices.data());
 
+  // Presentation is only required when this backend is going to drive a window,
+  // regardless of whether the device was chosen explicitly or automatically.
+  const bool requiresPresent = !m_params.headless;
+  const int requestedGpu = m_params.selectedGpu;
+
+  std::vector<DeviceCapabilities> capabilities;
+  capabilities.reserve(deviceCount);
   for (uint32_t i = 0; i < deviceCount; ++i) {
-    VkPhysicalDeviceProperties properties = {};
-    vkGetPhysicalDeviceProperties(devices[i], &properties);
-    LOG_INFO << "Vulkan device " << i << ": " << properties.deviceName;
+    capabilities.push_back(inspectPhysicalDevice(devices[i], requiresPresent ? presentationSurface : VK_NULL_HANDLE));
   }
 
-  if (m_params.selectedGpu >= 0 && static_cast<uint32_t>(m_params.selectedGpu) < deviceCount) {
-    m_physicalDevice = devices[static_cast<uint32_t>(m_params.selectedGpu)];
+  // These indices are what --gpu N refers to, so log the raw enumeration order.
+  for (uint32_t i = 0; i < deviceCount; ++i) {
+    LOG_INFO << "Vulkan device " << i << ": " << physicalDeviceName(devices[i]) << " ("
+             << describeCapabilities(capabilities[i], requiresPresent) << ")";
+  }
+
+  uint32_t chosenIndex = UINT32_MAX;
+
+  if (requestedGpu >= 0) {
+    // Explicit selection: use exactly this device, but validate it against the
+    // mode's requirements and fail loudly instead of falling back to another.
+    if (static_cast<uint32_t>(requestedGpu) >= deviceCount) {
+      LOG_ERROR << "Requested Vulkan device " << requestedGpu << " does not exist; " << deviceCount
+                << " device(s) are available. Run with --list_devices to see the valid indices.";
+      return false;
+    }
+
+    std::string reason;
+    if (!isDeviceCompatible(capabilities[requestedGpu], requiresPresent, reason)) {
+      LOG_ERROR << "Requested Vulkan device " << requestedGpu << " (" << physicalDeviceName(devices[requestedGpu])
+                << ") " << reason << ".";
+      if (requiresPresent) {
+        logWindowedSelectionHint();
+      }
+      return false;
+    }
+    chosenIndex = static_cast<uint32_t>(requestedGpu);
   } else {
-    m_physicalDevice = *std::max_element(devices.begin(), devices.end(), [](VkPhysicalDevice a, VkPhysicalDevice b) {
-      return scorePhysicalDevice(a) < scorePhysicalDevice(b);
-    });
-  }
+    // Auto-selection: skip incompatible devices, take the highest scoring one
+    // that remains.
+    int bestScore = 0;
+    for (uint32_t i = 0; i < deviceCount; ++i) {
+      std::string reason;
+      if (!isDeviceCompatible(capabilities[i], requiresPresent, reason)) {
+        LOG_INFO << "Skipping Vulkan device " << i << " (" << physicalDeviceName(devices[i]) << "): " << reason;
+        continue;
+      }
+      const int score = scorePhysicalDevice(devices[i]);
+      if (chosenIndex == UINT32_MAX || score > bestScore) {
+        chosenIndex = i;
+        bestScore = score;
+      }
+    }
 
-  uint32_t queueFamilyCount = 0;
-  vkGetPhysicalDeviceQueueFamilyProperties(m_physicalDevice, &queueFamilyCount, nullptr);
-  std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-  vkGetPhysicalDeviceQueueFamilyProperties(m_physicalDevice, &queueFamilyCount, queueFamilies.data());
-
-  for (uint32_t i = 0; i < queueFamilyCount; ++i) {
-    if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-      m_graphicsQueueFamilyIndex = i;
-      break;
+    if (chosenIndex == UINT32_MAX) {
+      LOG_ERROR << "No Vulkan device is compatible with " << (requiresPresent ? "windowed" : "headless")
+                << " rendering.";
+      if (requiresPresent) {
+        logWindowedSelectionHint();
+      }
+      return false;
     }
   }
 
-  if (m_graphicsQueueFamilyIndex == UINT32_MAX) {
-    LOG_ERROR << "Selected Vulkan physical device has no graphics queue";
-    return false;
-  }
+  m_physicalDevice = devices[chosenIndex];
+  m_graphicsQueueFamilyIndex = requiresPresent ? capabilities[chosenIndex].graphicsPresentQueueFamilyIndex
+                                               : capabilities[chosenIndex].graphicsQueueFamilyIndex;
 
-  VkPhysicalDeviceProperties properties = {};
-  vkGetPhysicalDeviceProperties(m_physicalDevice, &properties);
-  LOG_INFO << "Selected Vulkan device: " << properties.deviceName;
+  LOG_INFO << "Selected Vulkan device:";
+  logDeviceInfo(chosenIndex, m_physicalDevice, capabilities[chosenIndex]);
   return true;
 }
 
-std::vector<const char*>
-Backend::enabledDeviceExtensions(VkPhysicalDevice physicalDevice) const
+bool
+Backend::enabledDeviceExtensions(VkPhysicalDevice physicalDevice, std::vector<const char*>& extensions) const
 {
   const std::vector<std::string> availableExtensions = availableDeviceExtensions(physicalDevice);
-  std::vector<const char*> enabledExtensions;
+  extensions.clear();
 
-  if (containsName(availableExtensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME)) {
-    enabledExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+  if (!m_params.headless) {
+    if (!containsName(availableExtensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME)) {
+      LOG_ERROR << "Windowed Vulkan device " << physicalDeviceName(physicalDevice) << " is missing "
+                << VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+      return false;
+    }
+    extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
   }
 
   if (containsName(availableExtensions, kPortabilitySubsetExtension)) {
-    enabledExtensions.push_back(kPortabilitySubsetExtension);
+    extensions.push_back(kPortabilitySubsetExtension);
   }
 
-  return enabledExtensions;
+  return true;
 }
 
 bool
 Backend::createLogicalDevice()
 {
+  if (m_graphicsQueueFamilyIndex == UINT32_MAX) {
+    LOG_ERROR << "Cannot create a Vulkan logical device without a selected queue family";
+    return false;
+  }
+
   const float queuePriority = 1.0f;
   VkDeviceQueueCreateInfo queueCreateInfo = {};
   queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -373,7 +802,10 @@ Backend::createLogicalDevice()
   queueCreateInfo.pQueuePriorities = &queuePriority;
 
   VkPhysicalDeviceFeatures deviceFeatures = {};
-  const std::vector<const char*> deviceExtensions = enabledDeviceExtensions(m_physicalDevice);
+  std::vector<const char*> deviceExtensions;
+  if (!enabledDeviceExtensions(m_physicalDevice, deviceExtensions)) {
+    return false;
+  }
 
   VkDeviceCreateInfo createInfo = {};
   createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -410,7 +842,7 @@ Backend::createCommandPool()
 }
 
 void
-Backend::destroy()
+Backend::destroyDevice()
 {
   if (m_deviceHandle != VK_NULL_HANDLE) {
     vkDeviceWaitIdle(m_deviceHandle);
@@ -425,6 +857,17 @@ Backend::destroy()
     vkDestroyDevice(m_deviceHandle, nullptr);
     m_deviceHandle = VK_NULL_HANDLE;
   }
+
+  m_physicalDevice = VK_NULL_HANDLE;
+  m_graphicsQueue = VK_NULL_HANDLE;
+  m_graphicsQueueFamilyIndex = UINT32_MAX;
+  m_deviceReady = false;
+}
+
+void
+Backend::destroy()
+{
+  destroyDevice();
 
   if (m_debugMessenger != VK_NULL_HANDLE && m_instance != VK_NULL_HANDLE) {
     auto destroyDebugUtilsMessenger = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
@@ -521,10 +964,39 @@ Backend::endSingleTimeCommands(VkCommandBuffer commandBuffer) const
 void
 Backend::listDevices(int selectedGpu)
 {
+  // No window exists yet, so build an instance without the windowing-system
+  // surface extensions. Construction stops at the instance, which is all
+  // enumeration needs.
   gfxApi::InitParams params;
+  params.headless = true;
   params.selectedGpu = selectedGpu;
   Backend backend(params);
-  (void)backend;
+  if (!backend.isValid()) {
+    LOG_ERROR << "Unable to create a Vulkan instance to enumerate devices";
+    return;
+  }
+
+  uint32_t deviceCount = 0;
+  vkEnumeratePhysicalDevices(backend.m_instance, &deviceCount, nullptr);
+  if (deviceCount == 0) {
+    LOG_INFO << "No Vulkan physical devices are available";
+    return;
+  }
+
+  std::vector<VkPhysicalDevice> devices(deviceCount);
+  vkEnumeratePhysicalDevices(backend.m_instance, &deviceCount, devices.data());
+
+  LOG_INFO << deviceCount << " Vulkan device(s) found. These indices are what --gpu N selects.";
+  for (uint32_t i = 0; i < deviceCount; ++i) {
+    // Query without a surface: presentation support depends on the actual
+    // window surface, which does not exist during device listing.
+    const DeviceCapabilities capabilities = inspectPhysicalDevice(devices[i], VK_NULL_HANDLE);
+    logDeviceInfo(i, devices[i], capabilities);
+  }
+
+  if (selectedGpu >= 0 && static_cast<uint32_t>(selectedGpu) >= deviceCount) {
+    LOG_WARNING << "--gpu " << selectedGpu << " is out of range for the " << deviceCount << " device(s) listed above";
+  }
 }
 
 } // namespace gfxvulkan

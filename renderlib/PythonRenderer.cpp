@@ -99,6 +99,10 @@ PythonRenderer::initialize(const std::string& mode, const std::string& assetPath
     params.assetPath = assetPath;
     params.headless = true;
     params.selectedGpu = selectedGpu;
+#ifndef NDEBUG
+    // Enable graphics API validation/debug output in debug builds.
+    params.enableDebug = true;
+#endif
     if (!renderlib::initialize(params)) {
       throw std::runtime_error("Unable to initialize the headless Vulkan backend");
     }
