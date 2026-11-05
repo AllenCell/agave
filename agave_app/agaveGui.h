@@ -5,6 +5,7 @@
 #include "Camera.h"
 #include "CacheSettings.h"
 #include "GLView3D.h"
+#include "QtGLContext.h"
 #include "QRenderSettings.h"
 #include "ViewerState.h"
 #include "renderDialog.h"
@@ -158,6 +159,11 @@ private:
 
   QTabWidget* m_tabs;
   GLView3D* m_glView;
+  // Owns the IGLContext wrapper around m_glView's QOpenGLContext. The
+  // underlying QOpenGLContext is owned by m_glView; this object owns only the
+  // QOffscreenSurface created lazily during rendering. RenderDialog borrows
+  // this pointer for the duration of its lifetime, which is bounded by agaveGui.
+  std::unique_ptr<QtGLContext> m_glContext;
   ViewToolbar* m_viewToolbar;
   QWidget* m_viewWithToolbar;
 

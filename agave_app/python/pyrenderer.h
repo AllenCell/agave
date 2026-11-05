@@ -2,24 +2,17 @@
 #define OFFSCREEN_RENDERER_H
 #pragma once
 
-#include "glad/glad.h"
-
 #include "RenderInterface.h"
 #include "command.h"
 #include "renderlib/gesture/gesture.h"
+#include "renderlib/gfxOpenGL/Backend.h"
+#include "renderlib/gfxOpenGL/RendererGLContext.h"
 #include "renderlib/gfxapi/Framebuffer.h"
 #include "renderlib/gfxapi/IGestureRenderer.h"
 #include "renderlib/gfxapi/IRenderWindow.h"
 #include "renderlib/renderlib.h"
 
-#include <QList>
-#include <QObject>
-
-#include <QOffscreenSurface>
-#include <QOpenGLContext>
-#include <QOpenGLFramebufferObject>
-#include <QOpenGLTexture>
-#include <QThread>
+#include <QImage>
 
 #include <memory>
 #include <string>
@@ -121,12 +114,9 @@ protected:
   void shutDown();
 
 private:
-#if HAS_EGL
-  HeadlessGLContext* m_glContext;
-#else
-  QOpenGLContext* m_glContext;
-  QOffscreenSurface* m_surface;
-#endif
+  // GL context for this offscreen renderer (EGL headless or Qt offscreen,
+  // chosen by the backend at runtime).
+  gfxopengl::RendererGLContext m_rglContext;
 
   std::unique_ptr<gfxApi::Framebuffer> m_fbo;
 
