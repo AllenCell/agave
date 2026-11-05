@@ -1,6 +1,6 @@
 #include "Framebuffer.h"
 
-#include "Util.h"
+#include "gfxOpenGL/Util.h"
 
 Framebuffer::Framebuffer(uint32_t w, uint32_t h, GLenum colorFormat, bool depthStencil)
   : m_id(0)
