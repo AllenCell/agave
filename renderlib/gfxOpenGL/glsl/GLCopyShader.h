@@ -1,6 +1,6 @@
 #pragma once
 
-#include "gl/Util.h"
+#include "gfxOpenGL/Util.h"
 
 #include <glm.h>
 

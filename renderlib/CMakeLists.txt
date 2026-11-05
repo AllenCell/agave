@@ -1,4 +1,4 @@
-set(GLAD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/graphics/glad/include")
+set(GLAD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gfxOpenGL/glad/include")
 
 configure_file(
 	"${CMAKE_CURRENT_SOURCE_DIR}/version.h.in"
@@ -106,6 +106,7 @@ add_subdirectory(graphics)
 add_subdirectory(gfxOpenGL)
 add_subdirectory(io)
 add_subdirectory(pugixml)
+add_subdirectory(stb)
 
 target_link_libraries(renderlib
 	Qt::Core Qt::OpenGL

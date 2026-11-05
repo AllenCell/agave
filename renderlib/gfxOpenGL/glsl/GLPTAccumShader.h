@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CCamera.h"
-#include "renderlib/gl/Util.h"
+#include "gfxOpenGL/Util.h"
 #include <glm.h>
 
 /**
