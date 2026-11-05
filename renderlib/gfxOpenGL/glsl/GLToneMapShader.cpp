@@ -1,11 +1,11 @@
-#include "glad/glad.h"
+#include "gfxOpenGL/Backend.h"
 
 #include "GLToneMapShader.h"
 
 #include "Logging.h"
 #include "shaders.h"
 
-#include <gfxOpenGL/Util.h>
+#include "gfxOpenGL/Util.h"
 #include <glm.h>
 
 #include <iostream>

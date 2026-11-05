@@ -2,7 +2,7 @@
 
 #include <memory>
 
-#include <glad/glad.h>
+#include "gfxOpenGL/Backend.h"
 
 #include "glm.h"
 

@@ -3,7 +3,6 @@
 #include "glad/include/glad/glad.h"
 
 #include "Device.h"
-#include "HeadlessGLContext.h"
 #include "gfxapi/Backend.h"
 
 #include <memory>

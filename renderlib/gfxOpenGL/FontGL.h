@@ -1,6 +1,6 @@
 #pragma once
 
-#include <glad/glad.h> // for gl types
+#include "gfxOpenGL/Backend.h" // for gl types
 
 #include "Font.h"
 
