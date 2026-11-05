@@ -555,3 +555,9 @@ struct SetTimeStampFormatCommandD
   int32_t m_format;
 };
 CMDDECL(SetTimeStampFormatCommand, 53, "set_time_stamp_format", CMD_ARGS({ CommandArgType::I32 }));
+
+struct SetMultichannelBlendCommandD
+{
+  int32_t m_mode;
+};
+CMDDECL(SetMultichannelBlendCommand, 54, "set_multichannel_blend", CMD_ARGS({ CommandArgType::I32 }));

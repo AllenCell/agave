@@ -260,8 +260,8 @@ TEST_CASE("TimeSeriesLoader serves an interactive request", "[timeSeriesLoader]"
   cache.setConfig(ramConfig(frameBytes() * 64));
 
   auto reader = std::make_shared<CountingReader>();
-  TimeSeriesLoader loader(cache);
   RecordingObserver observer;
+  TimeSeriesLoader loader(cache);
   loader.addObserver(&observer);
 
   // Prefetch off, so this test observes only the interactive path.
@@ -351,8 +351,8 @@ TEST_CASE("TimeSeriesLoader with the disk tier off prefetches only the memory wi
   cache.setConfig(ramConfig(frameBytes() * 5));
 
   auto reader = std::make_shared<CountingReader>();
-  TimeSeriesLoader loader(cache);
   RecordingObserver observer;
+  TimeSeriesLoader loader(cache);
   loader.addObserver(&observer);
 
   TimeSeriesLoader::PrefetchConfig cfg;
@@ -417,8 +417,8 @@ TEST_CASE("TimeSeriesLoader adopts an in-flight prefetch instead of duplicating 
   // request it interactively.
   reader->setDelay(150ms);
 
-  TimeSeriesLoader loader(cache);
   RecordingObserver observer;
+  TimeSeriesLoader loader(cache);
   loader.addObserver(&observer);
 
   // Start with prefetch off. Otherwise setSeries begins prefetching t=1
@@ -624,8 +624,8 @@ TEST_CASE("TimeSeriesLoader reports prefetch idle when there is nothing left to 
   cache.setConfig(ramConfig(frameBytes() * 64));
 
   auto reader = std::make_shared<CountingReader>();
-  TimeSeriesLoader loader(cache);
   RecordingObserver observer;
+  TimeSeriesLoader loader(cache);
   loader.addObserver(&observer);
 
   TimeSeriesLoader::PrefetchConfig cfg;
@@ -696,8 +696,8 @@ TEST_CASE("TimeSeriesLoader reloads a timepoint whose prefetch was cancelled", "
   auto reader = std::make_shared<CountingReader>();
   reader->setDelay(200ms);
 
-  TimeSeriesLoader loader(cache);
   RecordingObserver observer;
+  TimeSeriesLoader loader(cache);
   loader.addObserver(&observer);
 
   // Prefetch off first, so the initial interactive load is not racing a prefetch.
@@ -1158,8 +1158,8 @@ TEST_CASE("TimeSeriesLoader reverts DiskCached when the disk tier evicts", "[tim
   cache.setConfig(diskCacheConfig(frameBytes() * 8, frameBytes() * diskFrames));
 
   auto reader = std::make_shared<CountingReader>();
-  TimeSeriesLoader loader(cache);
   RecordingObserver observer;
+  TimeSeriesLoader loader(cache);
   loader.addObserver(&observer);
 
   TimeSeriesLoader::PrefetchConfig cfg;
@@ -1270,8 +1270,8 @@ TEST_CASE("TimeSeriesLoader survives a historyMargin larger than the budget", "[
   cache.setConfig(ramConfig(frameBytes() * 3));
 
   auto reader = std::make_shared<CountingReader>();
-  TimeSeriesLoader loader(cache);
   RecordingObserver observer;
+  TimeSeriesLoader loader(cache);
   loader.addObserver(&observer);
 
   TimeSeriesLoader::PrefetchConfig cfg;
@@ -1325,8 +1325,8 @@ TEST_CASE("TimeSeriesLoader never fetches backward after a large jump", "[timeSe
   cache.setConfig(ramConfig(frameBytes() * 10));
 
   auto reader = std::make_shared<CountingReader>();
-  TimeSeriesLoader loader(cache);
   RecordingObserver observer;
+  TimeSeriesLoader loader(cache);
   loader.addObserver(&observer);
 
   TimeSeriesLoader::PrefetchConfig cfg;
@@ -1355,8 +1355,8 @@ TEST_CASE("TimeSeriesLoader clamps the disk warm set to the disk budget", "[time
   cache.setConfig(diskCacheConfig(frameBytes() * 4, frameBytes() * diskFrames));
 
   auto reader = std::make_shared<CountingReader>();
-  TimeSeriesLoader loader(cache);
   RecordingObserver observer;
+  TimeSeriesLoader loader(cache);
   loader.addObserver(&observer);
 
   TimeSeriesLoader::PrefetchConfig cfg;
@@ -1435,8 +1435,8 @@ TEST_CASE("TimeSeriesLoader warm-only prefetch does not pull volumes into RAM", 
   cache.clearMemoryCache();
 
   auto reader = std::make_shared<CountingReader>();
-  TimeSeriesLoader loader(cache);
   RecordingObserver observer;
+  TimeSeriesLoader loader(cache);
   loader.addObserver(&observer);
 
   TimeSeriesLoader::PrefetchConfig cfg;
@@ -1491,8 +1491,8 @@ TEST_CASE("TimeSeriesLoader three-run cross-session scenario", "[timeSeriesLoade
     CacheManager cache(dir.str());
     cache.setConfig(diskCacheConfig(frameBytes() * ramFrames, frameBytes() * diskFrames));
     auto reader = std::make_shared<CountingReader>();
-    TimeSeriesLoader loader(cache);
     RecordingObserver observer;
+    TimeSeriesLoader loader(cache);
     loader.addObserver(&observer);
     loader.setPrefetchConfig(makeCfg());
 
@@ -1528,8 +1528,8 @@ TEST_CASE("TimeSeriesLoader three-run cross-session scenario", "[timeSeriesLoade
     CacheManager cache(dir.str());
     cache.setConfig(diskCacheConfig(frameBytes() * ramFrames, frameBytes() * diskFrames));
     auto reader = std::make_shared<CountingReader>();
-    TimeSeriesLoader loader(cache);
     RecordingObserver observer;
+    TimeSeriesLoader loader(cache);
     loader.addObserver(&observer);
     loader.setPrefetchConfig(makeCfg());
 
@@ -1627,8 +1627,8 @@ TEST_CASE("TimeSeriesLoader with prefetch off still caches on-demand loads", "[t
   cache.setConfig(diskCacheConfig(frameBytes() * 16, 64ULL * 1024 * 1024));
 
   auto reader = std::make_shared<CountingReader>();
-  TimeSeriesLoader loader(cache);
   RecordingObserver observer;
+  TimeSeriesLoader loader(cache);
   loader.addObserver(&observer);
 
   TimeSeriesLoader::PrefetchConfig cfg;
