@@ -803,6 +803,18 @@ export class AgaveClient {
     this.cb.addCommand("SET_MULTICHANNEL_BLEND", mode);
   }
 
+  /**
+   * Enable or disable Woodcock (delta) tracking in the path tracer.
+   * When disabled, fixed-step ray marching with the primary/secondary ray
+   * step sizes is used.
+   *
+   * @param enabled 1 to enable Woodcock (delta) tracking, 0 to disable it
+   */
+  setWoodcockTracking(enabled: number) {
+    // 55
+    this.cb.addCommand("SET_WOODCOCK_TRACKING", enabled);
+  }
+
   // send all data in our current command buffer to the server
   flushCommandBuffer() {
     if (this.cb.length() > 0 && this.socket) {
