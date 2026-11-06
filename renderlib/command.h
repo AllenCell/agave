@@ -561,3 +561,9 @@ struct SetMultichannelBlendCommandD
   int32_t m_mode;
 };
 CMDDECL(SetMultichannelBlendCommand, 54, "set_multichannel_blend", CMD_ARGS({ CommandArgType::I32 }));
+
+struct SetWoodcockTrackingCommandD
+{
+  int32_t m_enabled;
+};
+CMDDECL(SetWoodcockTrackingCommand, 55, "set_woodcock_tracking", CMD_ARGS({ CommandArgType::I32 }));

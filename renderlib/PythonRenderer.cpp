@@ -351,6 +351,7 @@ PythonRenderer::commandArgumentTypes(int commandId)
     COMMAND_ARGUMENT_TYPES(52, ShowTimeStampCommand);
     COMMAND_ARGUMENT_TYPES(53, SetTimeStampFormatCommand);
     COMMAND_ARGUMENT_TYPES(54, SetMultichannelBlendCommand);
+    COMMAND_ARGUMENT_TYPES(55, SetWoodcockTrackingCommand);
     default:
       throw PythonRendererValueError("Unknown AGAVE command id " + std::to_string(commandId));
   }
@@ -516,6 +517,7 @@ PythonRenderer::execute(int commandId, const PythonRendererArguments& args)
     EXECUTE_COMMAND(52, 1, ShowTimeStampCommand, ShowTimeStampCommandD{ arg<int32_t>(args, 0) });
     EXECUTE_COMMAND(53, 1, SetTimeStampFormatCommand, SetTimeStampFormatCommandD{ arg<int32_t>(args, 0) });
     EXECUTE_COMMAND(54, 1, SetMultichannelBlendCommand, SetMultichannelBlendCommandD{ arg<int32_t>(args, 0) });
+    EXECUTE_COMMAND(55, 1, SetWoodcockTrackingCommand, SetWoodcockTrackingCommandD{ arg<int32_t>(args, 0) });
     default:
       throw PythonRendererValueError("Unknown AGAVE command id " + std::to_string(commandId));
   }
