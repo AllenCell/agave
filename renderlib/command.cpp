@@ -440,6 +440,13 @@ SetMultichannelBlendCommand::execute(ExecutionContext* c)
   c->m_renderSettings->m_DirtyFlags.SetFlag(RenderParamsDirty);
 }
 void
+SetWoodcockTrackingCommand::execute(ExecutionContext* c)
+{
+  LOG_DEBUG << "SetWoodcockTracking " << m_data.m_enabled;
+  c->m_renderSettings->m_RenderSettings.m_UseWoodcockTracking = (m_data.m_enabled != 0);
+  c->m_renderSettings->m_DirtyFlags.SetFlag(RenderParamsDirty);
+}
+void
 SetBackgroundColorCommand::execute(ExecutionContext* c)
 {
   LOG_DEBUG << "SetBackgroundColor " << m_data.m_r << ", " << m_data.m_g << ", " << m_data.m_b;
@@ -1554,6 +1561,22 @@ SetMultichannelBlendCommand::write(WriteableStream* o) const
   return bytesWritten;
 }
 
+SetWoodcockTrackingCommand*
+SetWoodcockTrackingCommand::parse(ParseableStream* c)
+{
+  SetWoodcockTrackingCommandD data;
+  data.m_enabled = c->parseInt32();
+  return new SetWoodcockTrackingCommand(data);
+}
+size_t
+SetWoodcockTrackingCommand::write(WriteableStream* o) const
+{
+  size_t bytesWritten = 0;
+  bytesWritten += o->writeInt32(m_ID);
+  bytesWritten += o->writeInt32(m_data.m_enabled);
+  return bytesWritten;
+}
+
 SetBackgroundColorCommand*
 SetBackgroundColorCommand::parse(ParseableStream* c)
 {
@@ -2254,6 +2277,13 @@ SetMultichannelBlendCommand::toPythonString() const
 {
   std::ostringstream ss;
   ss << PythonName() << "(" << m_data.m_mode << ")";
+  return ss.str();
+}
+std::string
+SetWoodcockTrackingCommand::toPythonString() const
+{
+  std::ostringstream ss;
+  ss << PythonName() << "(" << m_data.m_enabled << ")";
   return ss.str();
 }
 std::string

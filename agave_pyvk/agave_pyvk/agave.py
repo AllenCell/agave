@@ -343,6 +343,14 @@ class AgaveRenderer:
         """Set Vulkan path-tracer channel blending: 0 for Max, 1 for Weighted."""
         return self._execute("SET_MULTICHANNEL_BLEND", mode)
 
+    def set_woodcock_tracking(self, enabled: int):
+        """Enable (1) or disable (0) Woodcock (delta) tracking in the path tracer.
+
+        When disabled, fixed-step ray marching with the primary/secondary ray
+        step sizes is used.
+        """
+        return self._execute("SET_WOODCOCK_TRACKING", enabled)
+
     def batch_render_turntable(
         self, number_of_frames=90, direction=1, output_name="frame", first_frame=0
     ):

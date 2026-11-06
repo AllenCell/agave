@@ -133,6 +133,7 @@ commandBuffer::processBuffer()
           CMD_CASE(ShowTimeStampCommand);
           CMD_CASE(SetTimeStampFormatCommand);
           CMD_CASE(SetMultichannelBlendCommand);
+          CMD_CASE(SetWoodcockTrackingCommand);
           default:
             // ERROR UNRECOGNIZED COMMAND SIGNATURE.
             // PRINT OUT PREVIOUS! BAIL OUT! OR DO SOMETHING CLEVER AND CORRECT!
