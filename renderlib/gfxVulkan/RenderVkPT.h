@@ -8,6 +8,7 @@
 #include <array>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace gfxvulkan {
 
@@ -55,6 +56,10 @@ private:
   bool updatePtVolumeUniforms(const CCamera& camera, int firstSample, uint32_t iterations);
   // Grow the per-iteration uniform ring to hold at least `count` slots.
   bool ensurePtUniformCapacity(uint32_t count);
+  // Rebuild and upload the majorant grid if anything it depends on changed,
+  // and fill the grid fields of the uniform block (`uniforms` points at the
+  // file-local PtVolumeUniforms being assembled).
+  bool updateMajorantGrid(void* uniforms, float maxOpacity);
   void renderToFramebufferPT(const CCamera& camera, Framebuffer& framebuffer);
   // Record one path-trace iteration: reads m_accum[previousIndex] and writes
   // m_accum[targetIndex] using uniform slot `dynamicOffset`.
@@ -116,6 +121,9 @@ private:
 
   // 1x1 placeholder bound to the shader's deprecated g_lutTexture[4] sampler array.
   resources::SampledImage m_dummyLutTexture;
+
+  // Inputs the current majorant grid was built from; see updateMajorantGrid.
+  std::vector<float> m_majorantKey;
 };
 
 } // namespace gfxvulkan
