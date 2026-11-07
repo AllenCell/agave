@@ -68,6 +68,8 @@ FetchContent_Declare(
   URL_HASH SHA256=5bb3ec8317dc465788bed2ca789e76d03ae5848c9381cce3b14c1a3f8b6aca56
   EXCLUDE_FROM_ALL
 )
+set(DCMTK_COMPILE_WIN32_MULTITHREADED_DLL ON CACHE BOOL
+    "Compile DCMTK using the DLL runtime" FORCE)
 FetchContent_MakeAvailable(dcmtk)
 foreach(_target IN ITEMS
     ofstd oflog oficonv dcmdata dcmimgle dcmimage dcmjpeg dcmjpls)
