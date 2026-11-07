@@ -39,7 +39,10 @@ set(LIBCZI_DO_NOT_SET_MSVC_RUNTIME_LIBRARY ON)
 set(LIBCZI_BUILD_UNITTESTS OFF)
 set(LIBCZI_BUILD_DYNLIB ON)
 set(LIBCZI_BUILD_CZICMD OFF)
-add_subdirectory(libCZI)
+# EXCLUDE_FROM_ALL also suppresses install rules below this directory, which is
+# how the zstd libCZI fetches is kept out of the Agave install tree. The libCZI
+# shared library itself is installed explicitly by agave_app and agave_pyvk.
+add_subdirectory(libCZI EXCLUDE_FROM_ALL)
 
 # end libczi dependency
 
