@@ -23,13 +23,17 @@
 #include "gfxVulkan/shadersrc/toneMap_frag_spv.hpp"
 #include "gfxVulkan/shadersrc/toneMap_vert_spv.hpp"
 #include "glm.h"
+#include "threading.h"
 
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstddef>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <utility>
+#include <vector>
 
 namespace gfxvulkan {
 
@@ -155,6 +159,10 @@ struct alignas(16) PtVolumeUniforms
   float uSampleCounter;
   glm::vec2 uResolution;
   glm::vec4 g_clipPlane;
+  glm::vec3 gMajorantGridDim;   // cells per axis of the majorant grid
+  float gUseMajorantGrid;       // 0 disables grid traversal in the shader
+  glm::vec3 gMajorantGridScale; // cells per unit texcoord (volume dim / cell voxels)
+  float _padMajorant;
 };
 static_assert(offsetof(PtVolumeUniforms, gLights) == 112, "PtVolumeUniforms.gLights offset");
 static_assert(offsetof(PtVolumeUniforms, gClippedAaBbMin) == 496, "PtVolumeUniforms.gClippedAaBbMin offset");
@@ -171,7 +179,86 @@ static_assert(offsetof(PtVolumeUniforms, g_tf) == 1040, "PtVolumeUniforms.g_tf o
 static_assert(offsetof(PtVolumeUniforms, g_tf_nNodes) == 2064, "PtVolumeUniforms.g_tf_nNodes offset");
 static_assert(offsetof(PtVolumeUniforms, uFrameCounter) == 2080, "PtVolumeUniforms.uFrameCounter offset");
 static_assert(offsetof(PtVolumeUniforms, g_clipPlane) == 2096, "PtVolumeUniforms.g_clipPlane offset");
-static_assert(sizeof(PtVolumeUniforms) == 2112, "PtVolumeUniforms std140 size mismatch");
+static_assert(offsetof(PtVolumeUniforms, gMajorantGridDim) == 2112, "PtVolumeUniforms.gMajorantGridDim offset");
+static_assert(offsetof(PtVolumeUniforms, gUseMajorantGrid) == 2124, "PtVolumeUniforms.gUseMajorantGrid offset");
+static_assert(offsetof(PtVolumeUniforms, gMajorantGridScale) == 2128, "PtVolumeUniforms.gMajorantGridScale offset");
+static_assert(sizeof(PtVolumeUniforms) == 2144, "PtVolumeUniforms std140 size mismatch");
+
+// Evaluate the shader's piecewise-linear transfer function (evalTf) on the CPU.
+float
+evalTfCpu(const glm::vec4* nodes, uint32_t nNodes, float x)
+{
+  if (nNodes == 0) {
+    return 0.0f;
+  }
+  if (x <= nodes[0].x) {
+    return nodes[0].y;
+  }
+  if (x >= nodes[nNodes - 1].x) {
+    return nodes[nNodes - 1].y;
+  }
+  for (uint32_t i = 0; i + 1 < nNodes; ++i) {
+    const float x0 = nodes[i].x;
+    const float x1 = nodes[i + 1].x;
+    if (x >= x0 && x <= x1) {
+      const float t = (x1 > x0) ? (x - x0) / (x1 - x0) : 0.0f;
+      return nodes[i].y + (nodes[i + 1].y - nodes[i].y) * t;
+    }
+  }
+  return 0.0f;
+}
+
+// Upper bound of the transfer function over the normalized intensity range
+// [lo, hi]. A piecewise-linear function attains its extremes at the interval
+// ends or at interior nodes.
+float
+maxTfOverRange(const glm::vec4* nodes, uint32_t nNodes, float lo, float hi)
+{
+  float m = std::max(evalTfCpu(nodes, nNodes, lo), evalTfCpu(nodes, nNodes, hi));
+  for (uint32_t i = 0; i < nNodes; ++i) {
+    if (nodes[i].x > lo && nodes[i].x < hi) {
+      m = std::max(m, nodes[i].y);
+    }
+  }
+  return m;
+}
+
+// Build the per-cell majorant grid as a fraction of the global majorant, i.e.
+// max over channels of opacity * max(tf) over the cell's intensity range,
+// divided by `maxOpacity` (the same quantity over the whole transfer
+// function). Quantized upward to 8 bits so the stored bound never drops below
+// the true one.
+std::vector<uint8_t>
+buildMajorantRatios(const VolumeCellBounds& bounds, const PtVolumeUniforms& u, float maxOpacity)
+{
+  const size_t cellCount = bounds.cellCount();
+  std::vector<uint8_t> ratios(cellCount, 0);
+  if (maxOpacity <= 0.0f) {
+    return ratios;
+  }
+  const uint32_t slots = std::min<uint32_t>(bounds.slots, static_cast<uint32_t>(std::max(0, u.g_nChannels)));
+  const float invMax = 1.0f / maxOpacity;
+  parallel_for(cellCount, [&](size_t start, size_t end) {
+    for (size_t c = start; c < end; ++c) {
+      float bound = 0.0f;
+      for (int s = 0; s < static_cast<int>(slots); ++s) {
+        const float opacity = u.g_opacity[s].x;
+        if (opacity <= 0.0f || u.g_tf_nNodes[s] == 0u) {
+          continue;
+        }
+        const size_t boundsIndex = static_cast<size_t>(s) * cellCount + c;
+        const float range = std::max(u.g_intensityMax[s] - u.g_intensityMin[s], 1.0e-6f);
+        const float lo = (static_cast<float>(bounds.minValue[boundsIndex]) - u.g_intensityMin[s]) / range;
+        const float hi = (static_cast<float>(bounds.maxValue[boundsIndex]) - u.g_intensityMin[s]) / range;
+        const float tfMax = maxTfOverRange(&u.g_tf[s * static_cast<int>(kMaxNoTfNodes)], u.g_tf_nNodes[s], lo, hi);
+        bound = std::max(bound, opacity * tfMax);
+      }
+      const float ratio = std::min(1.0f, std::max(0.0f, bound * invMax));
+      ratios[c] = static_cast<uint8_t>(std::min(255.0f, std::ceil(ratio * 255.0f)));
+    }
+  });
+  return ratios;
+}
 
 const std::array<FullscreenVertex, 4> kFullscreenVertices = {
   FullscreenVertex{ { -1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } },
@@ -317,8 +404,11 @@ RenderVkPT::resize(uint32_t w, uint32_t h)
   RenderVk::resize(w, h);
   m_displayFramebuffer.reset();
   m_sampleFramebuffer.reset();
-  m_accumFramebuffer.reset();
-  m_accumScratchFramebuffer.reset();
+  m_accumVkFramebuffers[0].reset();
+  m_accumVkFramebuffers[1].reset();
+  m_accum[0].reset();
+  m_accum[1].reset();
+  m_toneMapVkFramebuffer.reset();
 }
 
 void
@@ -335,26 +425,82 @@ RenderVkPT::ensureFramebuffers(uint32_t w, uint32_t h)
     return false;
   }
 
-  if (m_sampleFramebuffer && m_sampleFramebuffer->width() == w && m_sampleFramebuffer->height() == h &&
-      m_accumFramebuffer && m_accumFramebuffer->width() == w && m_accumFramebuffer->height() == h &&
-      m_accumScratchFramebuffer && m_accumScratchFramebuffer->width() == w &&
-      m_accumScratchFramebuffer->height() == h) {
+  if (m_sampleFramebuffer && m_sampleFramebuffer->width() == w && m_sampleFramebuffer->height() == h && m_accum[0] &&
+      m_accum[0]->width() == w && m_accum[0]->height() == h && m_accum[1] && m_accum[1]->width() == w &&
+      m_accum[1]->height() == h) {
     return true;
   }
 
+  // Accumulation runs in 32-bit float so thousands of samples can be
+  // averaged without losing precision; the tone map converts to 8 bits.
   gfxApi::FramebufferDesc desc;
   desc.width = w;
   desc.height = h;
   desc.colorFormat = gfxApi::FramebufferColorFormat::Rgba32F;
   desc.depthStencil = false;
+  // The VkFramebuffer wrappers reference the old color image views; drop them
+  // before the images they wrap go away. They are recreated lazily by
+  // ensureAccumVkFramebuffers once the render pass exists (it may not yet on
+  // the very first frame).
+  m_accumVkFramebuffers[0].reset();
+  m_accumVkFramebuffers[1].reset();
   m_sampleFramebuffer = std::make_unique<Framebuffer>(m_backend, desc);
-  m_accumFramebuffer = std::make_unique<Framebuffer>(m_backend, desc);
-  m_accumScratchFramebuffer = std::make_unique<Framebuffer>(m_backend, desc);
+  m_accum[0] = std::make_unique<Framebuffer>(m_backend, desc);
+  m_accum[1] = std::make_unique<Framebuffer>(m_backend, desc);
+  m_accumIndex = 0;
 
   const gfxApi::ClearColor clear = {};
   m_sampleFramebuffer->clear(clear);
-  m_accumFramebuffer->clear(clear);
-  m_accumScratchFramebuffer->clear(clear);
+  m_accum[0]->clear(clear);
+  m_accum[1]->clear(clear);
+  return true;
+}
+
+bool
+RenderVkPT::ensureAccumVkFramebuffers()
+{
+  // A VkFramebuffer pairs a render pass with the specific image view(s) it
+  // will draw into. Ours never change between resizes, so build them once
+  // here instead of allocating and freeing one on every iteration.
+  if (m_accumVkFramebuffers[0] && m_accumVkFramebuffers[1]) {
+    return true;
+  }
+  for (int i = 0; i < 2; ++i) {
+    VkFramebufferCreateInfo framebufferInfo = {};
+    framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    framebufferInfo.renderPass = m_ptVolumeRenderPass.get();
+    framebufferInfo.attachmentCount = 1;
+    VkImageView attachment = m_accum[i]->colorImageView();
+    framebufferInfo.pAttachments = &attachment;
+    framebufferInfo.width = m_accum[i]->width();
+    framebufferInfo.height = m_accum[i]->height();
+    framebufferInfo.layers = 1;
+    auto vkFramebuffer = m_backend.device().createFramebuffer(framebufferInfo);
+    if (!vkFramebuffer) {
+      return false;
+    }
+    m_accumVkFramebuffers[i] = std::move(*vkFramebuffer);
+  }
+  return true;
+}
+
+bool
+RenderVkPT::ensureToneMapVkFramebuffer(Framebuffer& framebuffer)
+{
+  VkFramebufferCreateInfo framebufferInfo = {};
+  framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+  framebufferInfo.renderPass = m_toneMapRenderPass.get();
+  framebufferInfo.attachmentCount = 1;
+  VkImageView attachment = framebuffer.colorImageView();
+  framebufferInfo.pAttachments = &attachment;
+  framebufferInfo.width = framebuffer.width();
+  framebufferInfo.height = framebuffer.height();
+  framebufferInfo.layers = 1;
+  auto vkFramebuffer = m_backend.device().createFramebuffer(framebufferInfo);
+  if (!vkFramebuffer) {
+    return false;
+  }
+  m_toneMapVkFramebuffer = std::move(*vkFramebuffer);
   return true;
 }
 
@@ -751,7 +897,7 @@ RenderVkPT::updateAccumDescriptorSet()
 
   VkDescriptorImageInfo accumInfo = {};
   accumInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  accumInfo.imageView = m_accumFramebuffer->colorImageView();
+  accumInfo.imageView = m_accum[m_accumIndex]->colorImageView();
   accumInfo.sampler = m_framebufferSampler.get();
 
   std::array<VkWriteDescriptorSet, 3> writes = {};
@@ -788,7 +934,7 @@ RenderVkPT::updateToneMapDescriptorSet()
 
   VkDescriptorImageInfo accumInfo = {};
   accumInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  accumInfo.imageView = m_accumFramebuffer->colorImageView();
+  accumInfo.imageView = m_accum[m_accumIndex]->colorImageView();
   accumInfo.sampler = m_framebufferSampler.get();
 
   std::array<VkWriteDescriptorSet, 2> writes = {};
@@ -845,33 +991,68 @@ RenderVkPT::renderToFramebufferPT(const CCamera& camera, Framebuffer& framebuffe
     return;
   }
 
-  // Each iteration computes one Monte Carlo sample and blends it against the
-  // previous accumulation using the shader's in-shader cumulative moving
-  // average. m_accumFramebuffer holds the running estimate; we ping-pong with
-  // m_accumScratchFramebuffer so the freshly accumulated result becomes the new
-  // m_accumFramebuffer (no explicit copy needed).
+  // Each iteration computes one Monte Carlo sample per pixel and blends it
+  // into the running average inside the shader. m_accum[m_accumIndex] holds
+  // the current estimate; an iteration reads it and writes the other image,
+  // then the index flips so the freshly accumulated result becomes the new
+  // estimate. No copy is needed.
+  //
+  // The whole frame (every iteration plus the tone map) is recorded into ONE
+  // command buffer and submitted once. That means everything the GPU will
+  // read must be prepared before recording starts:
+  //   - the per-iteration uniforms, written into consecutive ring slots;
+  //   - the two descriptor sets (one per accumulation image);
+  //   - the tone-map descriptor set, pointing at the image that will hold
+  //     the final estimate.
+  // Then the CPU records the draws, submits, and waits for the GPU once.
+
+  // How many samples to add this frame ("exposure iterations" in the UI) and
+  // the index of the first one, which seeds the shader's random sequence.
   const int exposureIterations = std::max(1, camera.m_Film.m_ExposureIterations);
+  const uint32_t iterations = static_cast<uint32_t>(exposureIterations);
+  const int firstSample = m_renderSettings->GetNoIterations();
   const auto sampleStart = std::chrono::high_resolution_clock::now();
-  for (int i = 0; i < exposureIterations; ++i) {
-    const int sampleCounter = m_renderSettings->GetNoIterations();
 
-    transitionToShaderRead(*m_accumFramebuffer);
-    if (!updatePtVolumeUniforms(camera, sampleCounter) ||
-        !updatePtVolumeDescriptorSet(m_accumFramebuffer->colorImageView())) {
-      framebuffer.clear({});
-      return;
-    }
-    renderPtVolume(*m_accumScratchFramebuffer);
-    std::swap(m_accumFramebuffer, m_accumScratchFramebuffer);
-
-    m_renderSettings->SetNoIterations(sampleCounter + 1);
+  // Step 1: prepare everything the GPU will read.
+  if (!ensureAccumVkFramebuffers() || !ensureToneMapVkFramebuffer(framebuffer) ||
+      !updatePtVolumeUniforms(camera, firstSample, iterations) || !updatePtVolumeDescriptorSets()) {
+    framebuffer.clear({});
+    return;
   }
-  const auto sampleEnd = std::chrono::high_resolution_clock::now();
 
-  transitionToShaderRead(*m_accumFramebuffer);
+  // Step 2: point the tone map at the right image. The estimate ends up in
+  // m_accum[m_accumIndex] if `iterations` is even and in the other image if
+  // it is odd. Temporarily set m_accumIndex to that final value so the
+  // existing tone-map descriptor helper picks it up, then restore it so the
+  // recording loop below starts from the correct image.
+  const int previousAccumIndex = m_accumIndex;
+  m_accumIndex = (m_accumIndex + static_cast<int>(iterations % 2u)) % 2;
   updateToneMapUniformBuffer(camera);
   updateToneMapDescriptorSet();
-  runToneMapPass(framebuffer);
+  m_accumIndex = previousAccumIndex;
+
+  // Step 3: record the frame. beginSingleTimeCommands() hands us an empty
+  // command buffer; endSingleTimeCommands() submits it and blocks until the
+  // GPU has finished it.
+  VkCommandBuffer commandBuffer = m_backend.beginSingleTimeCommands();
+  for (uint32_t i = 0; i < iterations; ++i) {
+    const int previousIndex = m_accumIndex;    // image holding the estimate so far
+    const int targetIndex = 1 - previousIndex; // image this iteration writes
+    // Iteration i uses ring slot i, which starts i * stride bytes into the
+    // uniform buffer.
+    recordPtVolumePass(commandBuffer, targetIndex, previousIndex, static_cast<uint32_t>(i * m_ptUniformStride));
+    m_accumIndex = targetIndex;
+  }
+  // The final estimate was just written as a render target; mark it readable
+  // as a texture before the tone map samples it.
+  m_accum[m_accumIndex]->transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  recordToneMapPass(commandBuffer, framebuffer);
+  m_backend.endSingleTimeCommands(commandBuffer);
+
+  // Record how many samples the estimate now contains, so the next frame
+  // continues the random sequence where this one left off.
+  m_renderSettings->SetNoIterations(firstSample + exposureIterations);
+  const auto sampleEnd = std::chrono::high_resolution_clock::now();
 
   const auto frameEnd = std::chrono::high_resolution_clock::now();
   const double frameMs = std::chrono::duration<double, std::milli>(frameEnd - frameStart).count();
@@ -934,18 +1115,16 @@ RenderVkPT::ensurePtVolumeResources()
     return false;
   }
 
-  if (!m_ptVolumeUniformBuffer) {
-    auto buffer = createUniformBuffer(m_backend, sizeof(PtVolumeUniforms));
-    if (!buffer) {
-      return false;
-    }
-    m_ptVolumeUniformBuffer = std::move(*buffer);
-  }
-
   if (!m_ptVolumeDescriptorSetLayout) {
-    std::array<VkDescriptorSetLayoutBinding, 5> bindings = {};
-    bindings[0].binding = 0;
-    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    // The descriptor set *layout* declares what kinds of inputs the shader
+    // has at each binding number; the actual buffers and textures are filled
+    // in later by updatePtVolumeDescriptorSets().
+    std::array<VkDescriptorSetLayoutBinding, 6> bindings = {};
+    bindings[0].binding = 0; // PathTraceVolumeParams uniform block
+    // DYNAMIC (rather than plain UNIFORM_BUFFER) so each draw can choose a
+    // different slot of the uniform ring with a byte offset, letting one
+    // descriptor set serve every iteration of a frame.
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     bindings[0].descriptorCount = 1;
     bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     bindings[1].binding = 1; // volumeTexture (sampler3D)
@@ -964,6 +1143,10 @@ RenderVkPT::ensurePtVolumeResources()
     bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     bindings[4].descriptorCount = 1;
     bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[5].binding = 5; // gMajorantGrid (sampler3D)
+    bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[5].descriptorCount = 1;
+    bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo = {};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -975,15 +1158,19 @@ RenderVkPT::ensurePtVolumeResources()
     }
     m_ptVolumeDescriptorSetLayout = std::move(*descriptorSetLayoutResource);
 
+    // A descriptor pool is the memory descriptor sets are allocated from; it
+    // must be sized for everything we will allocate: two sets, each with one
+    // dynamic uniform and seven image samplers. Two sets are needed because
+    // each ping-pong accumulation image is bound as tPreviousTexture in one.
     std::array<VkDescriptorPoolSize, 2> poolSizes = {};
-    poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[0].descriptorCount = 1;
+    poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    poolSizes[0].descriptorCount = 2;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[1].descriptorCount = 7; // volume(1) + lut(4) + colormap(1) + previous(1)
+    poolSizes[1].descriptorCount = 16; // 2 x (volume(1) + lut(4) + colormap(1) + previous(1) + majorant(1))
 
     VkDescriptorPoolCreateInfo poolInfo = {};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.maxSets = 1;
+    poolInfo.maxSets = 2;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
     auto descriptorPool = m_backend.device().createDescriptorPool(poolInfo);
@@ -995,10 +1182,11 @@ RenderVkPT::ensurePtVolumeResources()
     VkDescriptorSetAllocateInfo allocateInfo = {};
     allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     allocateInfo.descriptorPool = m_ptVolumeDescriptorPool.get();
-    allocateInfo.descriptorSetCount = 1;
-    VkDescriptorSetLayout descriptorSetLayout = m_ptVolumeDescriptorSetLayout.get();
-    allocateInfo.pSetLayouts = &descriptorSetLayout;
-    if (vkAllocateDescriptorSets(device, &allocateInfo, &m_ptVolumeDescriptorSet) != VK_SUCCESS) {
+    allocateInfo.descriptorSetCount = 2;
+    const std::array<VkDescriptorSetLayout, 2> descriptorSetLayouts = { m_ptVolumeDescriptorSetLayout.get(),
+                                                                        m_ptVolumeDescriptorSetLayout.get() };
+    allocateInfo.pSetLayouts = descriptorSetLayouts.data();
+    if (vkAllocateDescriptorSets(device, &allocateInfo, m_ptVolumeDescriptorSets.data()) != VK_SUCCESS) {
       LOG_ERROR << "vkAllocateDescriptorSets for pathtrace volume failed";
       return false;
     }
@@ -1132,9 +1320,61 @@ RenderVkPT::ensurePtVolumeResources()
 }
 
 bool
-RenderVkPT::updatePtVolumeUniforms(const CCamera& camera, int sampleCounter)
+RenderVkPT::ensurePtUniformCapacity(uint32_t count)
+{
+  // Make sure the uniform ring has at least `count` slots. Most frames this is
+  // a no-op; it only allocates when a frame asks for more iterations than any
+  // frame before it.
+  count = std::max<uint32_t>(1, count);
+  if (m_ptVolumeUniformBuffer && m_ptUniformMapped && m_ptUniformCapacity >= count) {
+    return true;
+  }
+
+  VkDevice device = m_backend.logicalDevice();
+  if (m_ptUniformStride == 0) {
+    // Vulkan only allows a dynamic uniform offset that is a multiple of the
+    // device's minUniformBufferOffsetAlignment (commonly 16 to 256 bytes).
+    // Round the slot size up to that multiple once; the device never changes.
+    VkPhysicalDeviceProperties properties = {};
+    vkGetPhysicalDeviceProperties(m_backend.physicalDevice(), &properties);
+    const VkDeviceSize align = std::max<VkDeviceSize>(1, properties.limits.minUniformBufferOffsetAlignment);
+    m_ptUniformStride = (sizeof(PtVolumeUniforms) + align - 1) / align * align;
+  }
+
+  // Release the old, too-small ring. It is safe to do this immediately: every
+  // submission waits for the GPU to finish, so nothing is still reading it.
+  if (m_ptUniformMapped) {
+    vkUnmapMemory(device, m_ptVolumeUniformBuffer.memory());
+    m_ptUniformMapped = nullptr;
+  }
+  m_ptVolumeUniformBuffer.reset();
+  m_ptUniformCapacity = 0;
+
+  // Allocate the new ring in CPU-visible memory and map it once. Mapping gives
+  // us a plain pointer the CPU can write through; "host coherent" memory means
+  // those writes are visible to the GPU without any extra flush call.
+  auto buffer = createUniformBuffer(m_backend, m_ptUniformStride * count);
+  if (!buffer) {
+    return false;
+  }
+  void* mapped = nullptr;
+  if (vkMapMemory(device, buffer->memory(), 0, m_ptUniformStride * count, 0, &mapped) != VK_SUCCESS) {
+    return false;
+  }
+  m_ptVolumeUniformBuffer = std::move(*buffer);
+  // Left mapped for the buffer's lifetime.
+  m_ptUniformMapped = mapped;
+  m_ptUniformCapacity = count;
+  return true;
+}
+
+bool
+RenderVkPT::updatePtVolumeUniforms(const CCamera& camera, int firstSample, uint32_t iterations)
 {
   if (!m_scene || !m_scene->m_volume || !m_renderSettings) {
+    return false;
+  }
+  if (!ensurePtUniformCapacity(iterations)) {
     return false;
   }
 
@@ -1258,6 +1498,10 @@ RenderVkPT::updatePtVolumeUniforms(const CCamera& camera, int sampleCounter)
   u.g_lutMin = lutMin;
   u.g_labels = labels;
 
+  if (!updateMajorantGrid(&u, maxOpacity)) {
+    return false;
+  }
+
   if (m_scene->m_clipPlane && m_scene->m_clipPlane->m_enabled) {
     Plane p = Plane().transform(m_scene->m_clipPlane->m_transform.getMatrix());
     u.g_clipPlane = p.asVec4();
@@ -1265,23 +1509,101 @@ RenderVkPT::updatePtVolumeUniforms(const CCamera& camera, int sampleCounter)
     u.g_clipPlane = glm::vec4(0.0f);
   }
 
-  u.uFrameCounter = static_cast<float>(sampleCounter + 1);
-  u.uSampleCounter = static_cast<float>(sampleCounter);
   u.uResolution =
     glm::vec2(static_cast<float>(std::max<uint32_t>(1, m_w)), static_cast<float>(std::max<uint32_t>(1, m_h)));
 
-  void* mapped = nullptr;
-  vkMapMemory(m_backend.logicalDevice(), m_ptVolumeUniformBuffer.memory(), 0, sizeof(PtVolumeUniforms), 0, &mapped);
-  std::memcpy(mapped, &u, sizeof(PtVolumeUniforms));
-  vkUnmapMemory(m_backend.logicalDevice(), m_ptVolumeUniformBuffer.memory());
+  // Everything above is identical for every iteration of this frame. Only the
+  // two sample counters change, so write the block once per ring slot with
+  // just those fields patched. Slot i lives at byte offset i * stride.
+  //
+  // Overwriting from slot 0 is safe because the previous frame's submission
+  // has fully completed (endSingleTimeCommands waits for it), so the GPU is
+  // no longer reading any slot.
+  uint8_t* slots = static_cast<uint8_t*>(m_ptUniformMapped);
+  for (uint32_t i = 0; i < iterations; ++i) {
+    const int sampleCounter = firstSample + static_cast<int>(i);
+    u.uFrameCounter = static_cast<float>(sampleCounter + 1);
+    u.uSampleCounter = static_cast<float>(sampleCounter);
+    std::memcpy(slots + i * m_ptUniformStride, &u, sizeof(PtVolumeUniforms));
+  }
   return true;
 }
 
 bool
-RenderVkPT::updatePtVolumeDescriptorSet(VkImageView previousAccumView)
+RenderVkPT::updateMajorantGrid(void* uniforms, float maxOpacity)
 {
+  PtVolumeUniforms& u = *static_cast<PtVolumeUniforms*>(uniforms);
+  const VolumeCellBounds& bounds = volumeTexture().cellBounds();
+
+  if (!bounds.valid()) {
+    // No bounds (e.g. fused mode): keep a valid 1-cell texture bound and tell
+    // the shader not to traverse it.
+    u.gMajorantGridDim = glm::vec3(1.0f);
+    u.gMajorantGridScale = glm::vec3(1.0f);
+    u.gUseMajorantGrid = 0.0f;
+    if (!volumeTexture().hasMajorantGrid() || volumeTexture().majorantGridDim() != glm::ivec3(1)) {
+      const uint8_t one = 255;
+      m_majorantKey.clear();
+      return volumeTexture().uploadMajorantGrid(&one, glm::ivec3(1));
+    }
+    return true;
+  }
+
+  // Everything the ratios depend on, flattened so a plain comparison detects
+  // any change (voxel upload, channel set, opacity, transfer function, data
+  // range). Opacity edits in particular set no dirty flag.
+  std::vector<float> key;
+  key.reserve(8 + 4 * (4 + 2 * kMaxNoTfNodes));
+  key.push_back(static_cast<float>(volumeTexture().volumeGeneration()));
+  key.push_back(static_cast<float>(u.g_nChannels));
+  key.push_back(maxOpacity);
+  for (int s = 0; s < 4; ++s) {
+    key.push_back(u.g_opacity[s].x);
+    key.push_back(u.g_intensityMin[s]);
+    key.push_back(u.g_intensityMax[s]);
+    key.push_back(static_cast<float>(u.g_tf_nNodes[s]));
+    for (uint32_t j = 0; j < kMaxNoTfNodes; ++j) {
+      key.push_back(u.g_tf[s * kMaxNoTfNodes + j].x);
+      key.push_back(u.g_tf[s * kMaxNoTfNodes + j].y);
+    }
+  }
+
+  // Cells are cellVoxels wide in voxel space, so the last cell along an axis
+  // whose size is not a multiple of cellVoxels extends past the volume. The
+  // shader therefore maps texcoords with this scale rather than with gridDim.
+  u.gMajorantGridDim = glm::vec3(bounds.gridDim);
+  u.gMajorantGridScale = glm::vec3(m_scene->m_volume->sizeX(), m_scene->m_volume->sizeY(), m_scene->m_volume->sizeZ()) /
+                         static_cast<float>(bounds.cellVoxels);
+  // AGAVE_PT_DISABLE_MAJORANT_GRID=1 in the environment turns the grid off in
+  // the shader (the grid is still built) for A/B performance comparisons.
+  u.gUseMajorantGrid = std::getenv("AGAVE_PT_DISABLE_MAJORANT_GRID") ? 0.0f : 1.0f;
+  if (volumeTexture().hasMajorantGrid() && volumeTexture().majorantGridDim() == bounds.gridDim &&
+      key == m_majorantKey) {
+    return true;
+  }
+
+  const std::vector<uint8_t> ratios = buildMajorantRatios(bounds, u, maxOpacity);
+
+  if (!volumeTexture().uploadMajorantGrid(ratios.data(), bounds.gridDim)) {
+    return false;
+  }
+  m_majorantKey = std::move(key);
+  return true;
+}
+
+bool
+RenderVkPT::updatePtVolumeDescriptorSets()
+{
+  // Fill in both descriptor sets for the path-trace shader. Each binding
+  // number below matches a `layout(set = 0, binding = N)` declaration in
+  // pathTraceVolume.frag. The two sets differ only in binding 4 (the
+  // previous-estimate texture): set k reads accumulation image k.
   const VolumeTextureVk& vol = volumeTexture();
 
+  // Binding 0: the uniform ring. With a DYNAMIC uniform descriptor, `offset`
+  // is a base and `range` is the size of ONE slot; the per-draw dynamic
+  // offset passed to vkCmdBindDescriptorSets is added to the base at draw
+  // time to select the slot.
   VkDescriptorBufferInfo bufferInfo = {};
   bufferInfo.buffer = m_ptVolumeUniformBuffer.get();
   bufferInfo.offset = 0;
@@ -1304,80 +1626,98 @@ RenderVkPT::updatePtVolumeDescriptorSet(VkImageView previousAccumView)
   colormapInfo.imageView = vol.transferView();
   colormapInfo.sampler = vol.transferSampler();
 
-  VkDescriptorImageInfo previousInfo = {};
-  previousInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  previousInfo.imageView = previousAccumView;
-  previousInfo.sampler = m_framebufferSampler.get();
+  // Binding 4: the accumulation image this set treats as "previous estimate".
+  std::array<VkDescriptorImageInfo, 2> previousInfos = {};
+  for (int k = 0; k < 2; ++k) {
+    previousInfos[k].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    previousInfos[k].imageView = m_accum[k]->colorImageView();
+    previousInfos[k].sampler = m_framebufferSampler.get();
+  }
 
-  std::array<VkWriteDescriptorSet, 5> writes = {};
-  writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  writes[0].dstSet = m_ptVolumeDescriptorSet;
-  writes[0].dstBinding = 0;
-  writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  writes[0].descriptorCount = 1;
-  writes[0].pBufferInfo = &bufferInfo;
+  VkDescriptorImageInfo majorantInfo = {};
+  majorantInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  majorantInfo.imageView = vol.majorantView();
+  majorantInfo.sampler = vol.majorantSampler();
 
-  writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  writes[1].dstSet = m_ptVolumeDescriptorSet;
-  writes[1].dstBinding = 1;
-  writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  writes[1].descriptorCount = 1;
-  writes[1].pImageInfo = &volumeInfo;
+  // Six bindings times two sets, written in a single vkUpdateDescriptorSets
+  // call. `w` points at the six writes belonging to set k.
+  std::array<VkWriteDescriptorSet, 12> writes = {};
+  for (size_t k = 0; k < 2; ++k) {
+    VkWriteDescriptorSet* w = &writes[k * 6];
+    w[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    w[0].dstSet = m_ptVolumeDescriptorSets[k];
+    w[0].dstBinding = 0;
+    w[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    w[0].descriptorCount = 1;
+    w[0].pBufferInfo = &bufferInfo;
 
-  writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  writes[2].dstSet = m_ptVolumeDescriptorSet;
-  writes[2].dstBinding = 2;
-  writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  writes[2].descriptorCount = static_cast<uint32_t>(lutInfos.size());
-  writes[2].pImageInfo = lutInfos.data();
+    w[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    w[1].dstSet = m_ptVolumeDescriptorSets[k];
+    w[1].dstBinding = 1;
+    w[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    w[1].descriptorCount = 1;
+    w[1].pImageInfo = &volumeInfo;
 
-  writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  writes[3].dstSet = m_ptVolumeDescriptorSet;
-  writes[3].dstBinding = 3;
-  writes[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  writes[3].descriptorCount = 1;
-  writes[3].pImageInfo = &colormapInfo;
+    w[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    w[2].dstSet = m_ptVolumeDescriptorSets[k];
+    w[2].dstBinding = 2;
+    w[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    w[2].descriptorCount = static_cast<uint32_t>(lutInfos.size());
+    w[2].pImageInfo = lutInfos.data();
 
-  writes[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  writes[4].dstSet = m_ptVolumeDescriptorSet;
-  writes[4].dstBinding = 4;
-  writes[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  writes[4].descriptorCount = 1;
-  writes[4].pImageInfo = &previousInfo;
+    w[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    w[3].dstSet = m_ptVolumeDescriptorSets[k];
+    w[3].dstBinding = 3;
+    w[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    w[3].descriptorCount = 1;
+    w[3].pImageInfo = &colormapInfo;
+
+    w[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    w[4].dstSet = m_ptVolumeDescriptorSets[k];
+    w[4].dstBinding = 4;
+    w[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    w[4].descriptorCount = 1;
+    w[4].pImageInfo = &previousInfos[k];
+
+    w[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    w[5].dstSet = m_ptVolumeDescriptorSets[k];
+    w[5].dstBinding = 5;
+    w[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    w[5].descriptorCount = 1;
+    w[5].pImageInfo = &majorantInfo;
+  }
 
   vkUpdateDescriptorSets(m_backend.logicalDevice(), static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
   return true;
 }
 
 void
-RenderVkPT::renderPtVolume(Framebuffer& target)
+RenderVkPT::recordPtVolumePass(VkCommandBuffer commandBuffer,
+                               int targetIndex,
+                               int previousIndex,
+                               uint32_t dynamicOffset)
 {
-  VkCommandBuffer commandBuffer = m_backend.beginSingleTimeCommands();
+  Framebuffer& target = *m_accum[targetIndex];
+
+  // Image layout transitions double as synchronization. The previous image
+  // was just rendered into by the last iteration (or the last frame); marking
+  // it "shader read only" makes the GPU finish those writes before this
+  // iteration samples it. Likewise marking the target "color attachment"
+  // makes the GPU finish any earlier reads of it before we overwrite it.
+  // transitionColorImage() is a no-op if the image is already in that layout,
+  // which is the case for the very first iteration of a frame.
+  m_accum[previousIndex]->transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   target.transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-  VkFramebufferCreateInfo framebufferInfo = {};
-  framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-  framebufferInfo.renderPass = m_ptVolumeRenderPass.get();
-  framebufferInfo.attachmentCount = 1;
-  VkImageView attachment = target.colorImageView();
-  framebufferInfo.pAttachments = &attachment;
-  framebufferInfo.width = target.width();
-  framebufferInfo.height = target.height();
-  framebufferInfo.layers = 1;
-
-  auto vkFramebuffer = m_backend.device().createFramebuffer(framebufferInfo);
-  if (!vkFramebuffer) {
-    m_backend.endSingleTimeCommands(commandBuffer);
-    return;
-  }
-
+  // The render pass clears the target first; every pixel is then fully
+  // rewritten by the full-screen draw below.
   VkClearValue clearValue = {};
   clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
 
   VkRenderPassBeginInfo renderPassBegin = {};
   renderPassBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
   renderPassBegin.renderPass = m_ptVolumeRenderPass.get();
-  renderPassBegin.framebuffer = vkFramebuffer->get();
+  renderPassBegin.framebuffer = m_accumVkFramebuffers[targetIndex].get();
   renderPassBegin.renderArea.offset = { 0, 0 };
   renderPassBegin.renderArea.extent = { target.width(), target.height() };
   renderPassBegin.clearValueCount = 1;
@@ -1394,14 +1734,19 @@ RenderVkPT::renderPtVolume(Framebuffer& target)
   vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
   vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
   vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_ptVolumePipeline.get());
+  // Bind the descriptor set whose "previous estimate" texture is the image we
+  // read from, and select this iteration's uniform slot with the dynamic
+  // offset (the last two arguments: one dynamic offset, its value in bytes).
   vkCmdBindDescriptorSets(commandBuffer,
                           VK_PIPELINE_BIND_POINT_GRAPHICS,
                           m_ptVolumePipelineLayout.get(),
                           0,
                           1,
-                          &m_ptVolumeDescriptorSet,
-                          0,
-                          nullptr);
+                          &m_ptVolumeDescriptorSets[previousIndex],
+                          1,
+                          &dynamicOffset);
+  // Draw two triangles covering the whole target; the fragment shader runs
+  // once per pixel and does all the path-tracing work.
   VkDeviceSize offset = 0;
   VkBuffer quadVertexBuffer = m_quadVertexBuffer.get();
   vkCmdBindVertexBuffers(commandBuffer, 0, 1, &quadVertexBuffer, &offset);
@@ -1409,7 +1754,6 @@ RenderVkPT::renderPtVolume(Framebuffer& target)
   vkCmdDrawIndexed(commandBuffer, m_quadIndexCount, 1, 0, 0, 0);
 
   vkCmdEndRenderPass(commandBuffer);
-  m_backend.endSingleTimeCommands(commandBuffer);
 }
 
 void
@@ -1476,26 +1820,13 @@ RenderVkPT::runAccumulationPass(Framebuffer& framebuffer)
 }
 
 void
-RenderVkPT::runToneMapPass(Framebuffer& framebuffer)
+RenderVkPT::recordToneMapPass(VkCommandBuffer commandBuffer, Framebuffer& framebuffer)
 {
-  VkCommandBuffer commandBuffer = m_backend.beginSingleTimeCommands();
+  // The caller's framebuffer may have been drawn into or read before this
+  // (e.g. the bounding-box underlay); make it a render target again. The
+  // tone-map render pass uses LOAD rather than CLEAR so that underlay
+  // survives and the volume is alpha-blended on top of it.
   framebuffer.transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-  VkFramebufferCreateInfo framebufferInfo = {};
-  framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-  framebufferInfo.renderPass = m_toneMapRenderPass.get();
-  framebufferInfo.attachmentCount = 1;
-  VkImageView attachment = framebuffer.colorImageView();
-  framebufferInfo.pAttachments = &attachment;
-  framebufferInfo.width = framebuffer.width();
-  framebufferInfo.height = framebuffer.height();
-  framebufferInfo.layers = 1;
-
-  auto vkFramebuffer = m_backend.device().createFramebuffer(framebufferInfo);
-  if (!vkFramebuffer) {
-    m_backend.endSingleTimeCommands(commandBuffer);
-    return;
-  }
 
   VkClearValue clearValue = {};
   clearValue.color = { { 0.0f, 0.0f, 0.0f, 1.0f } };
@@ -1503,7 +1834,7 @@ RenderVkPT::runToneMapPass(Framebuffer& framebuffer)
   VkRenderPassBeginInfo renderPassBegin = {};
   renderPassBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
   renderPassBegin.renderPass = m_toneMapRenderPass.get();
-  renderPassBegin.framebuffer = vkFramebuffer->get();
+  renderPassBegin.framebuffer = m_toneMapVkFramebuffer.get();
   renderPassBegin.renderArea.offset = { 0, 0 };
   renderPassBegin.renderArea.extent = { framebuffer.width(), framebuffer.height() };
   renderPassBegin.clearValueCount = 1;
@@ -1535,15 +1866,6 @@ RenderVkPT::runToneMapPass(Framebuffer& framebuffer)
   vkCmdDrawIndexed(commandBuffer, m_quadIndexCount, 1, 0, 0, 0);
 
   vkCmdEndRenderPass(commandBuffer);
-  m_backend.endSingleTimeCommands(commandBuffer);
-}
-
-void
-RenderVkPT::transitionToShaderRead(Framebuffer& framebuffer)
-{
-  VkCommandBuffer commandBuffer = m_backend.beginSingleTimeCommands();
-  framebuffer.transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-  m_backend.endSingleTimeCommands(commandBuffer);
 }
 
 void
@@ -1551,8 +1873,11 @@ RenderVkPT::destroyFullscreenResources()
 {
   m_displayFramebuffer.reset();
   m_sampleFramebuffer.reset();
-  m_accumFramebuffer.reset();
-  m_accumScratchFramebuffer.reset();
+  m_accumVkFramebuffers[0].reset();
+  m_accumVkFramebuffers[1].reset();
+  m_toneMapVkFramebuffer.reset();
+  m_accum[0].reset();
+  m_accum[1].reset();
 
   destroyPipelines();
 
@@ -1577,9 +1902,14 @@ RenderVkPT::destroyFullscreenResources()
 
   // Path-trace volume pass resources.
   m_ptVolumeDescriptorPool.reset();
-  m_ptVolumeDescriptorSet = VK_NULL_HANDLE;
+  m_ptVolumeDescriptorSets = { VK_NULL_HANDLE, VK_NULL_HANDLE };
   m_ptVolumeDescriptorSetLayout.reset();
+  if (m_ptUniformMapped) {
+    vkUnmapMemory(device, m_ptVolumeUniformBuffer.memory());
+    m_ptUniformMapped = nullptr;
+  }
   m_ptVolumeUniformBuffer.reset();
+  m_ptUniformCapacity = 0;
   m_dummyLutTexture.reset();
 }
 

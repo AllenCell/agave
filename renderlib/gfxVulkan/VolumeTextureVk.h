@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <vector>
 
 class Scene;
 
@@ -24,11 +25,36 @@ enum class VolumeTextureMode
   RawRgba16,
 };
 
+// Per-cell raw intensity bounds of the uploaded volume on a coarse grid. Cell
+// (x, y, z) covers voxels [x*cellVoxels, (x+1)*cellVoxels) etc., dilated by one
+// voxel on every side (with wrap-around, matching the REPEAT sampler) so that
+// any trilinearly filtered sample taken inside the cell lies within the bounds.
+// Values are indexed [slot * cellCount + cell] where slot is the position of
+// the channel in the uploaded texture.
+struct VolumeCellBounds
+{
+  glm::ivec3 gridDim = glm::ivec3(0);
+  int cellVoxels = 1;
+  uint32_t slots = 0;
+  std::vector<uint16_t> minValue;
+  std::vector<uint16_t> maxValue;
+
+  size_t cellCount() const
+  {
+    return static_cast<size_t>(gridDim.x) * static_cast<size_t>(gridDim.y) * static_cast<size_t>(gridDim.z);
+  }
+  bool valid() const { return slots > 0 && cellCount() > 0; }
+};
+
 class VolumeTextureVk
 {
 public:
   static constexpr uint32_t kTransferSize = 256;
   static constexpr uint32_t kTransferLayers = 4;
+  // Target number of majorant-grid cells along the longest volume axis. The
+  // cell size in voxels is the longest dimension divided by this, so the grid
+  // is at most this many cells per axis regardless of volume resolution.
+  static constexpr int kMajorantGridTarget = 16;
 
   explicit VolumeTextureVk(Backend& backend);
   ~VolumeTextureVk();
@@ -55,6 +81,20 @@ public:
   VkSampler volumeSampler() const { return m_volumeTexture.sampler(); }
   VkImageView transferView() const { return m_transferTexture.view(); }
   VkSampler transferSampler() const { return m_transferTexture.sampler(); }
+
+  // Cell bounds of the current raw upload (empty for FusedRgba8 mode).
+  const VolumeCellBounds& cellBounds() const { return m_cellBounds; }
+  // Incremented on every volume voxel upload; lets callers notice that cached
+  // data derived from the voxels (such as the majorant grid) is stale.
+  uint64_t volumeGeneration() const { return m_volumeGeneration; }
+
+  // Upload the path tracer's majorant grid: one R8_UNORM texel per cell holding
+  // the cell's extinction bound as a fraction of the global majorant.
+  bool uploadMajorantGrid(const uint8_t* ratios, glm::ivec3 gridDim);
+  bool hasMajorantGrid() const { return m_majorantTexture.valid(); }
+  VkImageView majorantView() const { return m_majorantTexture.view(); }
+  VkSampler majorantSampler() const { return m_majorantTexture.sampler(); }
+  glm::ivec3 majorantGridDim() const { return m_majorantExtent; }
 
   glm::vec4 lutMin() const { return m_lutMin; }
   glm::vec4 lutMax() const { return m_lutMax; }
@@ -93,6 +133,8 @@ private:
   bool uploadFused(const Scene& scene, bool linearFiltering);
   bool uploadRaw(const Scene& scene, bool linearFiltering);
   std::array<uint32_t, 4> activeChannels(const Scene& scene) const;
+  // Compute m_cellBounds for `slots` channels of the image.
+  void computeCellBounds(const Scene& scene, const std::array<uint32_t, 4>& channels, uint32_t slots);
 
   // Fill `transfer` with the per-channel colormap bytes used by RawRgba16 mode
   // and refresh m_lutMin / m_lutMax for the active channels. Shared by
@@ -111,6 +153,10 @@ private:
 
   resources::SampledImage m_volumeTexture;
   resources::SampledImage m_transferTexture;
+  resources::SampledImage m_majorantTexture;
+  glm::ivec3 m_majorantExtent = glm::ivec3(0);
+  VolumeCellBounds m_cellBounds;
+  uint64_t m_volumeGeneration = 0;
 
   // Shape the volume image was created with, so a re-upload of the same shape
   // can reuse it instead of destroying and recreating it every frame.

@@ -39,7 +39,10 @@ set(LIBCZI_DO_NOT_SET_MSVC_RUNTIME_LIBRARY ON)
 set(LIBCZI_BUILD_UNITTESTS OFF)
 set(LIBCZI_BUILD_DYNLIB ON)
 set(LIBCZI_BUILD_CZICMD OFF)
-add_subdirectory(libCZI)
+# EXCLUDE_FROM_ALL also suppresses install rules below this directory, which is
+# how the zstd libCZI fetches is kept out of the Agave install tree. The libCZI
+# shared library itself is installed explicitly by agave_app and agave_pyvk.
+add_subdirectory(libCZI EXCLUDE_FROM_ALL)
 
 # end libczi dependency
 
@@ -56,12 +59,24 @@ set(DCMTK_WITH_TIFF OFF CACHE BOOL "DCMTK TIFF support" FORCE)
 set(DCMTK_WITH_XML OFF CACHE BOOL "DCMTK XML support" FORCE)
 set(DCMTK_WITH_OPENJPEG OFF CACHE BOOL "DCMTK JPEG 2000 support" FORCE)
 set(DCMTK_WITH_DOXYGEN OFF CACHE BOOL "DCMTK API documentation" FORCE)
+# DCMTK is statically linked into renderlib, so nothing it installs (headers,
+# docs, pkgconfig, export files, static libs) belongs in the Agave install tree.
+# EXCLUDE_FROM_ALL suppresses those install rules.
 FetchContent_Declare(
   dcmtk
   URL "https://github.com/DCMTK/dcmtk/archive/refs/tags/DCMTK-3.7.0.tar.gz"
   URL_HASH SHA256=5bb3ec8317dc465788bed2ca789e76d03ae5848c9381cce3b14c1a3f8b6aca56
+  EXCLUDE_FROM_ALL
 )
+set(DCMTK_COMPILE_WIN32_MULTITHREADED_DLL ON CACHE BOOL
+    "Compile DCMTK using the DLL runtime" FORCE)
 FetchContent_MakeAvailable(dcmtk)
+foreach(_target IN ITEMS
+    ofstd oflog oficonv dcmdata dcmimgle dcmimage dcmjpeg dcmjpls)
+  if(TARGET ${_target})
+    set_property(TARGET ${_target} PROPERTY POSITION_INDEPENDENT_CODE ON)
+  endif()
+endforeach()
 
 # Use these system/vcpkg-provided dependencies instead of tensorstore's bundled ones.
 set(TENSORSTORE_USE_SYSTEM_TIFF ON)

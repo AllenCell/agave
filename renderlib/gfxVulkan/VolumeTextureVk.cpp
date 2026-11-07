@@ -64,6 +64,9 @@ VolumeTextureVk::release()
 {
   m_transferTexture.reset();
   m_volumeTexture.reset();
+  m_majorantTexture.reset();
+  m_majorantExtent = glm::ivec3(0);
+  m_cellBounds = VolumeCellBounds();
 
   if (m_staging && m_stagingMapped) {
     vkUnmapMemory(m_backend.logicalDevice(), m_staging->memory());
@@ -233,6 +236,7 @@ VolumeTextureVk::uploadVolumeFrom(const std::function<void(void* mapped)>& fill,
   m_dimensions = glm::ivec3(static_cast<int>(width), static_cast<int>(height), static_cast<int>(depth));
   m_gpuBytes += byteCount;
   m_linearFiltering = linearFiltering;
+  ++m_volumeGeneration;
 
   return true;
 }
@@ -505,6 +509,8 @@ VolumeTextureVk::uploadFused(const Scene& scene, bool linearFiltering)
     });
   };
 
+  m_cellBounds = VolumeCellBounds();
+
   return uploadVolumeFrom(fill,
                           voxelCount * 4,
                           VK_FORMAT_R8G8B8A8_UNORM,
@@ -525,28 +531,204 @@ VolumeTextureVk::uploadRaw(const Scene& scene, bool linearFiltering)
   std::array<uint8_t, kTransferSize * kTransferLayers * 4> transfer = {};
   buildRawTransferBytes(scene, channels, transfer);
 
+  // Use the narrowest 16-bit format that holds every enabled channel. The
+  // shaders only read components below the active channel count, and a
+  // texture fetch fills missing components with 0 (and 1 for alpha), so a
+  // one- or two-channel volume renders identically from R16 / RG16 while
+  // costing a quarter or half of the memory traffic of RGBA16. Three channels
+  // still use RGBA16 because RGB16 is not a required sampled format.
+  uint32_t enabledCount = 0;
+  for (uint32_t c = 0; c < img->sizeC() && c < MAX_CPU_CHANNELS; ++c) {
+    if (scene.m_material.m_enabled[c]) {
+      ++enabledCount;
+    }
+  }
+  uint32_t components = 4;
+  VkFormat format = VK_FORMAT_R16G16B16A16_UNORM;
+  if (enabledCount <= 1) {
+    components = 1;
+    format = VK_FORMAT_R16_UNORM;
+  } else if (enabledCount == 2) {
+    components = 2;
+    format = VK_FORMAT_R16G16_UNORM;
+  }
+
   // Interleave directly into staging: one pass over the volume, no intermediate
   // vector and no copy from it into the staging buffer.
-  auto fill = [voxelCount, img, &channels](void* mapped) {
-    uint16_t* rgba16 = static_cast<uint16_t*>(mapped);
-    parallel_for(voxelCount, [rgba16, img, &channels](size_t s, size_t e) {
-      for (size_t i = s; i < e; ++i) {
-        rgba16[i * 4 + 0] = img->channel(channels[0])->m_ptr[i];
-        rgba16[i * 4 + 1] = img->channel(channels[1])->m_ptr[i];
-        rgba16[i * 4 + 2] = img->channel(channels[2])->m_ptr[i];
-        rgba16[i * 4 + 3] = img->channel(channels[3])->m_ptr[i];
-      }
-    });
+  auto fill = [voxelCount, img, &channels, components](void* mapped) {
+    uint16_t* out = static_cast<uint16_t*>(mapped);
+    if (components == 1) {
+      const uint16_t* src = img->channel(channels[0])->m_ptr;
+      parallel_for(voxelCount,
+                   [out, src](size_t s, size_t e) { std::memcpy(out + s, src + s, (e - s) * sizeof(uint16_t)); });
+    } else if (components == 2) {
+      const uint16_t* src0 = img->channel(channels[0])->m_ptr;
+      const uint16_t* src1 = img->channel(channels[1])->m_ptr;
+      parallel_for(voxelCount, [out, src0, src1](size_t s, size_t e) {
+        for (size_t i = s; i < e; ++i) {
+          out[i * 2 + 0] = src0[i];
+          out[i * 2 + 1] = src1[i];
+        }
+      });
+    } else {
+      parallel_for(voxelCount, [out, img, &channels](size_t s, size_t e) {
+        for (size_t i = s; i < e; ++i) {
+          out[i * 4 + 0] = img->channel(channels[0])->m_ptr[i];
+          out[i * 4 + 1] = img->channel(channels[1])->m_ptr[i];
+          out[i * 4 + 2] = img->channel(channels[2])->m_ptr[i];
+          out[i * 4 + 3] = img->channel(channels[3])->m_ptr[i];
+        }
+      });
+    }
   };
 
+  computeCellBounds(scene, channels, std::max<uint32_t>(1, enabledCount));
+
   return uploadVolumeFrom(fill,
-                          voxelCount * 4 * sizeof(uint16_t),
-                          VK_FORMAT_R16G16B16A16_UNORM,
+                          voxelCount * components * sizeof(uint16_t),
+                          format,
                           static_cast<uint32_t>(img->sizeX()),
                           static_cast<uint32_t>(img->sizeY()),
                           static_cast<uint32_t>(img->sizeZ()),
                           linearFiltering) &&
          uploadTransferBytes(transfer.data(), transfer.size());
+}
+
+void
+VolumeTextureVk::computeCellBounds(const Scene& scene, const std::array<uint32_t, 4>& channels, uint32_t slots)
+{
+  ImageXYZC* img = scene.m_volume.get();
+  const int nx = static_cast<int>(img->sizeX());
+  const int ny = static_cast<int>(img->sizeY());
+  const int nz = static_cast<int>(img->sizeZ());
+  const int maxDim = std::max(nx, std::max(ny, nz));
+  const int cell = std::max(1, (maxDim + kMajorantGridTarget - 1) / kMajorantGridTarget);
+
+  VolumeCellBounds bounds;
+  bounds.cellVoxels = cell;
+  bounds.gridDim = glm::ivec3((nx + cell - 1) / cell, (ny + cell - 1) / cell, (nz + cell - 1) / cell);
+  bounds.slots = slots;
+  const size_t cellCount = bounds.cellCount();
+  bounds.minValue.assign(cellCount * slots, 0xffff);
+  bounds.maxValue.assign(cellCount * slots, 0);
+
+  const int gx = bounds.gridDim.x;
+  const int gy = bounds.gridDim.y;
+  const int gz = bounds.gridDim.z;
+  const size_t sliceStride = static_cast<size_t>(nx) * static_cast<size_t>(ny);
+
+  // One task per grid z-slab. Each cell scans its voxel block dilated by one
+  // voxel on every side; indices wrap around the volume to match the REPEAT
+  // sampler, which blends the first and last voxel rows together.
+  parallel_for(static_cast<size_t>(gz), [&](size_t s, size_t e) {
+    for (size_t cz = s; cz < e; ++cz) {
+      const int z0 = static_cast<int>(cz) * cell - 1;
+      const int z1 = std::min(nz - 1, static_cast<int>(cz + 1) * cell); // inclusive, before wrap
+      for (int cy = 0; cy < gy; ++cy) {
+        const int y0 = cy * cell - 1;
+        const int y1 = std::min(ny - 1, (cy + 1) * cell);
+        for (int cx = 0; cx < gx; ++cx) {
+          const int x0 = cx * cell - 1;
+          const int x1 = std::min(nx - 1, (cx + 1) * cell);
+          const size_t cellIndex = (cz * gy + cy) * gx + cx;
+          for (uint32_t slot = 0; slot < slots; ++slot) {
+            const uint16_t* src = img->channel(channels[slot])->m_ptr;
+            uint16_t lo = 0xffff;
+            uint16_t hi = 0;
+            for (int z = z0; z <= z1; ++z) {
+              const int zz = (z + nz) % nz;
+              for (int y = y0; y <= y1; ++y) {
+                const int yy = (y + ny) % ny;
+                const uint16_t* row = src + zz * sliceStride + static_cast<size_t>(yy) * nx;
+                for (int x = x0; x <= x1; ++x) {
+                  const uint16_t v = row[(x + nx) % nx];
+                  lo = std::min(lo, v);
+                  hi = std::max(hi, v);
+                }
+              }
+            }
+            bounds.minValue[slot * cellCount + cellIndex] = lo;
+            bounds.maxValue[slot * cellCount + cellIndex] = hi;
+          }
+        }
+      }
+    }
+  });
+
+  m_cellBounds = std::move(bounds);
+}
+
+bool
+VolumeTextureVk::uploadMajorantGrid(const uint8_t* ratios, glm::ivec3 gridDim)
+{
+  if (!ratios || gridDim.x <= 0 || gridDim.y <= 0 || gridDim.z <= 0) {
+    return false;
+  }
+  const size_t byteCount =
+    static_cast<size_t>(gridDim.x) * static_cast<size_t>(gridDim.y) * static_cast<size_t>(gridDim.z);
+
+  const bool imageExisted = m_majorantTexture.valid() && m_majorantExtent == gridDim;
+  if (!imageExisted) {
+    auto image = m_backend.device().createImage(static_cast<uint32_t>(gridDim.x),
+                                                static_cast<uint32_t>(gridDim.y),
+                                                static_cast<uint32_t>(gridDim.z),
+                                                1,
+                                                VK_FORMAT_R8_UNORM,
+                                                VK_IMAGE_TYPE_3D,
+                                                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+    if (!image) {
+      return false;
+    }
+    auto view = m_backend.device().createImageView(
+      image->get(), VK_FORMAT_R8_UNORM, VK_IMAGE_VIEW_TYPE_3D, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+    if (!view) {
+      return false;
+    }
+    // Fetched with texelFetch, so the filter mode is irrelevant; the sampler is
+    // only required by the combined-image-sampler binding.
+    auto sampler = createSampler(false, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+    if (!sampler) {
+      return false;
+    }
+    m_majorantTexture = resources::SampledImage(std::move(*image), std::move(*view), std::move(*sampler));
+    m_majorantExtent = gridDim;
+  }
+
+  auto staging =
+    m_backend.device().createBuffer(static_cast<VkDeviceSize>(byteCount),
+                                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  if (!staging) {
+    return false;
+  }
+  void* mapped = nullptr;
+  if (vkMapMemory(m_backend.logicalDevice(), staging->memory(), 0, static_cast<VkDeviceSize>(byteCount), 0, &mapped) !=
+      VK_SUCCESS) {
+    return false;
+  }
+  std::memcpy(mapped, ratios, byteCount);
+  vkUnmapMemory(m_backend.logicalDevice(), staging->memory());
+
+  const VkImageLayout oldLayout = imageExisted ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
+  VkCommandBuffer commandBuffer = m_backend.beginSingleTimeCommands();
+  transitionImageLayout(commandBuffer,
+                        m_majorantTexture.image(),
+                        VK_IMAGE_ASPECT_COLOR_BIT,
+                        oldLayout,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  copyBufferToImage(commandBuffer,
+                    staging->get(),
+                    m_majorantTexture.image(),
+                    static_cast<uint32_t>(gridDim.x),
+                    static_cast<uint32_t>(gridDim.y),
+                    static_cast<uint32_t>(gridDim.z));
+  transitionImageLayout(commandBuffer,
+                        m_majorantTexture.image(),
+                        VK_IMAGE_ASPECT_COLOR_BIT,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  m_backend.endSingleTimeCommands(commandBuffer);
+  return true;
 }
 
 } // namespace gfxvulkan

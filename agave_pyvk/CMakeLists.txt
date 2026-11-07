@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.28)
 project(agave_pyvk VERSION 1.9.0 LANGUAGES CXX)
 
 if(POLICY CMP0207)
@@ -55,15 +55,8 @@ else()
           COMPONENT agave_pyvk)
 endif()
 if(APPLE)
-  # Vulkan::Vulkan normally resolves to the SDK's unversioned loader symlink,
-  # while its Mach-O install name is @rpath/libvulkan.1.dylib. Install the
-  # complete loader symlink chain so both names and the real file are present.
-  get_filename_component(_agave_pyvk_vulkan_library_dir "${Vulkan_LIBRARY}" DIRECTORY)
-  file(GLOB _agave_pyvk_vulkan_loader_files
-       "${_agave_pyvk_vulkan_library_dir}/libvulkan*.dylib")
-  install(FILES ${_agave_pyvk_vulkan_loader_files}
-          DESTINATION agave_pyvk
-          COMPONENT agave_pyvk)
+  agave_install_macos_vulkan(agave_pyvk agave_pyvk/share/vulkan/icd.d
+                            COMPONENT agave_pyvk)
 endif()
 if(TARGET libCZI)
   install(TARGETS libCZI
