@@ -56,10 +56,14 @@ set(DCMTK_WITH_TIFF OFF CACHE BOOL "DCMTK TIFF support" FORCE)
 set(DCMTK_WITH_XML OFF CACHE BOOL "DCMTK XML support" FORCE)
 set(DCMTK_WITH_OPENJPEG OFF CACHE BOOL "DCMTK JPEG 2000 support" FORCE)
 set(DCMTK_WITH_DOXYGEN OFF CACHE BOOL "DCMTK API documentation" FORCE)
+# DCMTK is statically linked into renderlib, so nothing it installs (headers,
+# docs, pkgconfig, export files, static libs) belongs in the Agave install tree.
+# EXCLUDE_FROM_ALL suppresses those install rules.
 FetchContent_Declare(
   dcmtk
   URL "https://github.com/DCMTK/dcmtk/archive/refs/tags/DCMTK-3.7.0.tar.gz"
   URL_HASH SHA256=5bb3ec8317dc465788bed2ca789e76d03ae5848c9381cce3b14c1a3f8b6aca56
+  EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(dcmtk)
 
