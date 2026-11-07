@@ -4,6 +4,16 @@
 
 set(AGAVE_HAS_VULKAN OFF)
 set(AGAVE_VULKAN_SDK_ROOT "$ENV{VULKAN_SDK}" CACHE PATH "Path to the Vulkan SDK platform directory")
+# A cached root goes stale when the SDK is upgraded or uninstalled; drop it so
+# VULKAN_SDK or the search below can supply a valid one.
+if(AGAVE_VULKAN_SDK_ROOT AND NOT EXISTS "${AGAVE_VULKAN_SDK_ROOT}/include/vulkan/vulkan.h")
+  message(STATUS "Ignoring stale AGAVE_VULKAN_SDK_ROOT: ${AGAVE_VULKAN_SDK_ROOT}")
+  if(EXISTS "$ENV{VULKAN_SDK}/include/vulkan/vulkan.h")
+    set(AGAVE_VULKAN_SDK_ROOT "$ENV{VULKAN_SDK}" CACHE PATH "Path to the Vulkan SDK platform directory" FORCE)
+  else()
+    unset(AGAVE_VULKAN_SDK_ROOT CACHE)
+  endif()
+endif()
 if(NOT AGAVE_VULKAN_SDK_ROOT)
   # No VULKAN_SDK env var and no cached value: look for a locally-installed
   # SDK in the platform's default install root and pick the highest version.
