@@ -431,14 +431,17 @@ RenderVkPT::ensureFramebuffers(uint32_t w, uint32_t h)
     return true;
   }
 
+  // Accumulation runs in 32-bit float so thousands of samples can be
+  // averaged without losing precision; the tone map converts to 8 bits.
   gfxApi::FramebufferDesc desc;
   desc.width = w;
   desc.height = h;
   desc.colorFormat = gfxApi::FramebufferColorFormat::Rgba32F;
   desc.depthStencil = false;
-  // The VkFramebuffer wrappers reference the old color views; drop them before
-  // the images they wrap go away. They are recreated lazily by
-  // ensureAccumVkFramebuffers once the render pass exists.
+  // The VkFramebuffer wrappers reference the old color image views; drop them
+  // before the images they wrap go away. They are recreated lazily by
+  // ensureAccumVkFramebuffers once the render pass exists (it may not yet on
+  // the very first frame).
   m_accumVkFramebuffers[0].reset();
   m_accumVkFramebuffers[1].reset();
   m_sampleFramebuffer = std::make_unique<Framebuffer>(m_backend, desc);
@@ -456,6 +459,9 @@ RenderVkPT::ensureFramebuffers(uint32_t w, uint32_t h)
 bool
 RenderVkPT::ensureAccumVkFramebuffers()
 {
+  // A VkFramebuffer pairs a render pass with the specific image view(s) it
+  // will draw into. Ours never change between resizes, so build them once
+  // here instead of allocating and freeing one on every iteration.
   if (m_accumVkFramebuffers[0] && m_accumVkFramebuffers[1]) {
     return true;
   }
@@ -985,47 +991,66 @@ RenderVkPT::renderToFramebufferPT(const CCamera& camera, Framebuffer& framebuffe
     return;
   }
 
-  // Each iteration computes one Monte Carlo sample and blends it against the
-  // previous accumulation using the shader's in-shader cumulative moving
-  // average. m_accum[m_accumIndex] holds the running estimate; each iteration
-  // reads it and writes the other image, then the index flips, so the freshly
-  // accumulated result becomes the new estimate (no explicit copy needed).
+  // Each iteration computes one Monte Carlo sample per pixel and blends it
+  // into the running average inside the shader. m_accum[m_accumIndex] holds
+  // the current estimate; an iteration reads it and writes the other image,
+  // then the index flips so the freshly accumulated result becomes the new
+  // estimate. No copy is needed.
   //
-  // All iterations of the frame plus the tone map are recorded into a single
-  // command buffer and submitted once. Per-iteration state that the GPU reads
-  // (uniforms) lives in a ring buffer addressed by dynamic offset, and the two
-  // ping-pong descriptor sets are written before recording starts.
+  // The whole frame (every iteration plus the tone map) is recorded into ONE
+  // command buffer and submitted once. That means everything the GPU will
+  // read must be prepared before recording starts:
+  //   - the per-iteration uniforms, written into consecutive ring slots;
+  //   - the two descriptor sets (one per accumulation image);
+  //   - the tone-map descriptor set, pointing at the image that will hold
+  //     the final estimate.
+  // Then the CPU records the draws, submits, and waits for the GPU once.
+
+  // How many samples to add this frame ("exposure iterations" in the UI) and
+  // the index of the first one, which seeds the shader's random sequence.
   const int exposureIterations = std::max(1, camera.m_Film.m_ExposureIterations);
   const uint32_t iterations = static_cast<uint32_t>(exposureIterations);
   const int firstSample = m_renderSettings->GetNoIterations();
   const auto sampleStart = std::chrono::high_resolution_clock::now();
 
+  // Step 1: prepare everything the GPU will read.
   if (!ensureAccumVkFramebuffers() || !ensureToneMapVkFramebuffer(framebuffer) ||
       !updatePtVolumeUniforms(camera, firstSample, iterations) || !updatePtVolumeDescriptorSets()) {
     framebuffer.clear({});
     return;
   }
 
-  // The tone map samples whichever accumulation image ends up holding the
-  // estimate after `iterations` flips. Descriptor writes must happen before the
-  // command buffer that uses them is submitted, so resolve that index now.
+  // Step 2: point the tone map at the right image. The estimate ends up in
+  // m_accum[m_accumIndex] if `iterations` is even and in the other image if
+  // it is odd. Temporarily set m_accumIndex to that final value so the
+  // existing tone-map descriptor helper picks it up, then restore it so the
+  // recording loop below starts from the correct image.
   const int previousAccumIndex = m_accumIndex;
   m_accumIndex = (m_accumIndex + static_cast<int>(iterations % 2u)) % 2;
   updateToneMapUniformBuffer(camera);
   updateToneMapDescriptorSet();
   m_accumIndex = previousAccumIndex;
 
+  // Step 3: record the frame. beginSingleTimeCommands() hands us an empty
+  // command buffer; endSingleTimeCommands() submits it and blocks until the
+  // GPU has finished it.
   VkCommandBuffer commandBuffer = m_backend.beginSingleTimeCommands();
   for (uint32_t i = 0; i < iterations; ++i) {
-    const int previousIndex = m_accumIndex;
-    const int targetIndex = 1 - previousIndex;
+    const int previousIndex = m_accumIndex;    // image holding the estimate so far
+    const int targetIndex = 1 - previousIndex; // image this iteration writes
+    // Iteration i uses ring slot i, which starts i * stride bytes into the
+    // uniform buffer.
     recordPtVolumePass(commandBuffer, targetIndex, previousIndex, static_cast<uint32_t>(i * m_ptUniformStride));
     m_accumIndex = targetIndex;
   }
+  // The final estimate was just written as a render target; mark it readable
+  // as a texture before the tone map samples it.
   m_accum[m_accumIndex]->transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   recordToneMapPass(commandBuffer, framebuffer);
   m_backend.endSingleTimeCommands(commandBuffer);
 
+  // Record how many samples the estimate now contains, so the next frame
+  // continues the random sequence where this one left off.
   m_renderSettings->SetNoIterations(firstSample + exposureIterations);
   const auto sampleEnd = std::chrono::high_resolution_clock::now();
 
@@ -1091,10 +1116,14 @@ RenderVkPT::ensurePtVolumeResources()
   }
 
   if (!m_ptVolumeDescriptorSetLayout) {
+    // The descriptor set *layout* declares what kinds of inputs the shader
+    // has at each binding number; the actual buffers and textures are filled
+    // in later by updatePtVolumeDescriptorSets().
     std::array<VkDescriptorSetLayoutBinding, 6> bindings = {};
-    bindings[0].binding = 0;
-    // Dynamic so every iteration of a batched frame can bind its own slot of
-    // the uniform ring with one descriptor set.
+    bindings[0].binding = 0; // PathTraceVolumeParams uniform block
+    // DYNAMIC (rather than plain UNIFORM_BUFFER) so each draw can choose a
+    // different slot of the uniform ring with a byte offset, letting one
+    // descriptor set serve every iteration of a frame.
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     bindings[0].descriptorCount = 1;
     bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -1129,7 +1158,10 @@ RenderVkPT::ensurePtVolumeResources()
     }
     m_ptVolumeDescriptorSetLayout = std::move(*descriptorSetLayoutResource);
 
-    // Two sets: one per ping-pong accumulation image bound as tPreviousTexture.
+    // A descriptor pool is the memory descriptor sets are allocated from; it
+    // must be sized for everything we will allocate: two sets, each with one
+    // dynamic uniform and seven image samplers. Two sets are needed because
+    // each ping-pong accumulation image is bound as tPreviousTexture in one.
     std::array<VkDescriptorPoolSize, 2> poolSizes = {};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     poolSizes[0].descriptorCount = 2;
@@ -1290,6 +1322,9 @@ RenderVkPT::ensurePtVolumeResources()
 bool
 RenderVkPT::ensurePtUniformCapacity(uint32_t count)
 {
+  // Make sure the uniform ring has at least `count` slots. Most frames this is
+  // a no-op; it only allocates when a frame asks for more iterations than any
+  // frame before it.
   count = std::max<uint32_t>(1, count);
   if (m_ptVolumeUniformBuffer && m_ptUniformMapped && m_ptUniformCapacity >= count) {
     return true;
@@ -1297,12 +1332,17 @@ RenderVkPT::ensurePtUniformCapacity(uint32_t count)
 
   VkDevice device = m_backend.logicalDevice();
   if (m_ptUniformStride == 0) {
+    // Vulkan only allows a dynamic uniform offset that is a multiple of the
+    // device's minUniformBufferOffsetAlignment (commonly 16 to 256 bytes).
+    // Round the slot size up to that multiple once; the device never changes.
     VkPhysicalDeviceProperties properties = {};
     vkGetPhysicalDeviceProperties(m_backend.physicalDevice(), &properties);
     const VkDeviceSize align = std::max<VkDeviceSize>(1, properties.limits.minUniformBufferOffsetAlignment);
     m_ptUniformStride = (sizeof(PtVolumeUniforms) + align - 1) / align * align;
   }
 
+  // Release the old, too-small ring. It is safe to do this immediately: every
+  // submission waits for the GPU to finish, so nothing is still reading it.
   if (m_ptUniformMapped) {
     vkUnmapMemory(device, m_ptVolumeUniformBuffer.memory());
     m_ptUniformMapped = nullptr;
@@ -1310,6 +1350,9 @@ RenderVkPT::ensurePtUniformCapacity(uint32_t count)
   m_ptVolumeUniformBuffer.reset();
   m_ptUniformCapacity = 0;
 
+  // Allocate the new ring in CPU-visible memory and map it once. Mapping gives
+  // us a plain pointer the CPU can write through; "host coherent" memory means
+  // those writes are visible to the GPU without any extra flush call.
   auto buffer = createUniformBuffer(m_backend, m_ptUniformStride * count);
   if (!buffer) {
     return false;
@@ -1319,7 +1362,7 @@ RenderVkPT::ensurePtUniformCapacity(uint32_t count)
     return false;
   }
   m_ptVolumeUniformBuffer = std::move(*buffer);
-  // Left mapped for the buffer's lifetime; HOST_COHERENT needs no flush.
+  // Left mapped for the buffer's lifetime.
   m_ptUniformMapped = mapped;
   m_ptUniformCapacity = count;
   return true;
@@ -1469,9 +1512,13 @@ RenderVkPT::updatePtVolumeUniforms(const CCamera& camera, int firstSample, uint3
   u.uResolution =
     glm::vec2(static_cast<float>(std::max<uint32_t>(1, m_w)), static_cast<float>(std::max<uint32_t>(1, m_h)));
 
-  // Everything above is shared by the whole batch; only the sample counters
-  // differ per iteration. The previous submission has already completed (every
-  // submit waits on its fence), so the ring can be overwritten from slot 0.
+  // Everything above is identical for every iteration of this frame. Only the
+  // two sample counters change, so write the block once per ring slot with
+  // just those fields patched. Slot i lives at byte offset i * stride.
+  //
+  // Overwriting from slot 0 is safe because the previous frame's submission
+  // has fully completed (endSingleTimeCommands waits for it), so the GPU is
+  // no longer reading any slot.
   uint8_t* slots = static_cast<uint8_t*>(m_ptUniformMapped);
   for (uint32_t i = 0; i < iterations; ++i) {
     const int sampleCounter = firstSample + static_cast<int>(i);
@@ -1547,8 +1594,16 @@ RenderVkPT::updateMajorantGrid(void* uniforms, float maxOpacity)
 bool
 RenderVkPT::updatePtVolumeDescriptorSets()
 {
+  // Fill in both descriptor sets for the path-trace shader. Each binding
+  // number below matches a `layout(set = 0, binding = N)` declaration in
+  // pathTraceVolume.frag. The two sets differ only in binding 4 (the
+  // previous-estimate texture): set k reads accumulation image k.
   const VolumeTextureVk& vol = volumeTexture();
 
+  // Binding 0: the uniform ring. With a DYNAMIC uniform descriptor, `offset`
+  // is a base and `range` is the size of ONE slot; the per-draw dynamic
+  // offset passed to vkCmdBindDescriptorSets is added to the base at draw
+  // time to select the slot.
   VkDescriptorBufferInfo bufferInfo = {};
   bufferInfo.buffer = m_ptVolumeUniformBuffer.get();
   bufferInfo.offset = 0;
@@ -1571,6 +1626,7 @@ RenderVkPT::updatePtVolumeDescriptorSets()
   colormapInfo.imageView = vol.transferView();
   colormapInfo.sampler = vol.transferSampler();
 
+  // Binding 4: the accumulation image this set treats as "previous estimate".
   std::array<VkDescriptorImageInfo, 2> previousInfos = {};
   for (int k = 0; k < 2; ++k) {
     previousInfos[k].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1583,6 +1639,8 @@ RenderVkPT::updatePtVolumeDescriptorSets()
   majorantInfo.imageView = vol.majorantView();
   majorantInfo.sampler = vol.majorantSampler();
 
+  // Six bindings times two sets, written in a single vkUpdateDescriptorSets
+  // call. `w` points at the six writes belonging to set k.
   std::array<VkWriteDescriptorSet, 12> writes = {};
   for (size_t k = 0; k < 2; ++k) {
     VkWriteDescriptorSet* w = &writes[k * 6];
@@ -1640,12 +1698,19 @@ RenderVkPT::recordPtVolumePass(VkCommandBuffer commandBuffer,
                                uint32_t dynamicOffset)
 {
   Framebuffer& target = *m_accum[targetIndex];
-  // Write-after-read / read-after-write ordering between consecutive
-  // iterations is expressed by these layout transitions (color attachment
-  // output -> fragment shader read and back), recorded inline.
+
+  // Image layout transitions double as synchronization. The previous image
+  // was just rendered into by the last iteration (or the last frame); marking
+  // it "shader read only" makes the GPU finish those writes before this
+  // iteration samples it. Likewise marking the target "color attachment"
+  // makes the GPU finish any earlier reads of it before we overwrite it.
+  // transitionColorImage() is a no-op if the image is already in that layout,
+  // which is the case for the very first iteration of a frame.
   m_accum[previousIndex]->transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   target.transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
+  // The render pass clears the target first; every pixel is then fully
+  // rewritten by the full-screen draw below.
   VkClearValue clearValue = {};
   clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
 
@@ -1669,6 +1734,9 @@ RenderVkPT::recordPtVolumePass(VkCommandBuffer commandBuffer,
   vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
   vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
   vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_ptVolumePipeline.get());
+  // Bind the descriptor set whose "previous estimate" texture is the image we
+  // read from, and select this iteration's uniform slot with the dynamic
+  // offset (the last two arguments: one dynamic offset, its value in bytes).
   vkCmdBindDescriptorSets(commandBuffer,
                           VK_PIPELINE_BIND_POINT_GRAPHICS,
                           m_ptVolumePipelineLayout.get(),
@@ -1677,6 +1745,8 @@ RenderVkPT::recordPtVolumePass(VkCommandBuffer commandBuffer,
                           &m_ptVolumeDescriptorSets[previousIndex],
                           1,
                           &dynamicOffset);
+  // Draw two triangles covering the whole target; the fragment shader runs
+  // once per pixel and does all the path-tracing work.
   VkDeviceSize offset = 0;
   VkBuffer quadVertexBuffer = m_quadVertexBuffer.get();
   vkCmdBindVertexBuffers(commandBuffer, 0, 1, &quadVertexBuffer, &offset);
@@ -1752,6 +1822,10 @@ RenderVkPT::runAccumulationPass(Framebuffer& framebuffer)
 void
 RenderVkPT::recordToneMapPass(VkCommandBuffer commandBuffer, Framebuffer& framebuffer)
 {
+  // The caller's framebuffer may have been drawn into or read before this
+  // (e.g. the bounding-box underlay); make it a render target again. The
+  // tone-map render pass uses LOAD rather than CLEAR so that underlay
+  // survives and the volume is alpha-blended on top of it.
   framebuffer.transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
   VkClearValue clearValue = {};
