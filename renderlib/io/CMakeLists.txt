@@ -69,6 +69,12 @@ FetchContent_Declare(
   EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(dcmtk)
+foreach(_target IN ITEMS
+    ofstd oflog oficonv dcmdata dcmimgle dcmimage dcmjpeg dcmjpls)
+  if(TARGET ${_target})
+    set_property(TARGET ${_target} PROPERTY POSITION_INDEPENDENT_CODE ON)
+  endif()
+endforeach()
 
 # Use these system/vcpkg-provided dependencies instead of tensorstore's bundled ones.
 set(TENSORSTORE_USE_SYSTEM_TIFF ON)
