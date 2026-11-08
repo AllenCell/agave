@@ -163,6 +163,9 @@ struct alignas(16) PtVolumeUniforms
   float gUseMajorantGrid;       // 0 disables grid traversal in the shader
   glm::vec3 gMajorantGridScale; // cells per unit texcoord (volume dim / cell voxels)
   float _padMajorant;
+  glm::ivec4 g_tfIsRamp;
+  glm::vec4 g_tfRampLow;
+  glm::vec4 g_tfRampInvRange;
 };
 static_assert(offsetof(PtVolumeUniforms, gLights) == 112, "PtVolumeUniforms.gLights offset");
 static_assert(offsetof(PtVolumeUniforms, gClippedAaBbMin) == 496, "PtVolumeUniforms.gClippedAaBbMin offset");
@@ -182,7 +185,10 @@ static_assert(offsetof(PtVolumeUniforms, g_clipPlane) == 2096, "PtVolumeUniforms
 static_assert(offsetof(PtVolumeUniforms, gMajorantGridDim) == 2112, "PtVolumeUniforms.gMajorantGridDim offset");
 static_assert(offsetof(PtVolumeUniforms, gUseMajorantGrid) == 2124, "PtVolumeUniforms.gUseMajorantGrid offset");
 static_assert(offsetof(PtVolumeUniforms, gMajorantGridScale) == 2128, "PtVolumeUniforms.gMajorantGridScale offset");
-static_assert(sizeof(PtVolumeUniforms) == 2144, "PtVolumeUniforms std140 size mismatch");
+static_assert(offsetof(PtVolumeUniforms, g_tfIsRamp) == 2144, "PtVolumeUniforms.g_tfIsRamp offset");
+static_assert(offsetof(PtVolumeUniforms, g_tfRampLow) == 2160, "PtVolumeUniforms.g_tfRampLow offset");
+static_assert(offsetof(PtVolumeUniforms, g_tfRampInvRange) == 2176, "PtVolumeUniforms.g_tfRampInvRange offset");
+static_assert(sizeof(PtVolumeUniforms) == 2192, "PtVolumeUniforms std140 size mismatch");
 
 // Evaluate the shader's piecewise-linear transfer function (evalTf) on the CPU.
 float
@@ -1484,6 +1490,20 @@ RenderVkPT::updatePtVolumeUniforms(const CCamera& camera, int firstSample, uint3
     const auto& tf = m_scene->m_material.m_gradientData[i].getControlPoints(histo);
     const int nTfPoints = std::min(static_cast<int>(tf.size()), static_cast<int>(kMaxNoTfNodes));
     u.g_tf_nNodes[activeChannel] = static_cast<uint32_t>(nTfPoints);
+    // WINDOW_LEVEL, PERCENTILE, and MINMAX produce four-node ramps with
+    // constant 0/1 tails. Keep arbitrary custom and degenerate functions on
+    // the general shader path.
+    if (nTfPoints == 4 && histo.getDataMax() > histo.getDataMin() && tf[0].second == 0.0f && tf[1].second == 0.0f &&
+        tf[2].second == 1.0f && tf[3].second == 1.0f && std::isfinite(tf[0].first) && std::isfinite(tf[1].first) &&
+        std::isfinite(tf[2].first) && std::isfinite(tf[3].first) && tf[0].first <= tf[1].first &&
+        tf[1].first < tf[2].first && tf[2].first <= tf[3].first) {
+      const float invRange = 1.0f / (tf[2].first - tf[1].first);
+      if (std::isfinite(invRange)) {
+        u.g_tfIsRamp[activeChannel] = 1;
+        u.g_tfRampLow[activeChannel] = tf[1].first;
+        u.g_tfRampInvRange[activeChannel] = invRange;
+      }
+    }
     for (int j = 0; j < nTfPoints; ++j) {
       u.g_tf[activeChannel * kMaxNoTfNodes + j] = glm::vec4(tf[j].first, tf[j].second, 0.0f, 0.0f);
       maxOpacity = std::max(maxOpacity, std::max(m_scene->m_material.m_opacity[i] * tf[j].second, 0.0f));

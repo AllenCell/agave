@@ -117,6 +117,9 @@ layout(set = 0, binding = 0, std140) uniform PathTraceVolumeParams
   float gUseMajorantGrid;  // 0 disables the grid
   vec3 gMajorantGridScale; // cells per unit texture coordinate (volume dim / cell voxels)
   float _padMajorant;
+  ivec4 g_tfIsRamp;
+  vec4 g_tfRampLow;
+  vec4 g_tfRampInvRange;
 }
 pathTraceVolumeParams;
 
@@ -158,10 +161,19 @@ pathTraceVolumeParams;
 #define gMajorantGridDim pathTraceVolumeParams.gMajorantGridDim
 #define gUseMajorantGrid pathTraceVolumeParams.gUseMajorantGrid
 #define gMajorantGridScale pathTraceVolumeParams.gMajorantGridScale
+#define g_tfIsRamp pathTraceVolumeParams.g_tfIsRamp
+#define g_tfRampLow pathTraceVolumeParams.g_tfRampLow
+#define g_tfRampInvRange pathTraceVolumeParams.g_tfRampInvRange
 
 float
 evalTf(in uint channel, in float intensity)
 {
+  // The standard four-node threshold ramps are linear between their two
+  // interior nodes. Their endpoints clamp to 0 and 1, so they need no search.
+  if (g_tfIsRamp[channel] != 0) {
+    return clamp((intensity - g_tfRampLow[channel]) * g_tfRampInvRange[channel], 0.0f, 1.0f);
+  }
+
   // we have packed 4 channels of tf into a single array
   uint offset = channel * MAX_NO_TF_NODES;
   uint nNodes = g_tf_nNodes[channel];
