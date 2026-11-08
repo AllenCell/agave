@@ -58,15 +58,15 @@ before-all = [
     
     "/opt/curl/bin/curl-config --version",
 ]
-before-build = """cmake -G Ninja -S {package}/.. -B {package}/../build-cibw-linux -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DCMAKE_PREFIX_PATH="/opt/curl;/opt/zstd" -DZstd_ROOT=/opt/zstd -DLIBCZI_BUILD_PREFER_EXTERNALPACKAGE_ZSTD=ON -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DCURL_DIR=/opt/curl/lib/cmake/CURL -DTENSORSTORE_USE_SYSTEM_OPENSSL=ON -DTENSORSTORE_USE_SYSTEM_ZSTD=ON -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build-cibw-linux --target stage_agave_pyvk --config Release --parallel"""
+before-build = """cmake -G Ninja -S {package}/.. -B {package}/../build-cibw-linux -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DCMAKE_PREFIX_PATH="/opt/curl;/opt/zstd" -DZstd_ROOT=/opt/zstd -DLIBCZI_BUILD_PREFER_EXTERNALPACKAGE_ZSTD=ON -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DCURL_DIR=/opt/curl/lib/cmake/CURL -DTENSORSTORE_USE_SYSTEM_OPENSSL=ON -DTENSORSTORE_USE_SYSTEM_ZSTD=ON -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build-cibw-linux --target stage_agave_pyvk --config Release --parallel"""
 
 [tool.cibuildwheel.macos]
 archs = ["arm64"]
 environment = { MACOSX_DEPLOYMENT_TARGET = "15.0" }
-before-build = """cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel 4"""
+before-build = """cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel 4"""
 
 [tool.cibuildwheel.windows]
-before-build = '''for /f "delims=" %P in ('python -c "import sys; print(sys.executable)"') do (cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="%P" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel)'''
+before-build = '''for /f "delims=" %P in ('python -c "import sys; print(sys.executable)"') do (cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="%P" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel)'''
 
 [tool.ruff]
 line-length = 88
