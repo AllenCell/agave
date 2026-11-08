@@ -18,7 +18,11 @@ def _check_native_abi() -> None:
     a mismatch surfaces as a misleading "circular import" ImportError.
     """
     pkg_dir = Path(__file__).resolve().parent
-    current_tag = sys.implementation.cache_tag  # e.g. "cpython-314"
+    current_tag = (
+        f"cp{sys.version_info.major}{sys.version_info.minor}"
+        if os.name == "nt"
+        else sys.implementation.cache_tag
+    )
     if os.name == "nt":
         ext_glob, ext_suffix = "_native*.pyd", ".pyd"
     else:
@@ -38,9 +42,7 @@ def _check_native_abi() -> None:
         if not name.startswith(prefix):
             return ""
 
-        return name[len(prefix):]
-
-    current_tag = sys.implementation.cache_tag
+        return name[len(prefix) :]
 
     def is_compatible(path: Path) -> bool:
         tag = _tag(path)
