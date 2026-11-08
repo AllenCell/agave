@@ -90,10 +90,10 @@ makeDirectScanHistogram(const std::vector<uint16_t>& data)
   for (const uint16_t value : data) {
     int64_t bin =
       static_cast<int64_t>((static_cast<float>(value - result.filteredMin) / filteredRange * displayMax) + 0.5f);
-    if (bin >= result.displayBins.size()) {
-      bin = result.displayBins.size() - 1;
-    } else if (bin < 0) {
+    if (bin < 0) {
       bin = 0;
+    } else if (bin >= static_cast<int64_t>(result.displayBins.size())) {
+      bin = result.displayBins.size() - 1;
     }
     ++result.displayBins[static_cast<size_t>(bin)];
   }
@@ -465,6 +465,8 @@ TEST_CASE("Histogram construction matches direct-scan bins", "[histogram]")
 
   const DirectScanHistogram expected = makeDirectScanHistogram(data);
   Histogram actual(data.data(), data.size());
+  REQUIRE(expected.dataMin < expected.filteredMin);
+  REQUIRE(expected.filteredMax < expected.dataMax);
   REQUIRE(actual.getDataMin() == expected.dataMin);
   REQUIRE(actual.getDataMax() == expected.dataMax);
   REQUIRE(actual.getDataMinIdx() == expected.dataMinIdx);
