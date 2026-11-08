@@ -1,6 +1,111 @@
+#include "renderlib/Histogram.h"
+
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
+#include <iostream>
+#include <memory>
+#include <numeric>
+#include <vector>
+
 #include <catch2/catch_test_macros.hpp>
 
-#include "renderlib/Histogram.h"
+namespace {
+
+struct DirectScanHistogram
+{
+  uint16_t dataMin = 0;
+  uint16_t dataMax = 0;
+  size_t dataMinIdx = 0;
+  size_t dataMaxIdx = 0;
+  uint16_t filteredMin = 0;
+  uint16_t filteredMax = 0;
+  size_t modalDisplayBin = 0;
+  std::vector<uint32_t> bins = std::vector<uint32_t>(4096, 0);
+  std::vector<uint32_t> displayBins = std::vector<uint32_t>(512, 0);
+};
+
+// Reference implementation of the former three-pass construction. Keep it in
+// the test so the optimized constructor can be checked at bin boundaries.
+DirectScanHistogram
+makeDirectScanHistogram(const std::vector<uint16_t>& data)
+{
+  DirectScanHistogram result;
+  result.dataMin = data.front();
+  result.dataMax = data.front();
+  for (size_t i = 0; i < data.size(); ++i) {
+    if (data[i] > result.dataMax) {
+      result.dataMax = data[i];
+      result.dataMaxIdx = i;
+    } else if (data[i] < result.dataMin) {
+      result.dataMin = data[i];
+      result.dataMinIdx = i;
+    }
+  }
+
+  const float rangeMin = static_cast<float>(result.dataMin);
+  float range = static_cast<float>(result.dataMax - result.dataMin);
+  if (range == 0.0f) {
+    range = 1.0f;
+  }
+  const float invRange = 1.0f / range;
+  for (const uint16_t value : data) {
+    int64_t bin = static_cast<int64_t>(
+      (static_cast<float>(value - rangeMin) * invRange * static_cast<float>(result.bins.size() - 1)) + 0.5f);
+    bin = std::clamp<int64_t>(bin, 0, static_cast<int64_t>(result.bins.size() - 1));
+    ++result.bins[static_cast<size_t>(bin)];
+  }
+
+  const uint64_t total = std::accumulate(result.bins.begin(), result.bins.end(), uint64_t(0));
+  const uint64_t targetLo = static_cast<uint64_t>(total * 0.001 + 0.5);
+  const uint64_t targetHi = static_cast<uint64_t>(total * 0.999 + 0.5);
+  uint64_t cumulative = 0;
+  size_t loBin = 0;
+  size_t hiBin = result.bins.size() - 1;
+  bool foundLo = false;
+  for (size_t i = 0; i < result.bins.size(); ++i) {
+    cumulative += result.bins[i];
+    if (cumulative > targetLo && !foundLo) {
+      loBin = i;
+      foundLo = true;
+    }
+    if (cumulative >= targetHi) {
+      hiBin = i;
+      break;
+    }
+  }
+  if (hiBin - loBin < 3) {
+    result.filteredMin = result.dataMin;
+    result.filteredMax = result.dataMax;
+  } else {
+    result.filteredMin = static_cast<uint16_t>(rangeMin + loBin * (range / (result.bins.size() - 1)) + 0.5f);
+    result.filteredMax = static_cast<uint16_t>(rangeMin + hiBin * (range / (result.bins.size() - 1)) + 0.5f);
+  }
+
+  float filteredRange = result.filteredMax - result.filteredMin;
+  if (filteredRange == 0.0f) {
+    filteredRange = 1.0f;
+  }
+  const float displayMax = static_cast<float>(result.displayBins.size() - 1);
+  for (const uint16_t value : data) {
+    int64_t bin =
+      static_cast<int64_t>((static_cast<float>(value - result.filteredMin) / filteredRange * displayMax) + 0.5f);
+    if (bin >= result.displayBins.size()) {
+      bin = result.displayBins.size() - 1;
+    } else if (bin < 0) {
+      bin = 0;
+    }
+    ++result.displayBins[static_cast<size_t>(bin)];
+  }
+  for (size_t i = 1; i < result.displayBins.size(); ++i) {
+    if (result.displayBins[i] > result.displayBins[result.modalDisplayBin]) {
+      result.modalDisplayBin = i;
+    }
+  }
+  return result;
+}
+
+} // namespace
 
 TEST_CASE("Histogram edge cases are stable", "[histogram]")
 {
@@ -342,4 +447,109 @@ TEST_CASE("Histogram computeForDisplay supports visible range bins", "[histogram
     REQUIRE(sum < h.getPixelCount());
     REQUIRE(sum > 0);
   }
+}
+
+TEST_CASE("Histogram construction matches direct-scan bins", "[histogram]")
+{
+  std::vector<uint16_t> data(200003);
+  uint32_t state = 0x12345678u;
+  for (size_t i = 0; i < data.size(); ++i) {
+    state ^= state << 13u;
+    state ^= state >> 17u;
+    state ^= state << 5u;
+    data[i] = (i % 19u == 0u) ? static_cast<uint16_t>(state & 0xffffu)
+                              : static_cast<uint16_t>(1000u + ((state >> 16u) & 1023u));
+  }
+  data[0] = 65535;
+  data[1] = 0;
+
+  const DirectScanHistogram expected = makeDirectScanHistogram(data);
+  Histogram actual(data.data(), data.size());
+  REQUIRE(actual.getDataMin() == expected.dataMin);
+  REQUIRE(actual.getDataMax() == expected.dataMax);
+  REQUIRE(actual.getDataMinIdx() == expected.dataMinIdx);
+  REQUIRE(actual.getDataMaxIdx() == expected.dataMaxIdx);
+  REQUIRE(actual.getFilteredMin() == expected.filteredMin);
+  REQUIRE(actual.getFilteredMax() == expected.filteredMax);
+  REQUIRE(actual.getModalDisplayBin() == expected.modalDisplayBin);
+  for (size_t bin = 0; bin < expected.displayBins.size(); ++bin) {
+    INFO("display bin " << bin);
+    REQUIRE(actual.getDisplayBinCount(bin) == expected.displayBins[bin]);
+  }
+
+  for (uint32_t intensity = 0; intensity <= 65535u; intensity += 257u) {
+    float percentile = -1.0f;
+    actual.computePercentile(static_cast<uint16_t>(intensity), percentile);
+    float expectedPercentile = 0.0f;
+    if (intensity >= expected.dataMax) {
+      expectedPercentile = 1.0f;
+    } else if (intensity > expected.dataMin) {
+      const size_t bin = actual.getBinOfIntensity(static_cast<uint16_t>(intensity));
+      const size_t count = std::accumulate(expected.bins.begin(), expected.bins.begin() + bin, size_t(0));
+      expectedPercentile = static_cast<float>(count) / static_cast<float>(data.size());
+    }
+    REQUIRE(percentile == expectedPercentile);
+  }
+
+  const size_t lowLimit = static_cast<size_t>(data.size() * Histogram::DEFAULT_PCT_LOW);
+  const size_t highLimit = static_cast<size_t>(data.size() * Histogram::DEFAULT_PCT_HIGH);
+  size_t lowBin = 0;
+  size_t highBin = 0;
+  size_t count = 0;
+  bool foundLow = false;
+  for (size_t i = 0; i < expected.bins.size(); ++i) {
+    count += expected.bins[i];
+    if (count > lowLimit && !foundLow) {
+      lowBin = i;
+      foundLow = true;
+    }
+    if (count > highLimit) {
+      highBin = i;
+      break;
+    }
+  }
+  const float expectedWindow = static_cast<float>(highBin - lowBin) / static_cast<float>(expected.bins.size() - 1);
+  const float expectedLevel =
+    static_cast<float>(lowBin + highBin) * 0.5f / static_cast<float>(expected.bins.size() - 1);
+  float actualWindow = 0.0f;
+  float actualLevel = 0.0f;
+  actual.computeWindowLevelFromPercentiles(
+    Histogram::DEFAULT_PCT_LOW, Histogram::DEFAULT_PCT_HIGH, actualWindow, actualLevel);
+  REQUIRE(actualWindow == expectedWindow);
+  REQUIRE(actualLevel == expectedLevel);
+  std::unique_ptr<float[]> lut(actual.generate_percentiles());
+  for (size_t i = 0; i < 256; ++i) {
+    const float normalized = static_cast<float>(i) / 255.0f;
+    const float ramp = (normalized - (expectedLevel - expectedWindow * 0.5f)) / expectedWindow;
+    REQUIRE(lut[i] == std::clamp(ramp, 0.0f, 1.0f));
+  }
+}
+
+TEST_CASE("Histogram construction benchmark", "[.histogram-benchmark]")
+{
+  // A 128 MiB channel is larger than CPU caches and has a low-intensity
+  // background plus sparse higher-intensity signal, like the GUI load case.
+  constexpr size_t voxelCount = 1u << 26;
+  std::vector<uint16_t> data(voxelCount);
+  for (size_t i = 0; i < data.size(); ++i) {
+    const uint32_t bits = static_cast<uint32_t>(i) * 1664525u + 1013904223u;
+    const int sum = static_cast<int>(bits & 15u) + static_cast<int>((bits >> 4u) & 15u) +
+                    static_cast<int>((bits >> 8u) & 15u) + static_cast<int>((bits >> 12u) & 15u);
+    data[i] = (i % 14u == 0u) ? static_cast<uint16_t>(160u + ((bits >> 16u) % 96u))
+                              : static_cast<uint16_t>(24 + (sum - 30) / 2);
+  }
+
+  std::vector<double> durations;
+  durations.reserve(3);
+  volatile size_t result = 0;
+  for (int run = 0; run < 3; ++run) {
+    const auto start = std::chrono::steady_clock::now();
+    Histogram histogram(data.data(), data.size());
+    const auto stop = std::chrono::steady_clock::now();
+    durations.push_back(std::chrono::duration<double, std::milli>(stop - start).count());
+    result += histogram.getDisplayBinCount(0) + histogram.getDataMax();
+  }
+  std::sort(durations.begin(), durations.end());
+  std::cout << "Histogram 128 MiB channel median: " << durations[1] << " ms; checksum " << result << '\n';
+  REQUIRE(result > 0);
 }

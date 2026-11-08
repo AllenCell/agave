@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <limits>
 #include <math.h>
 #include <numeric>
 
@@ -63,9 +64,16 @@ Histogram::Histogram(uint16_t* data, size_t length)
   _filteredMax = data[0];
   _filteredMin = data[0];
 
+  // Record exact uint16 intensities while finding the extrema. The display
+  // histograms can then be derived from this small table instead of scanning
+  // the entire volume two more times. This keeps histogram construction
+  // independent of how the image was loaded or converted.
+  constexpr size_t intensityCount = static_cast<size_t>(std::numeric_limits<uint16_t>::max()) + 1;
+  std::vector<uint32_t> intensityCounts(intensityCount, 0);
   uint16_t val;
   for (size_t i = 0; i < length; ++i) {
     val = data[i];
+    ++intensityCounts[val];
     if (val > _dataMax) {
       _dataMax = val;
       _dataMaxIdx = i;
@@ -88,15 +96,18 @@ Histogram::Histogram(uint16_t* data, size_t length)
 
   // compute a high resolution histogram first
   // we will use this for percentile outlier filtering, for display histogram.
-  for (size_t i = 0; i < length; ++i) {
-    val = data[i];
-    int64_t whichbin = (int64_t)((float)(val - rangeMin) * invRange * (float)(HIGH_RES_BINS - 1) + 0.5f);
+  for (uint32_t intensity = _dataMin; intensity <= _dataMax; ++intensity) {
+    const uint32_t count = intensityCounts[intensity];
+    if (count == 0) {
+      continue;
+    }
+    int64_t whichbin = (int64_t)((float)(intensity - rangeMin) * invRange * (float)(HIGH_RES_BINS - 1) + 0.5f);
     if (whichbin >= HIGH_RES_BINS) {
       whichbin = HIGH_RES_BINS - 1;
     } else if (whichbin < 0) {
       whichbin = 0;
     }
-    _bins[whichbin]++;
+    _bins[whichbin] += count;
   }
 
   // now we will do outlier filtering based on percentiles.
@@ -145,14 +156,19 @@ Histogram::Histogram(uint16_t* data, size_t length)
   }
 
   float binmax = (float)(FILTERED_BINS - 1);
-  for (size_t i = 0; i < length; ++i) {
-    int64_t whichbin = (int64_t)((float)(data[i] - _filteredMin) / filteredRange * binmax + 0.5f);
+  for (uint32_t intensity = _dataMin; intensity <= _dataMax; ++intensity) {
+    const uint32_t count = intensityCounts[intensity];
+    if (count == 0) {
+      continue;
+    }
+    int64_t whichbin =
+      (int64_t)((float)(static_cast<int32_t>(intensity) - _filteredMin) / filteredRange * binmax + 0.5f);
     if (whichbin >= FILTERED_BINS) {
       whichbin = FILTERED_BINS - 1;
     } else if (whichbin < 0) {
       whichbin = 0;
     }
-    _filteredBins[whichbin]++;
+    _filteredBins[whichbin] += count;
   }
 
   // get the bin with the most frequently occurring value
