@@ -163,10 +163,10 @@ Histogram::Histogram(uint16_t* data, size_t length)
     }
     int64_t whichbin =
       (int64_t)((float)(static_cast<int32_t>(intensity) - _filteredMin) / filteredRange * binmax + 0.5f);
-    if (whichbin >= FILTERED_BINS) {
-      whichbin = FILTERED_BINS - 1;
-    } else if (whichbin < 0) {
+    if (whichbin < 0) {
       whichbin = 0;
+    } else if (whichbin >= static_cast<int64_t>(FILTERED_BINS)) {
+      whichbin = FILTERED_BINS - 1;
     }
     _filteredBins[whichbin] += count;
   }
