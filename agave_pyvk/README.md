@@ -113,8 +113,7 @@ want to use.
 ```console
 cmake -S <agave-root> -B <agave-root>/build -G Ninja \
       -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" \
-      -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DAGAVE_BUILD_PYVK=ON \
-      -DCMAKE_BUILD_TYPE=Release
+      -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
 cmake --build <agave-root>/build --target stage_agave_pyvk
 ```
 

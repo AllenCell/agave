@@ -276,16 +276,15 @@ Framebuffer::toImage(void* pixels)
     return;
   }
 
-  const auto* src = static_cast<const uint8_t*>(mapped);
   auto* dst = static_cast<uint8_t*>(pixels);
-  for (uint32_t i = 0; i < m_width * m_height; ++i) {
-    dst[i * 4 + 0] = src[i * 4 + 2];
-    dst[i * 4 + 1] = src[i * 4 + 1];
-    dst[i * 4 + 2] = src[i * 4 + 0];
-    dst[i * 4 + 3] = src[i * 4 + 3];
-  }
-
+  // The mapped staging allocation can be uncached on discrete GPUs. Read it
+  // sequentially once, then swap channels in ordinary CPU memory.
+  std::memcpy(dst, mapped, static_cast<size_t>(byteCount));
   vkUnmapMemory(device, staging->memory());
+  const size_t pixelCount = static_cast<size_t>(m_width) * static_cast<size_t>(m_height);
+  for (size_t i = 0; i < pixelCount; ++i) {
+    std::swap(dst[i * 4], dst[i * 4 + 2]);
+  }
 }
 
 } // namespace gfxvulkan
