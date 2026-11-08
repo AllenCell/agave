@@ -72,7 +72,7 @@ set(DCMTK_COMPILE_WIN32_MULTITHREADED_DLL ON CACHE BOOL
     "Compile DCMTK using the DLL runtime" FORCE)
 FetchContent_MakeAvailable(dcmtk)
 foreach(_target IN ITEMS
-    ofstd oflog oficonv dcmdata dcmimgle dcmimage dcmjpeg dcmjpls)
+    ofstd oflog oficonv dcmdata dcmimgle dcmimage dcmjpeg dcmjpls dcmtkcharls)
   if(TARGET ${_target})
     set_property(TARGET ${_target} PROPERTY POSITION_INDEPENDENT_CODE ON)
   endif()
