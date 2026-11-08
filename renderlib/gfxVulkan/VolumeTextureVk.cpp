@@ -538,7 +538,9 @@ VolumeTextureVk::uploadRaw(const Scene& scene, bool linearFiltering)
   // costing a quarter or half of the memory traffic of RGBA16. Three channels
   // still use RGBA16 because RGB16 is not a required sampled format.
   uint32_t enabledCount = 0;
-  for (uint32_t c = 0; c < img->sizeC() && c < MAX_CPU_CHANNELS; ++c) {
+  // activeChannels() and the path-trace shader expose at most four slots.
+  // Keep this count within that array before passing it to computeCellBounds().
+  for (uint32_t c = 0; c < img->sizeC() && c < MAX_CPU_CHANNELS && enabledCount < channels.size(); ++c) {
     if (scene.m_material.m_enabled[c]) {
       ++enabledCount;
     }
