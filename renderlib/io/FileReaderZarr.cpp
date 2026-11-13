@@ -385,6 +385,15 @@ FileReaderZarr::loadMultiscaleDims(const std::string& filepath, uint32_t scene)
             LOG_INFO << "Level " << multiscaleDims.size() << " shape " << shape_span;
             std::vector<int64_t> shape(shape_span.begin(), shape_span.end());
 
+            // when the metadata has no "axes" (e.g. ome-zarr v0.1/v0.2), dimorder defaults
+            // to TCZYX but the array may have fewer dimensions; assume the trailing axes
+            // apply (e.g. CZYX for 4D, ZYX for 3D). a mismatch left unresolved would
+            // index out of bounds in MultiscaleDims.
+            std::vector<std::string> levelDimOrder = dimorder;
+            if (shape.size() < levelDimOrder.size()) {
+              levelDimOrder.erase(levelDimOrder.begin(), levelDimOrder.end() - shape.size());
+            }
+
             auto scale = dataset["coordinateTransformations"][0]["scale"];
             if (scale.is_array()) {
               std::vector<float> scalevec;
@@ -392,7 +401,7 @@ FileReaderZarr::loadMultiscaleDims(const std::string& filepath, uint32_t scene)
                 scalevec.push_back(s);
               }
               MultiscaleDims zmd;
-              zmd.dimensionOrder = dimorder;
+              zmd.dimensionOrder = levelDimOrder;
               zmd.scale = scalevec;
               zmd.shape = shape;
               // TODO reconcile these strings against my other ways of specifying dtype
