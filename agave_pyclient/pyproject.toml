@@ -34,11 +34,11 @@ classifiers = [
 dependencies = [
     "numpy",
     "ws4py==0.5.1",
-    "Pillow==12.2.0",
+    "Pillow==12.3.0",
 ]
 
 [project.urls]
-Homepage = "https://github.com/allen-cell-animated/agave"
+Homepage = "https://github.com/AllenCell/agave"
 
 [project.optional-dependencies]
 test = [

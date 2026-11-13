@@ -224,7 +224,7 @@ if(WIN32)
   set(CPACK_NSIS_MUI_ICON "${CMAKE_SOURCE_DIR}/agave_app/icons/logo.ico")
   set(CPACK_NSIS_MUI_UNIICON "${CMAKE_SOURCE_DIR}/agave_app/icons/logo.ico")
   set(CPACK_NSIS_EXECUTABLES_DIRECTORY "agave-install")
-  set(CPACK_NSIS_MENU_LINKS "https://allen-cell-animated.github.io/agave" "AGAVE Docs")
+  set(CPACK_NSIS_MENU_LINKS "https://allencell.github.io/agave" "AGAVE Docs")
   set(CPACK_NSIS_PACKAGE_NAME "AGAVE ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}")
   set(CPACK_NSIS_EXTRA_INSTALL_COMMANDS "
     WriteRegStr HKCR 'agave' '' 'URL:agave'
@@ -322,10 +322,8 @@ elseif(APPLE)
   endif()
 
   # homebrew lib path
-  list(APPEND DIRS "/usr/local/lib")
-  # homebrew lib path for Apple Silicon Macs
-  list(APPEND DIRS "/opt/homebrew/lib")
-  
+  list(APPEND DIRS "/opt/homebrew/lib" "/usr/local/lib")
+
   # Append Qt's lib folder
   # list(APPEND DIRS "${QTDIR}/lib")
   # list(APPEND DIRS "${Qt6Widgets_DIR}/../..")

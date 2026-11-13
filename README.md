@@ -58,7 +58,7 @@ cd build
 cmake -DCMAKE_TOOLCHAIN_FILE=D:\vcpkg\scripts\buildsystems\vcpkg.cmake -G "Visual Studio 17 2022" -A x64 -DVCPKG_TARGET_TRIPLET=x64-windows ..
 
 # or, example: ninja in separate build dir!
-cmake -DCMAKE_TOOLCHAIN_FILE=C:\Users\%USERNAME%\source\repos\vcpkg\scripts\buildsystems\vcpkg.cmake -G "Ninja Multi-Config" -DVCPKG_TARGET_TRIPLET=x64-windows C:\Users\%USERNAME%\source\repos\allen-cell-animated\agave
+cmake -DCMAKE_TOOLCHAIN_FILE=C:\Users\%USERNAME%\source\repos\vcpkg\scripts\buildsystems\vcpkg.cmake -G "Ninja Multi-Config" -DVCPKG_TARGET_TRIPLET=x64-windows C:\Users\%USERNAME%\source\repos\AllenCell\agave
 cmake --build . --target install
 ```
 

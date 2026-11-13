@@ -17,7 +17,7 @@ CitationDialog::CitationDialog()
   label->setText("If you use AGAVE in your research, please cite the following:");
   layout->addWidget(label);
 
-  QString agaveUrl = "https://github.com/allen-cell-animated/agave";
+  QString agaveUrl = "https://github.com/AllenCell/agave";
 
   int year = QDate::currentDate().year();
   QString syear = QString::number(year);
