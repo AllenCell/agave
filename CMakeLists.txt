@@ -323,7 +323,9 @@ elseif(APPLE)
 
   # homebrew lib path
   list(APPEND DIRS "/usr/local/lib")
-
+  # homebrew lib path for Apple Silicon Macs
+  list(APPEND DIRS "/opt/homebrew/lib")
+  
   # Append Qt's lib folder
   # list(APPEND DIRS "${QTDIR}/lib")
   # list(APPEND DIRS "${Qt6Widgets_DIR}/../..")
