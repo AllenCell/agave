@@ -78,7 +78,7 @@ private:
                      const std::vector<int>& sequenceOrder,
                      int picking);
   bool ensureThickLinesResources();
-  bool ensureThickLinesPipelines(VkFormat colorFormat);
+  bool ensureThickLinesPipelines(VkFormat colorFormat, bool includeSelection);
   std::optional<resources::UniquePipeline> createThickLinesPipeline(VkRenderPass renderPass);
   void uploadStripVerts(const void* data, size_t byteCount);
   void drawStrips(Framebuffer& target,
