@@ -8,6 +8,7 @@
 #include "renderlib/RenderSettings.h"
 #include "renderlib/ScaleBarTool.h"
 #include "renderlib/SceneView.h"
+#include "renderlib/TimeStampTool.h"
 #include "renderlib/gfxapi/Backend.h"
 #include "renderlib/gfxapi/IGLContext.h"
 #include "renderlib/gfxapi/IRenderWindow.h"
@@ -390,6 +391,9 @@ Renderer::render()
   BoundingBoxTool bbox;
   bbox.clear();
   bbox.draw(sceneView, m_myVolumeData.m_gesture);
+  TimeStampTool timestamp;
+  timestamp.clear();
+  timestamp.draw(sceneView, m_myVolumeData.m_gesture);
 
   gfxApi::renderToFramebuffer(*m_fbo,
                               *m_myVolumeData.m_renderer,
