@@ -3,6 +3,7 @@
 #include "gfxapi/IGestureRenderer.h"
 #include "resources/Buffer.h"
 #include "resources/SampledImage.h"
+#include "resources/UniformRing.h"
 
 #include "glm.h"
 
@@ -69,25 +70,82 @@ private:
   bool ensureSelectionPipelines();
   std::optional<resources::UniquePipeline> createPipeline(VkRenderPass renderPass, Topology topology);
   void uploadVerts(const void* data, size_t byteCount);
-  void drawSequences(Framebuffer& target,
-                     VkRenderPass renderPass,
-                     const std::array<resources::UniquePipeline, kTopologyCount>& pipelines,
-                     bool clearFirst,
-                     SceneView& sceneView,
-                     Gesture::Graphics& graphics,
-                     const std::vector<int>& sequenceOrder,
-                     int picking);
+  // Record the gui-shader draws for the sequences in sequenceOrder. Consumes one
+  // uniform ring slot per sequence, starting at uniformSlot.
+  void recordSequences(VkCommandBuffer commandBuffer,
+                       const std::array<resources::UniquePipeline, kTopologyCount>& pipelines,
+                       SceneView& sceneView,
+                       Gesture::Graphics& graphics,
+                       const std::vector<int>& sequenceOrder,
+                       int picking,
+                       uint32_t& uniformSlot);
   bool ensureThickLinesResources();
   bool ensureThickLinesPipelines(VkFormat colorFormat, bool includeSelection);
   std::optional<resources::UniquePipeline> createThickLinesPipeline(VkRenderPass renderPass);
   void uploadStripVerts(const void* data, size_t byteCount);
-  void drawStrips(Framebuffer& target,
+  // Record the thick-line draws for the sequences in sequenceOrder. Consumes one
+  // uniform ring slot per strip, starting at uniformSlot.
+  void recordStrips(VkCommandBuffer commandBuffer,
+                    VkPipeline pipeline,
+                    SceneView& sceneView,
+                    Gesture::Graphics& graphics,
+                    const std::vector<int>& sequenceOrder,
+                    int picking,
+                    uint32_t& uniformSlot);
+  // Draw the complete gesture overlay for one framebuffer and submit it as a
+  // single piece of GPU work.
+  //
+  // Everything for the target -- the optional clear, the gui-shader draws for
+  // every sequence, and the thick-line draws for every strip -- is recorded
+  // into ONE command buffer inside ONE render pass instance, then submitted
+  // once. That matters because each submission here allocates a command
+  // buffer, creates a fence, and blocks until the GPU drains it, so the old
+  // one-submit-per-sequence/per-strip approach cost tens of full GPU stalls to
+  // draw a handful of lines. The draws are recorded in the order
+  // sequences-then-strips and rasterization order is preserved within a render
+  // pass, so blending still composites in the same order as before.
+  //
+  // Callers must have sized the uniform rings for this frame (see
+  // ensureUniformSlots) before calling: the recorded draws each read their own
+  // ring slot, which is only safe while they share one submission.
+  //
+  //   target         framebuffer to composite into. Transitioned to
+  //                  COLOR_ATTACHMENT_OPTIMAL here and left in that layout.
+  //   renderPass     render pass matching target's color format. Must be the
+  //                  one the supplied pipelines were created against; it loads
+  //                  existing contents, so anything already in the target (the
+  //                  volume render, an earlier underlay) survives.
+  //   pipelines      the three topology variants (triangles/lines/points) for
+  //                  the gui shader, or nullptr to skip the sequence draws --
+  //                  e.g. a frame that emitted only thick-line strips.
+  //   stripPipeline  thick-line pipeline, or VK_NULL_HANDLE to skip the strip
+  //                  draws. Must belong to renderPass as well.
+  //   clearFirst     clear the target to the "no selection" code before
+  //                  drawing. Only the selection buffer wants this; the display
+  //                  target must keep what is already there.
+  //   sceneView      supplies the camera (3d sequences) and viewport (2d
+  //                  screen-space sequences and thick-line screen expansion).
+  //   graphics       the geometry to draw: vertex ranges per sequence and the
+  //                  strip ranges/thicknesses. Not cleared here; the caller
+  //                  decides when a frame's commands are consumed, because the
+  //                  same geometry is drawn again into the selection buffer.
+  //   sequenceOrder  which command sequences to draw, in back-to-front order.
+  //                  drawUnderlay passes just the underlay sequence; draw()
+  //                  passes the depth-tested, stacked and 2d screen sequences.
+  //   picking        0 draws the visible overlay, 1 draws per-handle selection
+  //                  codes instead of colors (what pick() reads back).
+  void drawTarget(Framebuffer& target,
                   VkRenderPass renderPass,
-                  VkPipeline pipeline,
+                  const std::array<resources::UniquePipeline, kTopologyCount>* pipelines,
+                  VkPipeline stripPipeline,
+                  bool clearFirst,
                   SceneView& sceneView,
                   Gesture::Graphics& graphics,
                   const std::vector<int>& sequenceOrder,
                   int picking);
+  // Size the host-visible uniform rings so a frame's draws each get their own
+  // slot, addressed with a dynamic descriptor offset.
+  bool ensureUniformSlots(uint32_t sequenceSlots, uint32_t stripSlots);
   void drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, const std::vector<int>& sequenceOrder);
   void destroy();
 
@@ -100,7 +158,7 @@ private:
   resources::Buffer m_vertexBuffer;
   VkDeviceSize m_vertexCapacity = 0;
 
-  resources::Buffer m_uniformBuffer;
+  resources::UniformRing m_guiUniforms;
 
   resources::SampledImage m_dummyTexture;
 
@@ -130,7 +188,7 @@ private:
   resources::UniqueDescriptorPool m_thickLinesDescriptorPool;
   VkDescriptorSet m_thickLinesDescriptorSet = VK_NULL_HANDLE;
   resources::UniquePipelineLayout m_thickLinesPipelineLayout;
-  resources::Buffer m_thickLinesUniformBuffer;
+  resources::UniformRing m_thickLinesUniforms;
   resources::Buffer m_stripVertexBuffer;
   VkDeviceSize m_stripVertexCapacity = 0;
   resources::UniqueBufferView m_stripVertexView;

@@ -172,19 +172,19 @@ GestureRenderer::clearSelectionBuffer()
 }
 
 bool
+GestureRenderer::ensureUniformSlots(uint32_t sequenceSlots, uint32_t stripSlots)
+{
+  return m_guiUniforms.ensure(*m_backend, sizeof(GuiParams), sequenceSlots, m_descriptorSet) &&
+         m_thickLinesUniforms.ensure(*m_backend, sizeof(ThickLinesParams), stripSlots, m_thickLinesDescriptorSet);
+}
+
+bool
 GestureRenderer::ensureCommonResources()
 {
   VkDevice device = m_backend->logicalDevice();
 
-  if (!m_uniformBuffer) {
-    auto buffer =
-      m_backend->device().createBuffer(sizeof(GuiParams),
-                                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    if (!buffer) {
-      return false;
-    }
-    m_uniformBuffer = std::move(*buffer);
+  if (!m_guiUniforms && !ensureUniformSlots(Gesture::Graphics::kNumCommandsLists, 0)) {
+    return false;
   }
 
   // 1x1 white placeholder for the gui Texture binding. Gizmo verts flag
@@ -229,7 +229,7 @@ GestureRenderer::ensureCommonResources()
   if (!m_descriptorSetLayout) {
     std::array<VkDescriptorSetLayoutBinding, 2> bindings = {};
     bindings[0].binding = 0;
-    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     bindings[0].descriptorCount = 1;
     bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     bindings[1].binding = 1;
@@ -248,7 +248,7 @@ GestureRenderer::ensureCommonResources()
     m_descriptorSetLayout = std::move(*descriptorSetLayoutResource);
 
     std::array<VkDescriptorPoolSize, 2> ps = {};
-    ps[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    ps[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     ps[0].descriptorCount = 1;
     ps[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     ps[1].descriptorCount = 1;
@@ -274,7 +274,7 @@ GestureRenderer::ensureCommonResources()
     }
 
     VkDescriptorBufferInfo bufInfo = {};
-    bufInfo.buffer = m_uniformBuffer.get();
+    bufInfo.buffer = m_guiUniforms.buffer();
     bufInfo.offset = 0;
     bufInfo.range = sizeof(GuiParams);
     VkDescriptorImageInfo imgInfo = {};
@@ -285,7 +285,7 @@ GestureRenderer::ensureCommonResources()
     writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[0].dstSet = m_descriptorSet;
     writes[0].dstBinding = 0;
-    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     writes[0].descriptorCount = 1;
     writes[0].pBufferInfo = &bufInfo;
     writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -622,22 +622,14 @@ GestureRenderer::uploadVerts(const void* data, size_t byteCount)
 }
 
 void
-GestureRenderer::drawSequences(Framebuffer& target,
-                               VkRenderPass renderPass,
-                               const std::array<resources::UniquePipeline, kTopologyCount>& pipelines,
-                               bool clearFirst,
-                               SceneView& sceneView,
-                               Gesture::Graphics& graphics,
-                               const std::vector<int>& sequenceOrder,
-                               int picking)
+GestureRenderer::recordSequences(VkCommandBuffer commandBuffer,
+                                 const std::array<resources::UniquePipeline, kTopologyCount>& pipelines,
+                                 SceneView& sceneView,
+                                 Gesture::Graphics& graphics,
+                                 const std::vector<int>& sequenceOrder,
+                                 int picking,
+                                 uint32_t& uniformSlot)
 {
-  VkDevice device = m_backend->logicalDevice();
-
-  if (clearFirst) {
-    // Clear to the "no selection" code (0x7fffffff -> 0xff,0xff,0xff,0x7f).
-    target.clear({ 1.0f, 1.0f, 1.0f, 127.0f / 255.0f });
-  }
-
   glm::mat4 viewMatrix(1.0f);
   sceneView.camera.getViewMatrix(viewMatrix);
   glm::mat4 projMatrix(1.0f);
@@ -650,58 +642,37 @@ GestureRenderer::drawSequences(Framebuffer& target,
                                                                     1.0f,
                                                                     -1.0f);
 
+  VkDeviceSize offset = 0;
+  VkBuffer vertexBuffer = m_vertexBuffer.get();
+  vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffer, &offset);
+
   for (int sequence : sequenceOrder) {
     if (graphics.commands[sequence].empty()) {
       continue;
     }
-
-    GuiParams params;
-    params.picking = picking;
-    params.projection = (sequence == (int)Gesture::Graphics::CommandSequence::k2dScreen) ? ortho : vp;
-    void* mapped = nullptr;
-    vkMapMemory(device, m_uniformBuffer.memory(), 0, sizeof(GuiParams), 0, &mapped);
-    std::memcpy(mapped, &params, sizeof(GuiParams));
-    vkUnmapMemory(device, m_uniformBuffer.memory());
-
-    VkCommandBuffer cmd = m_backend->beginSingleTimeCommands();
-    target.transitionColorImage(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-    VkFramebufferCreateInfo fbi = {};
-    fbi.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    fbi.renderPass = renderPass;
-    fbi.attachmentCount = 1;
-    VkImageView attachment = target.colorImageView();
-    fbi.pAttachments = &attachment;
-    fbi.width = target.width();
-    fbi.height = target.height();
-    fbi.layers = 1;
-    auto vkfb = m_backend->device().createFramebuffer(fbi);
-    if (!vkfb) {
-      m_backend->endSingleTimeCommands(cmd);
+    if (uniformSlot >= m_guiUniforms.slots()) {
+      LOG_ERROR << "gesture uniform ring exhausted at slot " << uniformSlot;
       return;
     }
 
-    VkRenderPassBeginInfo rpb = {};
-    rpb.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    rpb.renderPass = renderPass;
-    rpb.framebuffer = vkfb->get();
-    rpb.renderArea.offset = { 0, 0 };
-    rpb.renderArea.extent = { target.width(), target.height() };
-    vkCmdBeginRenderPass(cmd, &rpb, VK_SUBPASS_CONTENTS_INLINE);
+    // Each sequence picks its own projection, so it needs its own slot in the
+    // ring: all of these draws are submitted together and read their uniforms
+    // at the same time.
+    GuiParams params;
+    params.picking = picking;
+    params.projection = (sequence == (int)Gesture::Graphics::CommandSequence::k2dScreen) ? ortho : vp;
+    const uint32_t dynamicOffset = m_guiUniforms.offsetForSlot(uniformSlot);
+    m_guiUniforms.write(uniformSlot, &params, sizeof(GuiParams));
+    ++uniformSlot;
 
-    VkViewport viewport = {};
-    viewport.width = static_cast<float>(target.width());
-    viewport.height = static_cast<float>(target.height());
-    viewport.maxDepth = 1.0f;
-    VkRect2D scissor = {};
-    scissor.extent = { target.width(), target.height() };
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
-    vkCmdBindDescriptorSets(
-      cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout.get(), 0, 1, &m_descriptorSet, 0, nullptr);
-    VkDeviceSize offset = 0;
-    VkBuffer vertexBuffer = m_vertexBuffer.get();
-    vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
+    vkCmdBindDescriptorSets(commandBuffer,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            m_pipelineLayout.get(),
+                            0,
+                            1,
+                            &m_descriptorSet,
+                            1,
+                            &dynamicOffset);
 
     for (Gesture::Graphics::CommandRange cmdr : graphics.commands[sequence]) {
       if (cmdr.end == -1) {
@@ -711,12 +682,9 @@ GestureRenderer::drawSequences(Framebuffer& target,
         continue;
       }
       const int topo = topologyForCommand(cmdr.command.command);
-      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[topo].get());
-      vkCmdDraw(cmd, static_cast<uint32_t>(cmdr.end - cmdr.begin), 1, static_cast<uint32_t>(cmdr.begin), 0);
+      vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[topo].get());
+      vkCmdDraw(commandBuffer, static_cast<uint32_t>(cmdr.end - cmdr.begin), 1, static_cast<uint32_t>(cmdr.begin), 0);
     }
-
-    vkCmdEndRenderPass(cmd);
-    m_backend->endSingleTimeCommands(cmd);
   }
 }
 
@@ -725,15 +693,8 @@ GestureRenderer::ensureThickLinesResources()
 {
   VkDevice device = m_backend->logicalDevice();
 
-  if (!m_thickLinesUniformBuffer) {
-    auto buffer =
-      m_backend->device().createBuffer(sizeof(ThickLinesParams),
-                                       VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    if (!buffer) {
-      return false;
-    }
-    m_thickLinesUniformBuffer = std::move(*buffer);
+  if (!m_thickLinesUniforms && !ensureUniformSlots(0, 16)) {
+    return false;
   }
 
   if (!m_thickLinesDescriptorSetLayout) {
@@ -742,7 +703,7 @@ GestureRenderer::ensureThickLinesResources()
     // 2: uniform texel buffer of strip vertex floats, sampled by vertex
     std::array<VkDescriptorSetLayoutBinding, 3> bindings = {};
     bindings[0].binding = 0;
-    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     bindings[0].descriptorCount = 1;
     bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     bindings[1].binding = 1;
@@ -765,7 +726,7 @@ GestureRenderer::ensureThickLinesResources()
     m_thickLinesDescriptorSetLayout = std::move(*descriptorSetLayoutResource);
 
     std::array<VkDescriptorPoolSize, 3> ps = {};
-    ps[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    ps[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     ps[0].descriptorCount = 1;
     ps[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     ps[1].descriptorCount = 1;
@@ -796,7 +757,7 @@ GestureRenderer::ensureThickLinesResources()
     // texel buffer view) is (re)written by uploadStripVerts() whenever the
     // buffer is (re)allocated.
     VkDescriptorBufferInfo bufInfo = {};
-    bufInfo.buffer = m_thickLinesUniformBuffer.get();
+    bufInfo.buffer = m_thickLinesUniforms.buffer();
     bufInfo.offset = 0;
     bufInfo.range = sizeof(ThickLinesParams);
     VkDescriptorImageInfo imgInfo = {};
@@ -807,7 +768,7 @@ GestureRenderer::ensureThickLinesResources()
     writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[0].dstSet = m_thickLinesDescriptorSet;
     writes[0].dstBinding = 0;
-    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     writes[0].descriptorCount = 1;
     writes[0].pBufferInfo = &bufInfo;
     writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1003,19 +964,17 @@ GestureRenderer::uploadStripVerts(const void* data, size_t byteCount)
 }
 
 void
-GestureRenderer::drawStrips(Framebuffer& target,
-                            VkRenderPass renderPass,
-                            VkPipeline pipeline,
-                            SceneView& sceneView,
-                            Gesture::Graphics& graphics,
-                            const std::vector<int>& sequenceOrder,
-                            int picking)
+GestureRenderer::recordStrips(VkCommandBuffer commandBuffer,
+                              VkPipeline pipeline,
+                              SceneView& sceneView,
+                              Gesture::Graphics& graphics,
+                              const std::vector<int>& sequenceOrder,
+                              int picking,
+                              uint32_t& uniformSlot)
 {
   if (graphics.stripRanges.empty() || pipeline == VK_NULL_HANDLE) {
     return;
   }
-
-  VkDevice device = m_backend->logicalDevice();
 
   glm::mat4 viewMatrix(1.0f);
   sceneView.camera.getViewMatrix(viewMatrix);
@@ -1029,6 +988,8 @@ GestureRenderer::drawStrips(Framebuffer& target,
                                                                     1.0f,
                                                                     -1.0f);
   const glm::ivec2 vpSize = sceneView.viewport.region.size();
+
+  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
   for (int sequence : sequenceOrder) {
     for (size_t i = 0; i < graphics.stripRanges.size(); ++i) {
@@ -1044,7 +1005,14 @@ GestureRenderer::drawStrips(Framebuffer& target,
       if (segments <= 0) {
         continue;
       }
+      if (uniformSlot >= m_thickLinesUniforms.slots()) {
+        LOG_ERROR << "gesture thick-line uniform ring exhausted at slot " << uniformSlot;
+        return;
+      }
 
+      // Every strip has its own vertex offset and thickness, so each one draws
+      // from its own slot in the ring rather than rewriting a single uniform
+      // between submissions.
       ThickLinesParams params;
       params.projection =
         (graphics.stripProjections[i] == Gesture::Graphics::CommandSequence::k2dScreen) ? ortho : vpMat;
@@ -1053,60 +1021,103 @@ GestureRenderer::drawStrips(Framebuffer& target,
       params.picking = picking;
       params.thickness = graphics.stripThicknesses[i];
 
-      void* mapped = nullptr;
-      vkMapMemory(device, m_thickLinesUniformBuffer.memory(), 0, sizeof(ThickLinesParams), 0, &mapped);
-      std::memcpy(mapped, &params, sizeof(ThickLinesParams));
-      vkUnmapMemory(device, m_thickLinesUniformBuffer.memory());
+      const uint32_t dynamicOffset = m_thickLinesUniforms.offsetForSlot(uniformSlot);
+      m_thickLinesUniforms.write(uniformSlot, &params, sizeof(ThickLinesParams));
+      ++uniformSlot;
 
-      VkCommandBuffer cmd = m_backend->beginSingleTimeCommands();
-      target.transitionColorImage(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-      VkFramebufferCreateInfo fbi = {};
-      fbi.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-      fbi.renderPass = renderPass;
-      fbi.attachmentCount = 1;
-      VkImageView attachment = target.colorImageView();
-      fbi.pAttachments = &attachment;
-      fbi.width = target.width();
-      fbi.height = target.height();
-      fbi.layers = 1;
-      auto vkfb = m_backend->device().createFramebuffer(fbi);
-      if (!vkfb) {
-        m_backend->endSingleTimeCommands(cmd);
-        continue;
-      }
-
-      VkRenderPassBeginInfo rpb = {};
-      rpb.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-      rpb.renderPass = renderPass;
-      rpb.framebuffer = vkfb->get();
-      rpb.renderArea.offset = { 0, 0 };
-      rpb.renderArea.extent = { target.width(), target.height() };
-      vkCmdBeginRenderPass(cmd, &rpb, VK_SUBPASS_CONTENTS_INLINE);
-
-      VkViewport viewport = {};
-      viewport.width = static_cast<float>(target.width());
-      viewport.height = static_cast<float>(target.height());
-      viewport.maxDepth = 1.0f;
-      VkRect2D scissor = {};
-      scissor.extent = { target.width(), target.height() };
-      vkCmdSetViewport(cmd, 0, 1, &viewport);
-      vkCmdSetScissor(cmd, 0, 1, &scissor);
-      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-      vkCmdBindDescriptorSets(cmd,
+      vkCmdBindDescriptorSets(commandBuffer,
                               VK_PIPELINE_BIND_POINT_GRAPHICS,
                               m_thickLinesPipelineLayout.get(),
                               0,
                               1,
                               &m_thickLinesDescriptorSet,
-                              0,
-                              nullptr);
-      vkCmdDraw(cmd, 6u * static_cast<uint32_t>(segments), 1, 0, 0);
-
-      vkCmdEndRenderPass(cmd);
-      m_backend->endSingleTimeCommands(cmd);
+                              1,
+                              &dynamicOffset);
+      vkCmdDraw(commandBuffer, 6u * static_cast<uint32_t>(segments), 1, 0, 0);
     }
   }
+}
+
+// See the declaration in GestureRenderer.h for what each parameter means and
+// why the whole overlay goes into one submission.
+void
+GestureRenderer::drawTarget(Framebuffer& target,
+                            VkRenderPass renderPass,
+                            const std::array<resources::UniquePipeline, kTopologyCount>* pipelines,
+                            VkPipeline stripPipeline,
+                            bool clearFirst,
+                            SceneView& sceneView,
+                            Gesture::Graphics& graphics,
+                            const std::vector<int>& sequenceOrder,
+                            int picking)
+{
+  const bool drawSequences = pipelines != nullptr;
+  const bool drawStrips = stripPipeline != VK_NULL_HANDLE;
+  if (!clearFirst && !drawSequences && !drawStrips) {
+    return;
+  }
+
+  // One command buffer for the whole overlay: each submit costs a command
+  // buffer allocation, a fence and a full GPU drain.
+  VkCommandBuffer cmd = m_backend->beginSingleTimeCommands();
+  if (clearFirst) {
+    // Clear to the "no selection" code (0x7fffffff -> 0xff,0xff,0xff,0x7f).
+    target.recordClear(cmd, { 1.0f, 1.0f, 1.0f, 127.0f / 255.0f });
+  }
+
+  std::optional<resources::UniqueFramebuffer> vkfb;
+  if (drawSequences || drawStrips) {
+    target.transitionColorImage(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+    VkFramebufferCreateInfo fbi = {};
+    fbi.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    fbi.renderPass = renderPass;
+    fbi.attachmentCount = 1;
+    VkImageView attachment = target.colorImageView();
+    fbi.pAttachments = &attachment;
+    fbi.width = target.width();
+    fbi.height = target.height();
+    fbi.layers = 1;
+    vkfb = m_backend->device().createFramebuffer(fbi);
+    if (!vkfb) {
+      m_backend->endSingleTimeCommands(cmd);
+      return;
+    }
+
+    VkRenderPassBeginInfo rpb = {};
+    rpb.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    rpb.renderPass = renderPass;
+    rpb.framebuffer = vkfb->get();
+    rpb.renderArea.offset = { 0, 0 };
+    rpb.renderArea.extent = { target.width(), target.height() };
+    vkCmdBeginRenderPass(cmd, &rpb, VK_SUBPASS_CONTENTS_INLINE);
+
+    // Viewport and scissor are dynamic state on every gesture pipeline, so one
+    // setting covers all the draws recorded below.
+    VkViewport viewport = {};
+    viewport.width = static_cast<float>(target.width());
+    viewport.height = static_cast<float>(target.height());
+    viewport.maxDepth = 1.0f;
+    VkRect2D scissor = {};
+    scissor.extent = { target.width(), target.height() };
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    uint32_t sequenceSlot = 0;
+    uint32_t stripSlot = 0;
+    if (drawSequences) {
+      recordSequences(cmd, *pipelines, sceneView, graphics, sequenceOrder, picking, sequenceSlot);
+    }
+    if (drawStrips) {
+      recordStrips(cmd, stripPipeline, sceneView, graphics, sequenceOrder, picking, stripSlot);
+    }
+
+    vkCmdEndRenderPass(cmd);
+  }
+
+  // Blocks until the GPU is done, so the uniform slots written above are safe
+  // to reuse for the next target.
+  m_backend->endSingleTimeCommands(cmd);
 }
 
 void
@@ -1154,39 +1165,37 @@ GestureRenderer::drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, con
     thickLinesReady = m_stripVertexBuffer && m_stripVertexView;
   }
 
-  // Composite the gizmo overlay onto the target framebuffer. Selection codes
-  // are rendered afterwards to an offscreen framebuffer for next-frame picking.
-  const bool clearSelection = true;
-  if (hasVerts) {
-    drawSequences(*target, m_displayRenderPass.get(), m_displayPipelines, false, sceneView, graphics, sequenceOrder, 0);
+  // One uniform ring slot per sequence and per strip, so a whole target can be
+  // recorded into a single command buffer.
+  if (!ensureUniformSlots(static_cast<uint32_t>(sequenceOrder.size()),
+                          static_cast<uint32_t>(graphics.stripRanges.size()))) {
+    graphics.clearCommands();
+    return;
   }
-  if (thickLinesReady) {
-    drawStrips(
-      *target, m_displayRenderPass.get(), m_thickLinesDisplayPipeline.get(), sceneView, graphics, sequenceOrder, 0);
-  }
-  if (hasVerts) {
-    drawSequences(*m_selectionFbo,
-                  m_selectionRenderPass.get(),
-                  m_selectionPipelines,
-                  clearSelection,
-                  sceneView,
-                  graphics,
-                  sequenceOrder,
-                  1);
-  } else {
-    // Still need to clear the selection buffer before drawing strip codes into
-    // it, otherwise stale codes from previous frames survive.
-    m_selectionFbo->clear({ 1.0f, 1.0f, 1.0f, 127.0f / 255.0f });
-  }
-  if (thickLinesReady) {
-    drawStrips(*m_selectionFbo,
-               m_selectionRenderPass.get(),
-               m_thickLinesSelectionPipeline.get(),
-               sceneView,
-               graphics,
-               sequenceOrder,
-               1);
-  }
+
+  // Composite the gizmo overlay onto the target framebuffer, then render the
+  // selection codes to an offscreen framebuffer for next-frame picking. One
+  // submit each.
+  drawTarget(*target,
+             m_displayRenderPass.get(),
+             hasVerts ? &m_displayPipelines : nullptr,
+             thickLinesReady ? m_thickLinesDisplayPipeline.get() : VK_NULL_HANDLE,
+             false,
+             sceneView,
+             graphics,
+             sequenceOrder,
+             0);
+  // The selection buffer is always cleared first, otherwise stale codes from
+  // previous frames survive where nothing is drawn this frame.
+  drawTarget(*m_selectionFbo,
+             m_selectionRenderPass.get(),
+             hasVerts ? &m_selectionPipelines : nullptr,
+             thickLinesReady ? m_thickLinesSelectionPipeline.get() : VK_NULL_HANDLE,
+             true,
+             sceneView,
+             graphics,
+             sequenceOrder,
+             1);
 
   graphics.clearCommands();
 }
@@ -1241,13 +1250,19 @@ GestureRenderer::drawUnderlay(SceneView& sceneView, Gesture::Graphics& graphics)
   const std::vector<int> sequenceOrder = {
     (int)Gesture::Graphics::CommandSequence::k3dStackedUnderlay,
   };
-  if (hasVerts) {
-    drawSequences(*target, m_displayRenderPass.get(), m_displayPipelines, false, sceneView, graphics, sequenceOrder, 0);
+  if (!ensureUniformSlots(static_cast<uint32_t>(sequenceOrder.size()),
+                          static_cast<uint32_t>(graphics.stripRanges.size()))) {
+    return;
   }
-  if (thickLinesReady) {
-    drawStrips(
-      *target, m_displayRenderPass.get(), m_thickLinesDisplayPipeline.get(), sceneView, graphics, sequenceOrder, 0);
-  }
+  drawTarget(*target,
+             m_displayRenderPass.get(),
+             hasVerts ? &m_displayPipelines : nullptr,
+             thickLinesReady ? m_thickLinesDisplayPipeline.get() : VK_NULL_HANDLE,
+             false,
+             sceneView,
+             graphics,
+             sequenceOrder,
+             0);
 }
 
 bool
@@ -1359,8 +1374,8 @@ GestureRenderer::destroy()
   m_fontTexture.reset();
   m_fontWidth = 0;
   m_fontHeight = 0;
-  m_uniformBuffer.reset();
-  m_thickLinesUniformBuffer.reset();
+  m_guiUniforms.reset(device);
+  m_thickLinesUniforms.reset(device);
   m_vertexBuffer.reset();
   m_stripVertexView.reset();
   m_stripVertexBuffer.reset();
