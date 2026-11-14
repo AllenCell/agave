@@ -391,6 +391,11 @@ VulkanView3D::captureQimage()
 void
 VulkanView3D::pauseRenderLoop()
 {
+  // The CStatus observers drive Qt widgets directly, and the render dialog
+  // renders from its own thread while this loop is paused. Silence them here
+  // (as the OpenGL view does) so statistics updates are not issued from a
+  // non-GUI thread.
+  setStatusUpdatesEnabled(false);
   // No timer to stop -- the render loop self-suspends by not re-requesting an
   // UpdateRequest at the end of the next renderFrame().
   m_renderPaused = true;
@@ -400,7 +405,19 @@ void
 VulkanView3D::restartRenderLoop()
 {
   m_renderPaused = false;
+  setStatusUpdatesEnabled(true);
   scheduleNextFrame();
+}
+
+void
+VulkanView3D::setStatusUpdatesEnabled(bool enabled)
+{
+  if (!m_viewerWindow || !m_viewerWindow->m_renderer) {
+    return;
+  }
+  if (std::shared_ptr<CStatus> status = m_viewerWindow->m_renderer->getStatusInterface()) {
+    status->EnableUpdates(enabled);
+  }
 }
 
 void
