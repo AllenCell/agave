@@ -218,6 +218,17 @@ Framebuffer::clear(const gfxApi::ClearColor& color)
   }
 
   VkCommandBuffer commandBuffer = m_backend.beginSingleTimeCommands();
+  recordClear(commandBuffer, color);
+  m_backend.endSingleTimeCommands(commandBuffer);
+}
+
+void
+Framebuffer::recordClear(VkCommandBuffer commandBuffer, const gfxApi::ClearColor& color)
+{
+  if (colorImage() == VK_NULL_HANDLE) {
+    return;
+  }
+
   transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
   VkClearColorValue clearColor = { { color.r, color.g, color.b, color.a } };
@@ -228,8 +239,6 @@ Framebuffer::clear(const gfxApi::ClearColor& color)
   range.baseArrayLayer = 0;
   range.layerCount = 1;
   vkCmdClearColorImage(commandBuffer, colorImage(), m_colorLayout, &clearColor, 1, &range);
-
-  m_backend.endSingleTimeCommands(commandBuffer);
 }
 
 void
