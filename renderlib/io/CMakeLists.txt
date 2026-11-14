@@ -78,8 +78,8 @@ set(TENSORSTORE_USE_SYSTEM_ZLIB ON)
 set(TENSORSTORE_USE_SYSTEM_CURL ON)
 FetchContent_Declare(
 	tensorstore
-        URL "https://github.com/google/tensorstore/archive/refs/tags/v0.1.86.tar.gz"
-        URL_HASH SHA256=FBC535275A766A17F636952CB10A766ED125F21282D4FD2BFDF95923C1C2CBE9
+        URL "https://github.com/google/tensorstore/archive/refs/tags/v0.1.84.tar.gz"
+        URL_HASH SHA256=D86FE9DCA4B69E5C8B488562351DC654BCE1400F5981F922E4BE9BA4FAFC95CE
 )
 
 FetchContent_MakeAvailable(tensorstore)
