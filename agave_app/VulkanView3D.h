@@ -95,6 +95,9 @@ private:
   // firing as fast as the event loop can drain -- which is what a 0ms QTimer
   // used to do, and what left no room in the event queue for the pause click.
   void scheduleNextFrame();
+  // CStatus observers update Qt widgets synchronously on the calling thread, so
+  // they must be silenced whenever rendering is driven from another thread.
+  void setStatusUpdatesEnabled(bool enabled);
 
   QCamera* m_qcamera = nullptr;
   QRenderSettings* m_qrendersettings = nullptr;
