@@ -886,9 +886,11 @@ RenderDialog::onFrameDone(QImage image)
     SetTimeCommandD timedata;
     timedata.m_time = mFrameNumber;
     cmd.push_back(new SetTimeCommand(timedata));
-    m_renderThread->addRequest(new RenderRequest(nullptr, cmd, false));
-    // re-enable streamed progressive render frames
-    m_renderThread->setStreamMode(1);
+    // Enqueue the request and re-enable streamed progressive render frames as a
+    // single atomic step. Enqueueing first would wake the render thread while
+    // streaming is still off, letting it drain this request through the
+    // non-streaming path, which queues no follow-up redraw and stalls the loop.
+    m_renderThread->addRequestAndSetStreamMode(new RenderRequest(nullptr, cmd, false), 1);
   }
 }
 
@@ -974,8 +976,6 @@ void
 RenderDialog::resumeRendering()
 {
   if (m_renderThread) {
-    m_renderThread->setStreamMode(1);
-
     std::vector<Command*> cmd;
 
     // 1. pick up any resolution changes?
@@ -993,7 +993,9 @@ RenderDialog::resumeRendering()
     RequestRedrawCommandD data;
     cmd.push_back(new RequestRedrawCommand(data));
 
-    m_renderThread->addRequest(new RenderRequest(nullptr, cmd, false));
+    // Publish the work and the stream mode together, so the render thread
+    // cannot see the request without also seeing that streaming is back on.
+    m_renderThread->addRequestAndSetStreamMode(new RenderRequest(nullptr, cmd, false), 1);
   }
 }
 
