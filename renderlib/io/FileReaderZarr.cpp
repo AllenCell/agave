@@ -9,6 +9,7 @@
 
 #include "tensorstore/context.h"
 #include "tensorstore/index_space/dim_expression.h"
+#include "tensorstore/internal/http/default_transport.h"
 #include "tensorstore/kvstore/generation.h"
 #include "tensorstore/open.h"
 
@@ -20,6 +21,46 @@
 #include <memory>
 #include <set>
 #include <sstream>
+
+namespace {
+
+// TEMPORARY WORKAROUND FOR TENSORSTORE v0.1.84 -- remove when the pin in
+// renderlib/io/CMakeLists.txt moves to v0.1.85 or newer, which fixes this
+// upstream. (As of this writing v0.1.85/v0.1.86 do not configure here: the
+// newer abseil snapshot they pin fails with `Target "absl_strings" links to
+// itself`, so the bump needs its own investigation first.)
+//
+// Keep tensorstore's default HTTP transport alive for the rest of the process.
+//
+// tensorstore v0.1.84 holds that transport in a function-local
+// `static std::shared_ptr<HttpTransport>` whose destructor is registered with
+// the C runtime's atexit table. When renderlib is loaded as a Python extension
+// module (agave_pyvk) that table runs during DLL_PROCESS_DETACH, after the
+// loader has already started tearing the process down. ~CurlTransport defers
+// its cleanup through internal::ScheduleAt(), which lazily constructs
+// tensorstore's DeadlineTaskQueue, whose constructor starts a thread. Creating
+// a thread that late fails, std::thread throws std::system_error, nothing
+// catches it during detach, and the process dies with FAST_FAIL_FATAL_APP_EXIT
+// (0xC0000409) -- after Python itself has exited cleanly.
+//
+// Holding one extra reference keeps the refcount above zero when that
+// destructor runs, so ~CurlTransport never runs and no thread is started during
+// shutdown. The transport and its curl threads are reclaimed with the process
+// image, which is exactly what tensorstore itself does from v0.1.85 on: there
+// GetDefaultCurlTransport() uses absl::NoDestructor, and ~CurlTransport only
+// defers deletion when it is called from a curl thread.
+void
+retainDefaultHttpTransport()
+{
+  // Deliberately leaked: a function-local static pointer is trivially
+  // destructible, so it registers no atexit destructor of its own and the
+  // reference it holds is never released.
+  static auto* const retained = new std::shared_ptr<tensorstore::internal_http::HttpTransport>(
+    tensorstore::internal_http::GetDefaultHttpTransport());
+  (void)retained;
+}
+
+} // namespace
 
 static bool
 isHTTP(const std::string& filepath)
@@ -62,6 +103,9 @@ static nlohmann::json
 getKvStoreDriverParams(const std::string& filepath, const std::string& subpath)
 {
   if (isCloud(filepath)) {
+    // Every cloud kvstore driver goes through tensorstore's shared HTTP
+    // transport, so make sure it outlives process teardown.
+    retainDefaultHttpTransport();
     if (isS3(filepath)) {
       // parse bucket and path from s3 url string of the form s3://bucket/path
       std::string bucket = filepath.substr(5);
