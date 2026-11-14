@@ -921,8 +921,11 @@ GestureRenderer::createThickLinesPipeline(VkRenderPass renderPass)
 }
 
 bool
-GestureRenderer::ensureThickLinesPipelines(VkFormat colorFormat)
+GestureRenderer::ensureThickLinesPipelines(VkFormat colorFormat, bool includeSelection)
 {
+  if (!m_displayRenderPass) {
+    return false;
+  }
   const bool displayColorChanged = (m_thickLinesDisplayColorFormat != colorFormat);
   if (!m_thickLinesDisplayPipeline || displayColorChanged) {
     m_thickLinesDisplayPipeline.reset();
@@ -933,7 +936,14 @@ GestureRenderer::ensureThickLinesPipelines(VkFormat colorFormat)
     m_thickLinesDisplayPipeline = std::move(*pipeline);
     m_thickLinesDisplayColorFormat = colorFormat;
   }
-  if (!m_thickLinesSelectionPipeline) {
+  // The selection pipeline needs the selection render pass, which only exists
+  // once the selection framebuffer has been created. The underlay pass draws
+  // before that happens (and never draws selection codes), so only build it
+  // when the caller actually renders into the selection buffer.
+  if (includeSelection && !m_thickLinesSelectionPipeline) {
+    if (!m_selectionRenderPass) {
+      return false;
+    }
     auto pipeline = createThickLinesPipeline(m_selectionRenderPass.get());
     if (!pipeline) {
       return false;
@@ -1139,7 +1149,7 @@ GestureRenderer::drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, con
   }
 
   bool thickLinesReady = false;
-  if (hasStrips && ensureThickLinesResources() && ensureThickLinesPipelines(target->colorFormat())) {
+  if (hasStrips && ensureThickLinesResources() && ensureThickLinesPipelines(target->colorFormat(), true)) {
     uploadStripVerts(graphics.stripVerts.data(), graphics.stripVerts.size() * sizeof(Gesture::Graphics::VertsCode));
     thickLinesReady = m_stripVertexBuffer && m_stripVertexView;
   }
@@ -1223,7 +1233,7 @@ GestureRenderer::drawUnderlay(SceneView& sceneView, Gesture::Graphics& graphics)
   }
 
   bool thickLinesReady = false;
-  if (hasStrips && ensureThickLinesResources() && ensureThickLinesPipelines(target->colorFormat())) {
+  if (hasStrips && ensureThickLinesResources() && ensureThickLinesPipelines(target->colorFormat(), false)) {
     uploadStripVerts(graphics.stripVerts.data(), graphics.stripVerts.size() * sizeof(Gesture::Graphics::VertsCode));
     thickLinesReady = m_stripVertexBuffer && m_stripVertexView;
   }
