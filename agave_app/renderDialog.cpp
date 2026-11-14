@@ -36,6 +36,8 @@
 static const float ZOOM_STEP = 1.1f;
 static const int TOOLBAR_INSET = 6;
 static const char* kStopRenderText = "Are you sure you want to stop the render currently in progress?";
+// How often the in-progress render is pulled off the GPU to refresh the preview.
+static const float PREVIEW_UPDATE_INTERVAL_SECONDS = 1.0f;
 
 // find a subrectangle of fullTargetRect that fits the aspect ratio of srcRect
 QRect
@@ -250,7 +252,6 @@ RenderDialog::RenderDialog(ViewerWindow* borrowedRenderer,
   , m_loadSpec(loadSpec)
   , m_renderThread(nullptr)
   , m_frameRenderTime(0)
-  , m_uiUpdateTime(0)
   , mWidth(0)
   , mHeight(0)
   , mFrameNumber(0)
@@ -769,6 +770,10 @@ RenderDialog::render()
                               renderlib::RendererType_Pathtrace,
                               m_glContext,
                               mCaptureSettings);
+    // Progressive samples accumulate on the GPU; only the ones that refresh
+    // this preview (and the last one of each frame, which gets saved) have to
+    // be read back.
+    m_renderThread->setImageCaptureInterval(PREVIEW_UPDATE_INTERVAL_SECONDS);
 
     onZoomFitClicked();
     // first time in, set up stream mode and give the first draw request
@@ -829,6 +834,13 @@ RenderDialog::onFrameDone(QImage image)
   // stop streaming mode while we deal with a completed frame
   m_renderThread->setStreamMode(0);
 
+  if (image.isNull()) {
+    // The sample that completes a frame is always read back; if it is missing,
+    // displaying or saving it would blank the preview and write an empty file.
+    LOG_ERROR << "frame " << mFrameNumber << " completed without an image";
+    return;
+  }
+
   // we just received the last sample.
   // however, another sample was already enqueued!!!!
   // so we know we will have one sample to discard.
@@ -872,7 +884,6 @@ RenderDialog::onFrameDone(QImage image)
     // reset frame progress and render time
     mFrameProgressBar->setValue(0);
     m_frameRenderTime = 0;
-    m_uiUpdateTime = 0;
 
     // force a redraw of this dialog
     repaint();
@@ -919,7 +930,6 @@ RenderDialog::onRenderRequestProcessed(RenderRequest* req, QImage image)
 
   // increment our time counter
   this->m_frameRenderTime += req->getActualDuration();
-  m_uiUpdateTime += req->getActualDuration();
 
   // increment progress
   if (mRenderDurationType == eRenderDurationType::SAMPLES) {
@@ -929,14 +939,11 @@ RenderDialog::onRenderRequestProcessed(RenderRequest* req, QImage image)
     mFrameProgressBar->setValue(m_frameRenderTime / (1000 * 1000 * 1000));
   }
 
-  // did a frame finish?
-  {
-    // update display if it's time to do so.
-    static constexpr float IMAGE_UPDATE_INTERVAL_SECONDS = 1.0;
-    if (m_uiUpdateTime / (1000 * 1000 * 1000) > IMAGE_UPDATE_INTERVAL_SECONDS) {
-      m_uiUpdateTime = 0;
-      this->setImage(&image);
-    }
+  // The render thread reads the framebuffer back only when a preview refresh is
+  // due (see Renderer::setImageCaptureInterval), so most samples arrive without
+  // an image and leave the previous one on screen.
+  if (!image.isNull()) {
+    this->setImage(&image);
   }
 }
 

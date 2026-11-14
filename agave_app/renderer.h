@@ -159,11 +159,27 @@ public:
 
   void resizeGL(int internalWidth, int internalHeight) override;
 
+  // Minimum wall-clock interval between framebuffer readbacks while streaming.
+  // Progressive rendering accumulates into the same framebuffer, so the pixels
+  // only have to leave the GPU when someone is going to look at them. The
+  // render dialog refreshes its preview about once a second and keeps the final
+  // image of each frame, so it sets an interval and every other sample skips a
+  // readback that would be thrown away. 0 (the default) reads back every
+  // sample, which is what the stream server needs.
+  void setImageCaptureInterval(float seconds) { m_imageCaptureIntervalSeconds = seconds; }
+
 protected:
   QString m_id;
 
   void processCommandBuffer(RenderRequest* rr);
-  QImage render();
+  // Draw one accumulation sample into m_fbo. No GPU -> CPU transfer.
+  void renderFrame();
+  // Read m_fbo back into a QImage. Only valid after renderFrame().
+  QImage captureImage();
+  // True when the just-rendered sample has to be handed to the receiver as an
+  // image: the frame is finished, readbacks are unthrottled, or the preview is
+  // due for a refresh. Restarts the interval timer whenever it returns true.
+  bool needsImageCapture(bool frameComplete);
 
   void reset(int from = 0);
 
@@ -194,6 +210,9 @@ private:
   int32_t m_frameIterations;
   float m_frameTimeSeconds;
   bool shouldContinue();
+
+  float m_imageCaptureIntervalSeconds = 0.0f;
+  QElapsedTimer m_sinceLastImageCapture;
 
   int32_t m_width, m_height;
 

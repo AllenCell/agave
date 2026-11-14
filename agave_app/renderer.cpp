@@ -285,16 +285,24 @@ Renderer::processRequest()
                   << ":" << QString::number(ws->peerPort()).toStdString() << ")";
       }
 
-      img = this->render();
+      this->renderFrame();
       // LOG_DEBUG << "RENDERED sample iteration " << m_frameIterations << " in " << timer.nsecsElapsed() << "ns";
-
-      lastReq->setActualDuration(timer.nsecsElapsed());
 
       // in stream mode:
       // if queue is empty, then keep firing redraws back to client, to build up iterations.
       m_frameIterations++;
       m_frameTimeSeconds += timer.nsecsElapsed() / (1000.0f * 1000.0f * 1000.0f);
-      if (m_streamMode && shouldContinue()) {
+
+      // The accumulation buffer keeps the result on the GPU, so only pay for a
+      // readback when this sample is actually going to be looked at or saved.
+      const bool frameComplete = !shouldContinue();
+      if (needsImageCapture(frameComplete)) {
+        img = this->captureImage();
+      }
+
+      lastReq->setActualDuration(timer.nsecsElapsed());
+
+      if (m_streamMode && !frameComplete) {
         // push another redraw request.
         std::vector<Command*> cmd;
         RequestRedrawCommandD data;
@@ -323,7 +331,8 @@ Renderer::processRequest()
         this->processCommandBuffer(r);
       }
 
-      img = this->render();
+      this->renderFrame();
+      img = this->captureImage();
 
       r->setActualDuration(timer.nsecsElapsed());
       lastReq = r;
@@ -396,8 +405,8 @@ Renderer::processCommandBuffer(RenderRequest* rr)
   }
 }
 
-QImage
-Renderer::render()
+void
+Renderer::renderFrame()
 {
   MutexContextLocker locker(m_openGLMutex, m_renderContext.get());
 
@@ -432,6 +441,12 @@ Renderer::render()
                               sceneView,
                               m_myVolumeData.m_gesture.graphics,
                               0.0f);
+}
+
+QImage
+Renderer::captureImage()
+{
+  MutexContextLocker locker(m_openGLMutex, m_renderContext.get());
 
   const std::size_t byteCount = static_cast<std::size_t>(m_fbo->width()) * m_fbo->height() * 4;
   auto bytes = std::make_unique<uint8_t[]>(byteCount);
@@ -445,6 +460,21 @@ Renderer::render()
   }
 
   return img;
+}
+
+bool
+Renderer::needsImageCapture(bool frameComplete)
+{
+  if (frameComplete || m_imageCaptureIntervalSeconds <= 0.0f) {
+    m_sinceLastImageCapture.start();
+    return true;
+  }
+  if (!m_sinceLastImageCapture.isValid() ||
+      m_sinceLastImageCapture.elapsed() >= static_cast<qint64>(m_imageCaptureIntervalSeconds * 1000.0f)) {
+    m_sinceLastImageCapture.start();
+    return true;
+  }
+  return false;
 }
 
 void
