@@ -139,6 +139,15 @@ public:
   void wakeUp();
 
   void addRequest(RenderRequest* request);
+
+  // Enqueue a request and set the stream mode as a single atomic step.
+  // processRequest() reads m_streamMode while holding m_requestMutex to decide
+  // which path drains the queue, so a caller that enqueues work and also
+  // (re-)enables streaming must publish both under that lock. Doing them as two
+  // separate calls lets the render thread wake on the enqueue and observe the
+  // old mode, consuming the request through the non-streaming path.
+  void addRequestAndSetStreamMode(RenderRequest* request, int32_t mode);
+
   bool processRequest();
 
   inline int getTotalQueueDuration() { return this->m_totalQueueDuration; }
