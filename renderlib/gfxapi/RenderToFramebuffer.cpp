@@ -51,9 +51,9 @@ renderToFramebuffer(Framebuffer& framebuffer,
   framebuffer.bind();
   gestureRenderer.draw(sceneView, graphics);
   framebuffer.release();
-  const double overlayMs = msSince(t0);
-  LOG_INFO << "PROFILE renderToFramebuffer clear=" << clearMs << " underlay=" << underlayMs << " render=" << renderMs
-           << " overlay=" << overlayMs;
+  // const double overlayMs = msSince(t0);
+  // LOG_INFO << "PROFILE renderToFramebuffer clear=" << clearMs << " underlay=" << underlayMs << " render=" << renderMs
+  //         << " overlay=" << overlayMs;
 }
 
 } // namespace gfxApi
