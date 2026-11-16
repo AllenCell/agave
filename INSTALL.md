@@ -4,7 +4,7 @@ You can access the [latest installer release here](https://github.com/AllenCell/
 
 ## Windows
 
-Download the installer `agave-1.10.0-win64.exe` and run it.
+Download the installer `agave-1.10.1-win64.exe` and run it.
 
 It will take you through the installation process. In most cases you can accept all the default settings.
 
@@ -19,7 +19,7 @@ The Intel (x86-64) version should work on all Macs. However, you will get the be
 
 ### MacOS with Apple processors
 
-Download the installer `agave-1.10.0-macos-arm64.dmg` and open it.
+Download the installer `agave-1.10.1-macos-arm64.dmg` and open it.
 
 Drag the agave icon to the Applications folder.
 
@@ -27,7 +27,7 @@ You can now run the application from the Applications folder.
 
 ### MacOS with Intel processors
 
-Download the installer `agave-1.10.0-macos-x86-64.dmg` and open it.
+Download the installer `agave-1.10.1-macos-x86-64.dmg` and open it.
 
 Drag the agave icon to the Applications folder.
 
