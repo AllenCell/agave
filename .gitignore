@@ -3,6 +3,7 @@ webclient/node_modules/
 webclient/es/
 
 build/
+build-debug/
 renderlib/version.h
 docs/_build/
 GeneratedFiles/
@@ -17,6 +18,13 @@ x64/
 \.vscode/
 \.idea/
 dask-worker-space/
+
+################
+# PYTHON ignores
+################
+
+__pycache__/
+*.py[cod]
 
 ###################
 # TERRAFORM ignores
