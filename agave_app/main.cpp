@@ -17,6 +17,8 @@
 #include <QString>
 #include <QUrlQuery>
 
+#include <clocale>
+
 constexpr int DEFAULT_SERVER_PORT = 1235;
 
 struct ServerParams
@@ -176,6 +178,15 @@ main(int argc, char* argv[])
     QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QApplication::setStyle("fusion");
     AgaveApplication a(argc, argv);
+    // The QApplication constructor calls setlocale(LC_ALL, ""),
+    // to sync Qt's internal locale with the user's environment.
+    // This breaks locale-sensitive parsing in dependencies:
+    // e.g. tensorstore parses HTTP "Date" headers via strptime's %a/%b,
+    // which fails under non-English locales, and strtod-style float
+    // parsing expects a '.' decimal separator. Restore the "C" locale for those
+    // categories, leaving LC_CTYPE etc. intact for Qt's text handling.
+    std::setlocale(LC_TIME, "C");
+    std::setlocale(LC_NUMERIC, "C");
     AgaveApplication::setOrganizationName("Allen Institute");
     AgaveApplication::setOrganizationDomain("allencell.org");
     AgaveApplication::setApplicationName("AGAVE");
