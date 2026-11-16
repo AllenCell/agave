@@ -5,14 +5,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>agave_pyclient.agave &mdash; agave_pyclient 1.10.0 documentation</title>
+  <title>agave_pyclient.agave &mdash; agave_pyclient 1.10.1 documentation</title>
       <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=03e43079" />
       <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
 
   
       <script src="../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
-      <script src="../../_static/documentation_options.js?v=1d24b1d9"></script>
+      <script src="../../_static/documentation_options.js?v=b95c35c0"></script>
       <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
       <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
     <script src="../../_static/js/theme.js"></script>
@@ -151,10 +151,10 @@
 <span class="p">)</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s2">&quot;AgaveClient&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;AgaveRenderer&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;find_matching_subdirectories&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;guess_agave_path&quot;</span><span class="p">,</span>
+    <span class="s2">"AgaveClient"</span><span class="p">,</span>
+    <span class="s2">"AgaveRenderer"</span><span class="p">,</span>
+    <span class="s2">"find_matching_subdirectories"</span><span class="p">,</span>
+    <span class="s2">"guess_agave_path"</span><span class="p">,</span>
 <span class="p">]</span>
 
 
@@ -167,10 +167,10 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">rotation_matrix</span><span class="p">(</span><span class="n">axis</span><span class="p">,</span> <span class="n">theta</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Return the rotation matrix associated with counterclockwise rotation about</span>
 <span class="sd">    the given axis by theta radians.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
     <span class="n">axis</span> <span class="o">=</span> <span class="n">numpy</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">axis</span><span class="p">)</span>
     <span class="n">axis</span> <span class="o">=</span> <span class="n">axis</span> <span class="o">/</span> <span class="n">math</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">numpy</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">axis</span><span class="p">,</span> <span class="n">axis</span><span class="p">))</span>
     <span class="n">a</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="n">theta</span> <span class="o">/</span> <span class="mf">2.0</span><span class="p">)</span>
@@ -223,7 +223,7 @@
 <div class="viewcode-block" id="AgaveRenderer">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">AgaveRenderer</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    AgaveRenderer communicates with AGAVE running in server mode to perform GPU volume</span>
 <span class="sd">    rendering.</span>
 
@@ -232,7 +232,7 @@
 <span class="sd">    url: str</span>
 <span class="sd">        Full url to websocket server including port.</span>
 <span class="sd">    mode: str</span>
-<span class="sd">        &quot;pathtrace&quot; or &quot;raymarch&quot; (pathtrace is default).</span>
+<span class="sd">        "pathtrace" or "raymarch" (pathtrace is default).</span>
 <span class="sd">    agave_path: Optional[str]</span>
 <span class="sd">        Path to an AGAVE executable to launch if no running server is found.</span>
 <span class="sd">        If ``None``, a standard install location will be searched for via</span>
@@ -258,7 +258,7 @@
 
 <span class="sd">    Launch a specific AGAVE executable:</span>
 
-<span class="sd">    &gt;&gt;&gt; agaveclient = AgaveRenderer(agave_path=&quot;/path/to/agave&quot;)</span>
+<span class="sd">    &gt;&gt;&gt; agaveclient = AgaveRenderer(agave_path="/path/to/agave")</span>
 
 <span class="sd">    Notes</span>
 <span class="sd">    -----</span>
@@ -283,24 +283,24 @@
 <span class="sd">       where ``&lt;port&gt;`` is parsed from ``url``, then the connection</span>
 <span class="sd">       is retried up to ``launch_retries`` times spaced</span>
 <span class="sd">       ``launch_retry_delay`` seconds apart.</span>
-<span class="sd">    &quot;&quot;&quot;</span>
+<span class="sd">    """</span>
 
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">url</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;ws://localhost:1235/&quot;</span><span class="p">,</span>
-        <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;pathtrace&quot;</span><span class="p">,</span>
+        <span class="n">url</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"ws://localhost:1235/"</span><span class="p">,</span>
+        <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"pathtrace"</span><span class="p">,</span>
         <span class="n">agave_path</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">auto_launch</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
         <span class="n">launch_retries</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
         <span class="n">launch_retry_delay</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="c1"># See class docstring &quot;Notes&quot; section for the connection-precedence</span>
+        <span class="c1"># See class docstring "Notes" section for the connection-precedence</span>
         <span class="c1"># rules that this constructor implements.</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">agave_process</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">cb</span> <span class="o">=</span> <span class="n">CommandBuffer</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">session_name</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
-        <span class="k">if</span> <span class="n">mode</span> <span class="o">!=</span> <span class="s2">&quot;pathtrace&quot;</span> <span class="ow">and</span> <span class="n">mode</span> <span class="o">!=</span> <span class="s2">&quot;raymarch&quot;</span><span class="p">:</span>
-            <span class="n">mode</span> <span class="o">=</span> <span class="s2">&quot;pathtrace&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">session_name</span> <span class="o">=</span> <span class="s2">""</span>
+        <span class="k">if</span> <span class="n">mode</span> <span class="o">!=</span> <span class="s2">"pathtrace"</span> <span class="ow">and</span> <span class="n">mode</span> <span class="o">!=</span> <span class="s2">"raymarch"</span><span class="p">:</span>
+            <span class="n">mode</span> <span class="o">=</span> <span class="s2">"pathtrace"</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_url</span> <span class="o">=</span> <span class="n">url</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">=</span> <span class="n">mode</span>
 
@@ -312,8 +312,8 @@
             <span class="k">if</span> <span class="ow">not</span> <span class="n">auto_launch</span><span class="p">:</span>
                 <span class="k">raise</span>
             <span class="nb">print</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;Could not connect to AGAVE at </span><span class="si">{</span><span class="n">url</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">connect_err</span><span class="si">}</span><span class="s2">); &quot;</span>
-                <span class="s2">&quot;attempting to launch a local instance...&quot;</span>
+                <span class="sa">f</span><span class="s2">"Could not connect to AGAVE at </span><span class="si">{</span><span class="n">url</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">connect_err</span><span class="si">}</span><span class="s2">); "</span>
+                <span class="s2">"attempting to launch a local instance..."</span>
             <span class="p">)</span>
 
         <span class="c1"># 2. Locate an AGAVE executable and launch it in server mode.</span>
@@ -335,9 +335,9 @@
             <span class="k">raise</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_connect</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Open a websocket connection to the AGAVE server.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""Open a websocket connection to the AGAVE server."""</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">ws</span> <span class="o">=</span> <span class="n">AgaveClient</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_url</span><span class="si">}</span><span class="s2">?mode=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_mode</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">protocols</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;http-only&quot;</span><span class="p">,</span> <span class="s2">&quot;chat&quot;</span><span class="p">]</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_url</span><span class="si">}</span><span class="s2">?mode=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_mode</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span> <span class="n">protocols</span><span class="o">=</span><span class="p">[</span><span class="s2">"http-only"</span><span class="p">,</span> <span class="s2">"chat"</span><span class="p">]</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">ws</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span>
 
@@ -350,9 +350,9 @@
 <div class="viewcode-block" id="AgaveRenderer.close">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.close">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Close the websocket and any AGAVE process started by this client.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""Close the websocket and any AGAVE process started by this client."""</span>
         <span class="k">try</span><span class="p">:</span>
-            <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;ws&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"ws"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">ws</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
         <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
             <span class="k">pass</span>
@@ -368,7 +368,7 @@
 <div class="viewcode-block" id="AgaveRenderer.session">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.session">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">session</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the current session name.  Use the full path to the name of the output</span>
 <span class="sd">        image here.</span>
 
@@ -377,41 +377,41 @@
 <span class="sd">        name: str</span>
 <span class="sd">            This name is the full path to the output image, ending in .png or .jpg.</span>
 <span class="sd">            Make sure the directory has already been created.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 0</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SESSION&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SESSION"</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">session_name</span> <span class="o">=</span> <span class="n">name</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.asset_path">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.asset_path">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">asset_path</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Sets a search path for volume files. NOT YET IMPLEMENTED.</span>
 
 <span class="sd">        Parameters</span>
 <span class="sd">        ----------</span>
 <span class="sd">        name: str</span>
 <span class="sd">            This name is the path where volume images are located.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 1</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;ASSET_PATH&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"ASSET_PATH"</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.load_ome_tif">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.load_ome_tif">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">load_ome_tif</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        DEPRECATED. Use load_data</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 2</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;LOAD_OME_TIF&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"LOAD_OME_TIF"</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.eye">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.eye">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">eye</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">z</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the viewer camera position.</span>
 <span class="sd">        Default is (500,500,500).</span>
 
@@ -423,15 +423,15 @@
 <span class="sd">            The y coordinate</span>
 <span class="sd">        z: float</span>
 <span class="sd">            The z coordinate</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 3</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;EYE&quot;</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"EYE"</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.target">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.target">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">target</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">z</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the viewer target position. This is a point toward which we are looking.</span>
 <span class="sd">        Default is (0,0,0).</span>
 
@@ -443,17 +443,17 @@
 <span class="sd">            The y coordinate</span>
 <span class="sd">        z: float</span>
 <span class="sd">            The z coordinate</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 4</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;TARGET&quot;</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"TARGET"</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.up">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.up">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">up</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">z</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the viewer camera up direction.  This is a vector which should be nearly</span>
-<span class="sd">        perpendicular to the view direction (target-eye), and defines the &quot;roll&quot; amount</span>
+<span class="sd">        perpendicular to the view direction (target-eye), and defines the "roll" amount</span>
 <span class="sd">        for the camera.</span>
 <span class="sd">        Default is (0,0,1).</span>
 
@@ -465,15 +465,15 @@
 <span class="sd">            The y coordinate</span>
 <span class="sd">        z: float</span>
 <span class="sd">            The z coordinate</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 5</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;UP&quot;</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"UP"</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.aperture">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.aperture">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">aperture</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the viewer camera aperture size.</span>
 
 <span class="sd">        Parameters</span>
@@ -482,15 +482,15 @@
 <span class="sd">            The aperture size.</span>
 <span class="sd">            This is a number between 0 and 1. 0 means no defocusing will occur, like a</span>
 <span class="sd">            pinhole camera.  1 means maximum defocus. Default is 0.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 6</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;APERTURE&quot;</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"APERTURE"</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.camera_projection">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.camera_projection">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">camera_projection</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">projection_type</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the viewer camera projection type, along with a relevant parameter.</span>
 
 <span class="sd">        Parameters</span>
@@ -501,30 +501,30 @@
 <span class="sd">            If Perspective, then this is the vertical Field of View angle in degrees.</span>
 <span class="sd">            If Orthographic, then this is the orthographic scale dimension.</span>
 <span class="sd">            Default: 55.0 degrees. (default Orthographic scale is 0.5)</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 7</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;CAMERA_PROJECTION&quot;</span><span class="p">,</span> <span class="n">projection_type</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"CAMERA_PROJECTION"</span><span class="p">,</span> <span class="n">projection_type</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.focaldist">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.focaldist">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">focaldist</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the viewer camera focal distance</span>
 
 <span class="sd">        Parameters</span>
 <span class="sd">        ----------</span>
 <span class="sd">        x: float</span>
 <span class="sd">            The focal distance.  Has no effect if aperture is 0.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 8</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;FOCALDIST&quot;</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"FOCALDIST"</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.exposure">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.exposure">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">exposure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the exposure level</span>
 
 <span class="sd">        Parameters</span>
@@ -532,15 +532,15 @@
 <span class="sd">        x: float</span>
 <span class="sd">            The exposure level between 0 and 1. Default is 0.75.  Higher numbers are</span>
 <span class="sd">            brighter.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 9</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;EXPOSURE&quot;</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"EXPOSURE"</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.mat_diffuse">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.mat_diffuse">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">mat_diffuse</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">r</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">g</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">a</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the diffuse color of a channel</span>
 
 <span class="sd">        Parameters</span>
@@ -555,15 +555,15 @@
 <span class="sd">            The blue value between 0 and 1</span>
 <span class="sd">        a: float</span>
 <span class="sd">            The alpha value between 0 and 1 (currently unused)</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 10</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;MAT_DIFFUSE&quot;</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"MAT_DIFFUSE"</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.mat_specular">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.mat_specular">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">mat_specular</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">r</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">g</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">a</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the specular color of a channel (defaults to black, for no specular</span>
 <span class="sd">        response)</span>
 
@@ -579,15 +579,15 @@
 <span class="sd">            The blue value between 0 and 1</span>
 <span class="sd">        a: float</span>
 <span class="sd">            The alpha value between 0 and 1 (currently unused)</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 11</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;MAT_SPECULAR&quot;</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"MAT_SPECULAR"</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.mat_emissive">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.mat_emissive">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">mat_emissive</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">r</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">g</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">a</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the emissive color of a channel (defaults to black, for no emission)</span>
 
 <span class="sd">        Parameters</span>
@@ -602,30 +602,30 @@
 <span class="sd">            The blue value between 0 and 1</span>
 <span class="sd">        a: float</span>
 <span class="sd">            The alpha value between 0 and 1 (currently unused)</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 12</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;MAT_EMISSIVE&quot;</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"MAT_EMISSIVE"</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.render_iterations">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.render_iterations">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">render_iterations</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the number of paths per pixel to accumulate.</span>
 
 <span class="sd">        Parameters</span>
 <span class="sd">        ----------</span>
 <span class="sd">        x: int</span>
 <span class="sd">            How many paths per pixel. The more paths, the less noise in the image.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 13</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;RENDER_ITERATIONS&quot;</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"RENDER_ITERATIONS"</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.stream_mode">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.stream_mode">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">stream_mode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Turn stream mode on or off.  Stream mode will send an image back to the client</span>
 <span class="sd">        on each iteration up to some server-defined amount.  This mode is useful for</span>
 <span class="sd">        interactive client-server applications but not for batch-mode offline rendering.</span>
@@ -634,23 +634,23 @@
 <span class="sd">        ----------</span>
 <span class="sd">        x: int</span>
 <span class="sd">            0 for off, 1 for on. Default is off.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 14</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;STREAM_MODE&quot;</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"STREAM_MODE"</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.redraw">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.redraw">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">redraw</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Tell the server to process all commands and return an image, and then save the</span>
 <span class="sd">        image.  This function will block and wait for the image to be returned.</span>
 <span class="sd">        The image returned will be saved automatically using the session_name.</span>
 <span class="sd">        TODO: a timeout is not yet implemented.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 15</span>
         <span class="c1"># issue command buffer</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;REDRAW&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"REDRAW"</span><span class="p">)</span>
         <span class="n">buf</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">make_buffer</span><span class="p">()</span>
         <span class="c1"># TODO ENSURE CONNECTED</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">ws</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
@@ -661,14 +661,14 @@
         <span class="nb">print</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">session_name</span><span class="p">)</span>
         <span class="n">im</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">session_name</span><span class="p">)</span>
         <span class="c1"># ready for next frame</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">session_name</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">session_name</span> <span class="o">=</span> <span class="s2">""</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">cb</span> <span class="o">=</span> <span class="n">CommandBuffer</span><span class="p">()</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_resolution">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.set_resolution">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_resolution</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the image resolution in pixels.</span>
 
 <span class="sd">        Parameters</span>
@@ -677,15 +677,15 @@
 <span class="sd">            x resolution in pixels</span>
 <span class="sd">        y: int</span>
 <span class="sd">            y resolution in pixels</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 16</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_RESOLUTION&quot;</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_RESOLUTION"</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.density">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.density">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">density</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the scattering density.</span>
 
 <span class="sd">        Parameters</span>
@@ -693,27 +693,27 @@
 <span class="sd">        x: float</span>
 <span class="sd">            The scattering density, 0-100.  Higher values will make the volume seem</span>
 <span class="sd">            more opaque. Default is 8.5, which is relatively transparent.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 17</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;DENSITY&quot;</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"DENSITY"</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.frame_scene">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.frame_scene">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">frame_scene</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Automatically set camera parameters so that the volume fills the view.</span>
 <span class="sd">        Useful when you have insufficient information to position the camera accurately.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 18</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;FRAME_SCENE&quot;</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"FRAME_SCENE"</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.mat_glossiness">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.mat_glossiness">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">mat_glossiness</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">glossiness</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Set the channel&#39;s glossiness.</span>
+<span class="w">        </span><span class="sd">"""</span>
+<span class="sd">        Set the channel's glossiness.</span>
 
 <span class="sd">        Parameters</span>
 <span class="sd">        ----------</span>
@@ -721,15 +721,15 @@
 <span class="sd">            Which channel index, 0 based.</span>
 <span class="sd">        glossiness: float</span>
 <span class="sd">            Sets the shininess, a number between 0 and 100.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 19</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;MAT_GLOSSINESS&quot;</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">glossiness</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"MAT_GLOSSINESS"</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">glossiness</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.enable_channel">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.enable_channel">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">enable_channel</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">enabled</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Show or hide a given channel</span>
 
 <span class="sd">        Parameters</span>
@@ -738,15 +738,15 @@
 <span class="sd">            Which channel index, 0 based.</span>
 <span class="sd">        enabled: int</span>
 <span class="sd">            0 to hide, 1 to show</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 20</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;ENABLE_CHANNEL&quot;</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">enabled</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"ENABLE_CHANNEL"</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">enabled</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_window_level">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.set_window_level">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_window_level</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">window</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">level</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set intensity threshold for a given channel based on Window/Level</span>
 
 <span class="sd">        Parameters</span>
@@ -757,15 +757,15 @@
 <span class="sd">            Width of the window, from 0-1.</span>
 <span class="sd">        level: float</span>
 <span class="sd">            Intensity level mapped to middle of window, from 0-1</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 21</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_WINDOW_LEVEL&quot;</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">window</span><span class="p">,</span> <span class="n">level</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_WINDOW_LEVEL"</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">window</span><span class="p">,</span> <span class="n">level</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.orbit_camera">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.orbit_camera">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">orbit_camera</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">theta</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">phi</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Rotate the camera around the volume by angle deltas</span>
 
 <span class="sd">        Parameters</span>
@@ -774,15 +774,15 @@
 <span class="sd">            polar angle in degrees</span>
 <span class="sd">        phi: float</span>
 <span class="sd">            azimuthal angle in degrees</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 22</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;ORBIT_CAMERA&quot;</span><span class="p">,</span> <span class="n">theta</span><span class="p">,</span> <span class="n">phi</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"ORBIT_CAMERA"</span><span class="p">,</span> <span class="n">theta</span><span class="p">,</span> <span class="n">phi</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.trackball_camera">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.trackball_camera">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">trackball_camera</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">theta</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">phi</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Rotate the camera around the volume by angle deltas</span>
 
 <span class="sd">        Parameters</span>
@@ -791,16 +791,16 @@
 <span class="sd">            vertical screen angle in degrees</span>
 <span class="sd">        phi: float</span>
 <span class="sd">            horizontal screen angle in degrees</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 43</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;TRACKBALL_CAMERA&quot;</span><span class="p">,</span> <span class="n">theta</span><span class="p">,</span> <span class="n">phi</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"TRACKBALL_CAMERA"</span><span class="p">,</span> <span class="n">theta</span><span class="p">,</span> <span class="n">phi</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.skylight_top_color">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.skylight_top_color">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">skylight_top_color</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">g</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Set the &quot;north pole&quot; color of the sky sphere</span>
+<span class="w">        </span><span class="sd">"""</span>
+<span class="sd">        Set the "north pole" color of the sky sphere</span>
 
 <span class="sd">        Parameters</span>
 <span class="sd">        ----------</span>
@@ -810,16 +810,16 @@
 <span class="sd">            The green value between 0 and 1</span>
 <span class="sd">        b: float</span>
 <span class="sd">            The blue value between 0 and 1</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 23</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SKYLIGHT_TOP_COLOR&quot;</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SKYLIGHT_TOP_COLOR"</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.skylight_middle_color">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.skylight_middle_color">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">skylight_middle_color</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">g</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Set the &quot;equator&quot; color of the sky sphere</span>
+<span class="w">        </span><span class="sd">"""</span>
+<span class="sd">        Set the "equator" color of the sky sphere</span>
 
 <span class="sd">        Parameters</span>
 <span class="sd">        ----------</span>
@@ -829,16 +829,16 @@
 <span class="sd">            The green value between 0 and 1</span>
 <span class="sd">        b: float</span>
 <span class="sd">            The blue value between 0 and 1</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 24</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SKYLIGHT_MIDDLE_COLOR&quot;</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SKYLIGHT_MIDDLE_COLOR"</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.skylight_bottom_color">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.skylight_bottom_color">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">skylight_bottom_color</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">g</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Set the &quot;south pole&quot; color of the sky sphere</span>
+<span class="w">        </span><span class="sd">"""</span>
+<span class="sd">        Set the "south pole" color of the sky sphere</span>
 
 <span class="sd">        Parameters</span>
 <span class="sd">        ----------</span>
@@ -848,15 +848,15 @@
 <span class="sd">            The green value between 0 and 1</span>
 <span class="sd">        b: float</span>
 <span class="sd">            The blue value between 0 and 1</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 25</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SKYLIGHT_BOTTOM_COLOR&quot;</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SKYLIGHT_BOTTOM_COLOR"</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.light_pos">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.light_pos">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">light_pos</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">r</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">theta</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">phi</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the position of an area light, in spherical coordinates</span>
 
 <span class="sd">        Parameters</span>
@@ -869,17 +869,17 @@
 <span class="sd">            The polar angle</span>
 <span class="sd">        phi: float</span>
 <span class="sd">            The azimuthal angle</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 26</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;LIGHT_POS&quot;</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">theta</span><span class="p">,</span> <span class="n">phi</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"LIGHT_POS"</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">theta</span><span class="p">,</span> <span class="n">phi</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.light_color">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.light_color">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">light_color</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">r</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">g</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the color of an area light. Overdrive the values higher than 1 to increase</span>
-<span class="sd">        the light&#39;s intensity.</span>
+<span class="sd">        the light's intensity.</span>
 
 <span class="sd">        Parameters</span>
 <span class="sd">        ----------</span>
@@ -891,15 +891,15 @@
 <span class="sd">            The green value between 0 and 1</span>
 <span class="sd">        b: float</span>
 <span class="sd">            The blue value between 0 and 1</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 27</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;LIGHT_COLOR&quot;</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"LIGHT_COLOR"</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.light_size">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.light_size">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">light_size</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">index</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the size dimensions of a rectangular area light.</span>
 
 <span class="sd">        Parameters</span>
@@ -910,9 +910,9 @@
 <span class="sd">            The width dimension of the area light</span>
 <span class="sd">        y: float</span>
 <span class="sd">            The height dimension of the area light</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 28</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;LIGHT_SIZE&quot;</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"LIGHT_SIZE"</span><span class="p">,</span> <span class="n">index</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_clip_region">
@@ -926,10 +926,10 @@
         <span class="n">minz</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
         <span class="n">maxz</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
     <span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the axis aligned region of interest of the volume. All axis values are</span>
 <span class="sd">        relative, where 0 is one extent of the volume and 1 is the opposite extent.</span>
-<span class="sd">        For example, (0,1, 0,1, 0,0.5) will select the lower half of the volume&#39;s z</span>
+<span class="sd">        For example, (0,1, 0,1, 0,0.5) will select the lower half of the volume's z</span>
 <span class="sd">        slices.</span>
 
 <span class="sd">        Parameters</span>
@@ -946,15 +946,15 @@
 <span class="sd">            The lower z extent between 0 and 1</span>
 <span class="sd">        maxz: float</span>
 <span class="sd">            The higher z extent between 0 and 1</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 29</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_CLIP_REGION&quot;</span><span class="p">,</span> <span class="n">minx</span><span class="p">,</span> <span class="n">maxx</span><span class="p">,</span> <span class="n">miny</span><span class="p">,</span> <span class="n">maxy</span><span class="p">,</span> <span class="n">minz</span><span class="p">,</span> <span class="n">maxz</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_CLIP_REGION"</span><span class="p">,</span> <span class="n">minx</span><span class="p">,</span> <span class="n">maxx</span><span class="p">,</span> <span class="n">miny</span><span class="p">,</span> <span class="n">maxy</span><span class="p">,</span> <span class="n">minz</span><span class="p">,</span> <span class="n">maxz</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_voxel_scale">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.set_voxel_scale">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_voxel_scale</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">z</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the relative scale of the pixels in the volume. Typically this is filled in</span>
 <span class="sd">        with the physical pixel dimensions from the microscope metadata.  Often the x</span>
 <span class="sd">        and y scale will differ from the z scale.  Defaults to (1,1,1)</span>
@@ -967,15 +967,15 @@
 <span class="sd">            y scale</span>
 <span class="sd">        z: float</span>
 <span class="sd">            z scale</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 30</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_VOXEL_SCALE&quot;</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_VOXEL_SCALE"</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.auto_threshold">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.auto_threshold">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">auto_threshold</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Automatically determine the intensity thresholds</span>
 
 <span class="sd">        Parameters</span>
@@ -989,15 +989,15 @@
 <span class="sd">            2: BestFit</span>
 <span class="sd">            3: ChimeraX emulation</span>
 <span class="sd">            4: between 0.5 percentile and 0.98 percentile</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 31</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;AUTO_THRESHOLD&quot;</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">method</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"AUTO_THRESHOLD"</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">method</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_percentile_threshold">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.set_percentile_threshold">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_percentile_threshold</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">pct_low</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">pct_high</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set intensity thresholds based on percentiles of pixels to clip min and max</span>
 <span class="sd">        intensity</span>
 
@@ -1009,15 +1009,15 @@
 <span class="sd">            The low percentile to remap to 0(min) intensity</span>
 <span class="sd">        pct_high: float</span>
 <span class="sd">            The high percentile to remap to 1(max) intensity</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 32</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_PERCENTILE_THRESHOLD&quot;</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">pct_low</span><span class="p">,</span> <span class="n">pct_high</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_PERCENTILE_THRESHOLD"</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">pct_low</span><span class="p">,</span> <span class="n">pct_high</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.mat_opacity">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.mat_opacity">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">mat_opacity</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">opacity</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set channel opacity. This is a multiplier against all intensity values in the</span>
 <span class="sd">        channel.</span>
 
@@ -1027,15 +1027,15 @@
 <span class="sd">            Which channel index, 0 based.</span>
 <span class="sd">        opacity: float</span>
 <span class="sd">            A multiplier between 0 and 1. Default is 1</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 33</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;MAT_OPACITY&quot;</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">opacity</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"MAT_OPACITY"</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">opacity</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_primary_ray_step_size">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.set_primary_ray_step_size">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_primary_ray_step_size</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step_size</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set primary ray step size. This is an accuracy versus speed tradeoff.  Low</span>
 <span class="sd">        values are more accurate. High values will render faster.</span>
 <span class="sd">        Primary rays are the rays that are cast from the camera out into the volume.</span>
@@ -1044,15 +1044,15 @@
 <span class="sd">        ----------</span>
 <span class="sd">        step_size: float</span>
 <span class="sd">            A value in voxels. Default is 4.  Minimum sensible value is 1.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 34</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_PRIMARY_RAY_STEP_SIZE&quot;</span><span class="p">,</span> <span class="n">step_size</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_PRIMARY_RAY_STEP_SIZE"</span><span class="p">,</span> <span class="n">step_size</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_secondary_ray_step_size">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.set_secondary_ray_step_size">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_secondary_ray_step_size</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step_size</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set secondary ray step size. This is an accuracy versus speed tradeoff.  Low</span>
 <span class="sd">        values are more accurate. High values will render faster.</span>
 <span class="sd">        The secondary rays are rays which are cast toward lights after they have</span>
@@ -1062,15 +1062,15 @@
 <span class="sd">        ----------</span>
 <span class="sd">        step_size: float</span>
 <span class="sd">            A value in voxels. Default is 4.  Minimum sensible value is 1.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 35</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_SECONDARY_RAY_STEP_SIZE&quot;</span><span class="p">,</span> <span class="n">step_size</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_SECONDARY_RAY_STEP_SIZE"</span><span class="p">,</span> <span class="n">step_size</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.background_color">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.background_color">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">background_color</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">g</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the background color of the rendering</span>
 
 <span class="sd">        Parameters</span>
@@ -1081,15 +1081,15 @@
 <span class="sd">            The green value between 0 and 1</span>
 <span class="sd">        b: float</span>
 <span class="sd">            The blue value between 0 and 1</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 36</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;BACKGROUND_COLOR&quot;</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"BACKGROUND_COLOR"</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_isovalue_threshold">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.set_isovalue_threshold">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_isovalue_threshold</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">isovalue</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">isorange</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set intensity thresholds based on values around an isovalue.</span>
 
 <span class="sd">        Parameters</span>
@@ -1101,15 +1101,15 @@
 <span class="sd">        isorange: float</span>
 <span class="sd">            A range around the isovalue to keep at constant intensity, between 0 and 1.</span>
 <span class="sd">            Typically small, to select for a single isovalue.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 37</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_ISOVALUE_THRESHOLD&quot;</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">isovalue</span><span class="p">,</span> <span class="n">isorange</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_ISOVALUE_THRESHOLD"</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">isovalue</span><span class="p">,</span> <span class="n">isorange</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_control_points">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.set_control_points">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_control_points</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">]):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set intensity thresholds based on a piecewise linear transfer function.</span>
 
 <span class="sd">        Parameters</span>
@@ -1120,40 +1120,40 @@
 <span class="sd">            An array of values.  5 floats per control point.  first is position (0-1),</span>
 <span class="sd">            next four are rgba (all 0-1).  Only alpha is currently used as the remapped</span>
 <span class="sd">            intensity value.  All others are linearly interpolated.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 38</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_CONTROL_POINTS&quot;</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_CONTROL_POINTS"</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.load_volume_from_file">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.load_volume_from_file">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">load_volume_from_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">scene</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">time</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        DEPRECATED. Use load_data</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 39</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;LOAD_VOLUME_FROM_FILE&quot;</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">scene</span><span class="p">,</span> <span class="n">time</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"LOAD_VOLUME_FROM_FILE"</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">scene</span><span class="p">,</span> <span class="n">time</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_time">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.set_time">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_time</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">time</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Load a time from the current volume file</span>
 
 <span class="sd">        Parameters</span>
 <span class="sd">        ----------</span>
 <span class="sd">        time: int</span>
 <span class="sd">            zero-based index to select the time sample.  Defaults to 0</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 40</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_TIME&quot;</span><span class="p">,</span> <span class="n">time</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_TIME"</span><span class="p">,</span> <span class="n">time</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.bounding_box_color">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.bounding_box_color">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">bounding_box_color</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">r</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">g</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the color for the bounding box display</span>
 
 <span class="sd">        Parameters</span>
@@ -1164,24 +1164,24 @@
 <span class="sd">            the green value, from 0 to 1</span>
 <span class="sd">        b: float</span>
 <span class="sd">            the blue value, from 0 to 1</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 41</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_BOUNDING_BOX_COLOR&quot;</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_BOUNDING_BOX_COLOR"</span><span class="p">,</span> <span class="n">r</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.show_bounding_box">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.show_bounding_box">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">show_bounding_box</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">on</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Turn bounding box display on or off</span>
 
 <span class="sd">        Parameters</span>
 <span class="sd">        ----------</span>
 <span class="sd">        on: int</span>
 <span class="sd">            0 to hide bounding box, 1 to show it</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 42</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SHOW_BOUNDING_BOX&quot;</span><span class="p">,</span> <span class="n">on</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SHOW_BOUNDING_BOX"</span><span class="p">,</span> <span class="n">on</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.load_data">
@@ -1195,7 +1195,7 @@
         <span class="n">channels</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">[],</span>
         <span class="n">region</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">[],</span>
     <span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Completely specify volume data to load</span>
 
 <span class="sd">        Parameters</span>
@@ -1219,10 +1219,10 @@
 <span class="sd">        region: List[int]</span>
 <span class="sd">            6 integers specifying the region to load.  Defaults to the entire volume.</span>
 <span class="sd">            Any list length other than 0 or 6 is an error.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 44</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span>
-            <span class="s2">&quot;LOAD_DATA&quot;</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">scene</span><span class="p">,</span> <span class="n">multiresolution_level</span><span class="p">,</span> <span class="n">time</span><span class="p">,</span> <span class="n">channels</span><span class="p">,</span> <span class="n">region</span>
+            <span class="s2">"LOAD_DATA"</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">scene</span><span class="p">,</span> <span class="n">multiresolution_level</span><span class="p">,</span> <span class="n">time</span><span class="p">,</span> <span class="n">channels</span><span class="p">,</span> <span class="n">region</span>
         <span class="p">)</span></div>
 
 
@@ -1237,8 +1237,8 @@
         <span class="n">channels</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">[],</span>
         <span class="n">region</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">[],</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Load a volume and return the server&#39;s metadata response as a dict.</span>
+<span class="w">        </span><span class="sd">"""</span>
+<span class="sd">        Load a volume and return the server's metadata response as a dict.</span>
 
 <span class="sd">        Same arguments as :meth:`load_data`, but this variant immediately</span>
 <span class="sd">        flushes the command buffer to the server, waits for the JSON text</span>
@@ -1263,7 +1263,7 @@
 <span class="sd">        -------</span>
 <span class="sd">        dict</span>
 <span class="sd">            Parsed JSON metadata for the loaded volume.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">load_data</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">scene</span><span class="p">,</span> <span class="n">multiresolution_level</span><span class="p">,</span> <span class="n">time</span><span class="p">,</span> <span class="n">channels</span><span class="p">,</span> <span class="n">region</span><span class="p">)</span>
         <span class="n">buf</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">make_buffer</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">ws</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
@@ -1275,22 +1275,22 @@
 <div class="viewcode-block" id="AgaveRenderer.show_scale_bar">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.show_scale_bar">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">show_scale_bar</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">on</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Turn scale bar display on or off</span>
 
 <span class="sd">        Parameters</span>
 <span class="sd">        ----------</span>
 <span class="sd">        on: int</span>
 <span class="sd">            0 to hide scale bar, 1 to show it</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 45</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SHOW_SCALE_BAR&quot;</span><span class="p">,</span> <span class="n">on</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SHOW_SCALE_BAR"</span><span class="p">,</span> <span class="n">on</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_flip_axis">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.set_flip_axis">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_flip_axis</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">z</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Flip the volume data on any axis</span>
 
 <span class="sd">        Parameters</span>
@@ -1301,30 +1301,30 @@
 <span class="sd">            -1 to flip, 1 to not flip</span>
 <span class="sd">        z: int</span>
 <span class="sd">            -1 to flip, 1 to not flip</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 46</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_FLIP_AXIS&quot;</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_FLIP_AXIS"</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_interpolation">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.set_interpolation">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_interpolation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the volume sampling interpolation mode</span>
 
 <span class="sd">        Parameters</span>
 <span class="sd">        ----------</span>
 <span class="sd">        x: int</span>
 <span class="sd">            0 for nearest, 1 for linear</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 47</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_INTERPOLATION&quot;</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_INTERPOLATION"</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_clip_plane">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.set_clip_plane">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_clip_plane</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">z</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">d</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the clip plane equation.  The xyz vector must be normalized.</span>
 
 <span class="sd">        Parameters</span>
@@ -1337,15 +1337,15 @@
 <span class="sd">            The z component of the normal</span>
 <span class="sd">        d: float</span>
 <span class="sd">            The distance from the origin</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 48</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_CLIP_PLANE&quot;</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_CLIP_PLANE"</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_color_ramp">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.set_color_ramp">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_color_ramp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">]):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set intensity thresholds based on a piecewise linear transfer function.</span>
 
 <span class="sd">        Parameters</span>
@@ -1359,15 +1359,15 @@
 <span class="sd">            next four are rgba (all 0-1).  Currently alpha will be ignored.</span>
 <span class="sd">            To guarantee correct behavior, the first control point should be at 0.0 and</span>
 <span class="sd">            the last at 1.0.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 49</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_COLOR_RAMP&quot;</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_COLOR_RAMP"</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_min_max_threshold">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.set_min_max_threshold">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_min_max_threshold</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">min_val</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">max_val</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the minimum and maximum intensity thresholds for a channel.</span>
 
 <span class="sd">        Parameters</span>
@@ -1378,15 +1378,15 @@
 <span class="sd">            The minimum intensity value.</span>
 <span class="sd">        max_val: int</span>
 <span class="sd">            The maximum intensity value.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 50</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_MIN_MAX_THRESHOLD&quot;</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">min_val</span><span class="p">,</span> <span class="n">max_val</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_MIN_MAX_THRESHOLD"</span><span class="p">,</span> <span class="n">channel</span><span class="p">,</span> <span class="n">min_val</span><span class="p">,</span> <span class="n">max_val</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_skylight_rotation">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.set_skylight_rotation">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_skylight_rotation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">z</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">w</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the orientation of the sphere (sky) light as a quaternion. The quaternion</span>
 <span class="sd">        rotates the default direction (0, 0, 1) to the desired sky-light direction and</span>
 <span class="sd">        also encodes the roll of the sphere around that direction, which determines</span>
@@ -1402,47 +1402,47 @@
 <span class="sd">            Quaternion z component.</span>
 <span class="sd">        w: float</span>
 <span class="sd">            Quaternion w component.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 51</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_SKYLIGHT_ROTATION&quot;</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">,</span> <span class="n">w</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_SKYLIGHT_ROTATION"</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">,</span> <span class="n">w</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.show_time_stamp">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.show_time_stamp">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">show_time_stamp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">on</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Turn timestamp display on or off</span>
 
 <span class="sd">        Parameters</span>
 <span class="sd">        ----------</span>
 <span class="sd">        on: int</span>
 <span class="sd">            0 to hide timestamps, 1 to show them</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 52</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SHOW_TIME_STAMP&quot;</span><span class="p">,</span> <span class="n">on</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SHOW_TIME_STAMP"</span><span class="p">,</span> <span class="n">on</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.set_time_stamp_format">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.set_time_stamp_format">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">set_time_stamp_format</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">format</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Set the timestamp display format</span>
 
 <span class="sd">        Parameters</span>
 <span class="sd">        ----------</span>
 <span class="sd">        format: int</span>
 <span class="sd">            0 for HH:MM:SS, 1 for time units</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># 53</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">&quot;SET_TIME_STAMP_FORMAT&quot;</span><span class="p">,</span> <span class="nb">format</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cb</span><span class="o">.</span><span class="n">add_command</span><span class="p">(</span><span class="s2">"SET_TIME_STAMP_FORMAT"</span><span class="p">,</span> <span class="nb">format</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="AgaveRenderer.batch_render_turntable">
 <a class="viewcode-back" href="../../agave_renderer.html#agave_pyclient.agave.AgaveRenderer.batch_render_turntable">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">batch_render_turntable</span><span class="p">(</span>
-        <span class="bp">self</span><span class="p">,</span> <span class="n">number_of_frames</span><span class="o">=</span><span class="mi">90</span><span class="p">,</span> <span class="n">direction</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">output_name</span><span class="o">=</span><span class="s2">&quot;frame&quot;</span><span class="p">,</span> <span class="n">first_frame</span><span class="o">=</span><span class="mi">0</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">number_of_frames</span><span class="o">=</span><span class="mi">90</span><span class="p">,</span> <span class="n">direction</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">output_name</span><span class="o">=</span><span class="s2">"frame"</span><span class="p">,</span> <span class="n">first_frame</span><span class="o">=</span><span class="mi">0</span>
     <span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Loop to render a turntable sequence, a 360 degree rotation about the vertical</span>
 <span class="sd">        axis.  Other commands must have been previously issued to load the data and set</span>
 <span class="sd">        all the viewing parameters.</span>
@@ -1458,14 +1458,14 @@
 <span class="sd">            automatically appended</span>
 <span class="sd">        first_frame: int</span>
 <span class="sd">            an offset for the frame indices in the saved file names</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># direction must be +/-1</span>
         <span class="k">if</span> <span class="n">direction</span> <span class="o">!=</span> <span class="mi">1</span> <span class="ow">and</span> <span class="n">direction</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
             <span class="k">return</span>
 
         <span class="c1"># then orbit the camera parametrically</span>
         <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">number_of_frames</span><span class="p">):</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">output_name</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">first_frame</span><span class="si">}</span><span class="s2">.png&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">output_name</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">first_frame</span><span class="si">}</span><span class="s2">.png"</span><span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">redraw</span><span class="p">()</span>
             <span class="c1"># first frame gets zero orbit, then onward:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">trackball_camera</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">direction</span> <span class="o">*</span> <span class="p">(</span><span class="mf">360.0</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span><span class="n">number_of_frames</span><span class="p">)))</span></div>
@@ -1478,10 +1478,10 @@
         <span class="n">number_of_frames</span><span class="o">=</span><span class="mi">90</span><span class="p">,</span>
         <span class="n">angle</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span>
         <span class="n">direction</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
-        <span class="n">output_name</span><span class="o">=</span><span class="s2">&quot;frame&quot;</span><span class="p">,</span>
+        <span class="n">output_name</span><span class="o">=</span><span class="s2">"frame"</span><span class="p">,</span>
         <span class="n">first_frame</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
     <span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">"""</span>
 <span class="sd">        Loop to render a rocker sequence, an oscillating partial rotation about the</span>
 <span class="sd">        vertical axis.  Other commands must have been previously issued to load the</span>
 <span class="sd">        data and set all the viewing parameters.</span>
@@ -1499,7 +1499,7 @@
 <span class="sd">            automatically appended</span>
 <span class="sd">        first_frame: int</span>
 <span class="sd">            an offset for the frame indices in the saved file names</span>
-<span class="sd">        &quot;&quot;&quot;</span>
+<span class="sd">        """</span>
         <span class="c1"># direction must be +/-1</span>
         <span class="k">if</span> <span class="n">direction</span> <span class="o">!=</span> <span class="mi">1</span> <span class="ow">and</span> <span class="n">direction</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
             <span class="k">return</span>
@@ -1509,7 +1509,7 @@
         <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">number_of_frames</span><span class="p">):</span>
             <span class="n">quadrant</span> <span class="o">=</span> <span class="p">(</span><span class="n">i</span> <span class="o">*</span> <span class="mi">4</span><span class="p">)</span> <span class="o">//</span> <span class="n">number_of_frames</span>
             <span class="n">quadrantdirection</span> <span class="o">=</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">quadrant</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">quadrant</span> <span class="o">==</span> <span class="mi">3</span> <span class="k">else</span> <span class="o">-</span><span class="mi">1</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">output_name</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">first_frame</span><span class="si">}</span><span class="s2">.png&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">session</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">output_name</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">first_frame</span><span class="si">}</span><span class="s2">.png"</span><span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">redraw</span><span class="p">()</span>
             <span class="c1"># first frame gets zero orbit, then onward:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">trackball_camera</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">angledelta</span> <span class="o">*</span> <span class="n">direction</span> <span class="o">*</span> <span class="n">quadrantdirection</span><span class="p">)</span></div>
