@@ -752,7 +752,7 @@ First, install the AGAVE Python client:
 The Python client will then find a running AGAVE server session and send
 commands to it.  The ``AgaveRenderer`` will automatically launch a local AGAVE server
 for you if it cannot find one already running (see the
-`agave_pyclient documentation <https://allen-cell-animated.github.io/agave/agave_pyclient>`__
+`agave_pyclient documentation <https://allencell.github.io/agave/agave_pyclient>`__
 for the ``auto_launch`` and ``agave_path`` options).
 
 
@@ -772,7 +772,7 @@ The AGAVE Python client provides commands for every setting in the user
 interface, and also provides two additional convenience commands for creating
 an image sequence for a turntable rotation, and for a rocker (side to side) rotation.
 For Python users, the AGAVE Python client project full documentation can be found here:
-https://allen-cell-animated.github.io/agave/agave_pyclient
+https://allencell.github.io/agave/agave_pyclient
 
 
 Command Line Interface
@@ -815,7 +815,7 @@ Citation
 
 .. |year| date:: %Y
 
-Daniel Toloudis, AGAVE Contributors (|year|). AGAVE: Advanced GPU Accelerated Volume Explorer (Version |release|) [Computer software]. Allen Institute, Cell Science. https://github.com/allen-cell-animated/agave
+Daniel Toloudis, AGAVE Contributors (|year|). AGAVE: Advanced GPU Accelerated Volume Explorer (Version |release|) [Computer software]. Allen Institute, Cell Science. https://github.com/AllenCell/agave
 
 bibtex:
 
@@ -826,7 +826,7 @@ bibtex:
     title        = {AGAVE: Advanced GPU Accelerated Volume Explorer},
     year         = {|year|},
     version      = {|release|},
-    url          = {https://github.com/allen-cell-animated/agave},
+    url          = {https://github.com/AllenCell/agave},
     organization = {Allen Institute, Cell Science},
     note         = {Computer Software}
     }
