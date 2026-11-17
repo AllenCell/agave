@@ -53,11 +53,11 @@ def _check_native_abi() -> None:
 
     found = ", ".join(sorted({_tag(p) or p.name for p in candidates}))
     raise ImportError(
-        f"agave_pyvk native extension ABI mismatch: found [{found}] in {pkg_dir}, "
+        f"agave_py native extension ABI mismatch: found [{found}] in {pkg_dir}, "
         f"but current interpreter is {current_tag} ({sys.executable}). "
         "Reconfigure the CMake build with "
         "-DPython_EXECUTABLE=$(python -c 'import sys; print(sys.executable)') "
-        "and rebuild the stage_agave_pyvk target."
+        "and rebuild the stage_agave_py target."
     )
 
 

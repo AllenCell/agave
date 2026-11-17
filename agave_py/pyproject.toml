@@ -1,16 +1,16 @@
 [build-system]
 requires = [
-    "setuptools>=69",
+    "setuptools>=77",
     "wheel>=0.43",
 ]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agave_pyvk"
+name = "agave_py"
 version = "1.10.0"
-description = "Headless in-process Vulkan Python bindings for AGAVE"
+description = "The AGAVE 3D Volume renderer core"
 readme = "README.md"
-license = { text = "Allen Institute Software License" }
+license = "BSD-3-Clause"
 requires-python = ">=3.10"
 authors = [{ name = "Daniel Toloudis", email = "danielt@alleninstitute.org" }]
 dependencies = ["numpy", "Pillow==12.3.0"]
@@ -19,11 +19,11 @@ dependencies = ["numpy", "Pillow==12.3.0"]
 test = ["pytest>=5.4.3", "ruff>=0.4"]
 
 [tool.setuptools]
-packages = ["agave_pyvk"]
+packages = ["agave_py"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-agave_pyvk = ["*.pyd", "*.dll", "*.so", "*.so.*", "*.dylib", "share/vulkan/icd.d/*.json", "assets/**/*"]
+agave_py = ["*.pyd", "*.dll", "*.so", "*.so.*", "*.dylib", "share/vulkan/icd.d/*.json", "assets/**/*"]
 
 [tool.cibuildwheel]
 build = "cp3{11,12,13,14}-*"
@@ -58,15 +58,15 @@ before-all = [
     
     "/opt/curl/bin/curl-config --version",
 ]
-before-build = """cmake -G Ninja -S {package}/.. -B {package}/../build-cibw-linux -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DCMAKE_PREFIX_PATH="/opt/curl;/opt/zstd" -DZstd_ROOT=/opt/zstd -DLIBCZI_BUILD_PREFER_EXTERNALPACKAGE_ZSTD=ON -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DCURL_DIR=/opt/curl/lib/cmake/CURL -DTENSORSTORE_USE_SYSTEM_OPENSSL=ON -DTENSORSTORE_USE_SYSTEM_ZSTD=ON -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build-cibw-linux --target stage_agave_pyvk --config Release --parallel"""
+before-build = """cmake -G Ninja -S {package}/.. -B {package}/../build-cibw-linux -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DCMAKE_PREFIX_PATH="/opt/curl;/opt/zstd" -DZstd_ROOT=/opt/zstd -DLIBCZI_BUILD_PREFER_EXTERNALPACKAGE_ZSTD=ON -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DCURL_DIR=/opt/curl/lib/cmake/CURL -DTENSORSTORE_USE_SYSTEM_OPENSSL=ON -DTENSORSTORE_USE_SYSTEM_ZSTD=ON -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build-cibw-linux --target stage_agave_py --config Release --parallel"""
 
 [tool.cibuildwheel.macos]
 archs = ["arm64"]
 environment = { MACOSX_DEPLOYMENT_TARGET = "26.0" }
-before-build = """cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel 4"""
+before-build = """cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_py --config Release --parallel 4"""
 
 [tool.cibuildwheel.windows]
-before-build = '''for /f "delims=" %P in ('python -c "import sys; print(sys.executable)"') do (cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="%P" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel)'''
+before-build = '''for /f "delims=" %P in ('python -c "import sys; print(sys.executable)"') do (cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="%P" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_py --config Release --parallel)'''
 
 [tool.ruff]
 line-length = 88

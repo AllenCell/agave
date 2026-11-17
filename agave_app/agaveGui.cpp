@@ -335,7 +335,7 @@ agaveGui::createActions()
   connect(m_dumpJsonAction, SIGNAL(triggered()), this, SLOT(saveJson()));
 
   m_dumpPythonAction = new QAction(tr("&Save to Python script"), this);
-  m_dumpPythonAction->setStatusTip(tr("Save a Python script usable with agave_pyvk"));
+  m_dumpPythonAction->setStatusTip(tr("Save a Python script usable with agave_py"));
   connect(m_dumpPythonAction, SIGNAL(triggered()), this, SLOT(savePython()));
 
   m_testMeshAction = new QAction(tr("&Open mesh..."), this);

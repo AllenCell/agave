@@ -1,4 +1,4 @@
-from agave_pyvk import AgaveRenderer
+from agave_py import AgaveRenderer
 
 # imgplot = plt.imshow(numpy.zeros((1024, 768)))
 if __name__ == "__main__":

@@ -28,7 +28,7 @@ On macOS, AGAVE supports Apple Silicon and uses KosmicKrisp through the Vulkan
 loader. KosmicKrisp rendering requires macOS 26 or later; on older macOS versions,
 launch the desktop app with `--graphics_backend opengl`. Install the SDK with
 KosmicKrisp included and set `VULKAN_SDK=~/VulkanSDK/1.4.363.0/macOS` before configuring a fresh build.
-The app and `agave_pyvk` wheels bundle the loader, KosmicKrisp, and its ICD
+The app and `agave_py` wheels bundle the loader, KosmicKrisp, and its ICD
 manifest; no system Vulkan installation is needed to run them. Development
 builds use the selected SDK's manifest. An explicit `VK_DRIVER_FILES` (or legacy
 `VK_ICD_FILENAMES`) overrides this selection for driver testing.
@@ -38,13 +38,13 @@ You may also refer to the github actions workflows for reference building AGAVE.
 ### Activate your Python environment first
 
 Before configuring CMake, activate the Python virtual environment you want
-`agave_pyvk` installed into. CMake locates the interpreter from your `PATH`
-and records it in the build tree; the ABI-specific `agave_py2` module
+`agave_py` installed into. CMake locates the interpreter from your `PATH`
+and records it in the build tree; the ABI-specific `agave_py_native` module
 (`_native.<abi>.so`) is compiled against **that** interpreter. Later
 `cmake --build` invocations never re-detect Python, so building with a
 different env active will silently produce a wrong-ABI extension. If you
 switch envs, reconfigure explicitly (see
-[`agave_pyvk/README.md`](agave_pyvk/README.md)).
+[`agave_py/README.md`](agave_py/README.md)).
 
 ### Windows
 
@@ -145,13 +145,13 @@ If cmake fails please refer to the Dockerfile or the github actions workflows fo
 With your target Python environment activated, the platform commands above
 create a persistent `build` directory. CMake records that interpreter, and
 its default build compiles the shared static renderlib, the desktop
-application, and the ABI-specific `agave_py2` native module:
+application, and the ABI-specific `agave_py_native` native module:
 
 ```console
 cmake --build .
 ```
 
-Then, from the repository's `agave_pyvk` directory:
+Then, from the repository's `agave_py` directory:
 
 ```console
 python -m pip install -e .
@@ -165,7 +165,7 @@ are visible immediately.
 
 If you later need to build the Python module for a _different_ interpreter
 without rebuilding the rest of the tree, see the retargeting recipe in
-[`agave_pyvk/README.md`](agave_pyvk/README.md).
+[`agave_py/README.md`](agave_py/README.md).
 
 Optional: To save a little time in building the Python module only, use the same
 platform-specific CMake configure command with these options:

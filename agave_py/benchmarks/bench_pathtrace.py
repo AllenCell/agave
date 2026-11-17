@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Path-tracer throughput benchmark for the headless agave_pyvk renderer.
+"""Path-tracer throughput benchmark for the headless agave_py renderer.
 
 Reproduces the scene from an AGAVE viewer-state JSON (camera, lights,
 per-channel materials and thresholds, density, step sizes) through the
@@ -23,7 +23,7 @@ import statistics
 import sys
 import time
 
-import agave_pyvk
+import agave_py
 
 
 def apply_state(r, state, level, channels, width, height, zoom=1.0):
@@ -165,12 +165,12 @@ def main():
     height = args.height or state["capture"]["height"]
 
     modes = {"default": [None], "on": [1], "off": [0], "both": [1, 0]}[args.woodcock]
-    if modes != [None] and not hasattr(agave_pyvk.AgaveRenderer, "set_woodcock_tracking"):
-        print("agave_pyvk has no set_woodcock_tracking; using renderer default", file=sys.stderr)
+    if modes != [None] and not hasattr(agave_py.AgaveRenderer, "set_woodcock_tracking"):
+        print("agave_py has no set_woodcock_tracking; using renderer default", file=sys.stderr)
         modes = [None]
 
     results = []
-    with agave_pyvk.AgaveRenderer(mode="pathtrace") as r:
+    with agave_py.AgaveRenderer(mode="pathtrace") as r:
         info, load_s = apply_state(r, state, args.level, channels, width, height, args.zoom)
         dims = (info.get("x"), info.get("y"), info.get("z"), info.get("c"))
         print(f"loaded level {args.level}: xyzc={dims} in {load_s:.1f}s; render {width}x{height}")

@@ -2,7 +2,7 @@
 # agave --server &
 # python myscript.py
 
-import agave_pyvk as agave
+import agave_py as agave
 
 r = agave.AgaveRenderer(mode="pathtrace")
 r.load_data("https://animatedcell-test-data.s3.us-west-2.amazonaws.com/variance/1.zarr", 0, 2, 0, [0, 1, 2, 3, 4, 5, 6, 7, 8], [0, 231, 0, 156, 0, 65])

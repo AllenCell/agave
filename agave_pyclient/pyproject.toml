@@ -1,13 +1,13 @@
 [build-system]
-requires = ["setuptools>=64", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "agave_pyclient"
 version = "1.10.0"
-description = "A Python client for the AGAVE 3d volume renderer"
+description = "A thin Python client for the AGAVE 3d volume renderer"
 readme = "README.md"
-license = { text = "Allen Institute Software License" }
+license = "BSD-3-Clause"
 requires-python = ">=3.10"
 authors = [
     { name = "Daniel Toloudis", email = "danielt@alleninstitute.org" },
@@ -20,7 +20,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Healthcare Industry",
     "Intended Audience :: Science/Research",
-    "License :: Free for non-commercial use",
     "Natural Language :: English",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",

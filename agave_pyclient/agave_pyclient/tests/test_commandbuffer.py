@@ -314,7 +314,7 @@ def test_no_extra_ids_in_python_COMMANDS(cpp_commands, py_commands_by_id):
     )
 
 
-def test_every_cpp_command_has_agave_renderer_method(cpp_commands):
+def test_every_cpp_command_has_agave_pyer_method(cpp_commands):
     """Every C++ python_name must exist as a method on AgaveRenderer."""
     pytest.importorskip("ws4py")  # agave.py imports ws4py at module load
     from agave_pyclient.agave import AgaveRenderer

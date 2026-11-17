@@ -10,7 +10,7 @@ Quick start
 
 You must have AGAVE installed separately. 
 
-:ref:`agave-renderer-label` will automatically try to connect to an already-running AGAVE server.
+:ref:`agave-pyer-label` will automatically try to connect to an already-running AGAVE server.
 If it can't find one, it can attempt to launch a local server automatically. 
 (Pass ``auto_launch=False`` to disable this, or
 ``agave_path="/path/to/agave"`` to point at a specific executable to launch.)
@@ -22,7 +22,7 @@ You can start AGAVE as a server yourself on the command line:
    agave --server &
 
 
-Import and use the :ref:`agave-renderer-label` class in your Python code.
+Import and use the :ref:`agave-pyer-label` class in your Python code.
 
 .. code-block:: python
 
@@ -70,4 +70,4 @@ automatically:
    :caption: Contents:
 
    Overview <self>
-   agave_renderer
+   agave_pyer

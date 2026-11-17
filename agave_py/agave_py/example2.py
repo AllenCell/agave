@@ -1,4 +1,4 @@
-from agave_pyvk import AgaveRenderer
+from agave_py import AgaveRenderer
 
 
 def main():
