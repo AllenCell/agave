@@ -11,7 +11,7 @@ version = "1.10.0"
 description = "The AGAVE 3D volume renderer as a self-contained Python package - renders in-process, no separate AGAVE installation required"
 readme = "README.md"
 license = "BSD-3-Clause"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [{ name = "Daniel Toloudis", email = "danielt@alleninstitute.org" }]
 dependencies = ["numpy", "Pillow==12.3.0"]
 
@@ -26,8 +26,8 @@ include-package-data = true
 agave_py = ["*.pyd", "*.dll", "*.so", "*.so.*", "*.dylib", "share/vulkan/icd.d/*.json", "assets/**/*"]
 
 [tool.cibuildwheel]
-build = "cp3{11,12,13,14}-*"
-skip =  "cp38-* cp39-* cp310-* cp314t-win* cp315-* cp315t-* *_i686 *-win32 *-musllinux*"
+build = "cp3{11,12,13,14,15}-*"
+skip =  "cp38-* cp39-* cp310-* cp314t-win* cp315t-* *_i686 *-win32 *-musllinux*"
 archs = ["auto64"]
 
 [tool.cibuildwheel.linux]
@@ -66,6 +66,12 @@ environment = { MACOSX_DEPLOYMENT_TARGET = "26.0" }
 before-build = """cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_py --config Release --parallel 4"""
 
 [tool.cibuildwheel.windows]
+# Let delvewheel (cibuildwheel 4.x default) repair the wheel. DLLs already
+# staged into the package by CMake are detected and left alone; delvewheel
+# only vendors missing non-system dependencies (e.g. the MSVC runtime).
+# vulkan-1.dll must come from the user's GPU driver, never the wheel --
+# mirroring the system32 exclusion in the CMake staging step.
+repair-wheel-command = "delvewheel repair --exclude vulkan-1.dll -w {dest_dir} {wheel}"
 before-build = '''for /f "delims=" %P in ('python -c "import sys; print(sys.executable)"') do (cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="%P" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_py --config Release --parallel)'''
 
 [tool.ruff]

@@ -5,7 +5,7 @@ if(POLICY CMP0207)
   cmake_policy(SET CMP0207 NEW)
 endif()
 
-find_package(Python 3.10 REQUIRED COMPONENTS Interpreter Development.Module)
+find_package(Python 3.11 REQUIRED COMPONENTS Interpreter Development.Module)
 # nanobind caches the ABI extension suffix. Recompute it when an existing CMake
 # build tree is deliberately reconfigured for another Python interpreter.
 unset(NB_SUFFIX CACHE)

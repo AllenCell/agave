@@ -8,7 +8,7 @@ version = "1.10.0"
 description = "A Python client that drives an out-of-process AGAVE 3D volume renderer. Requires AGAVE to be installed separately, either from a desktop release running in server mode or on a remote server."
 readme = "README.md"
 license = "BSD-3-Clause"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     { name = "Daniel Toloudis", email = "danielt@alleninstitute.org" },
 ]
@@ -21,10 +21,11 @@ classifiers = [
     "Intended Audience :: Healthcare Industry",
     "Intended Audience :: Science/Research",
     "Natural Language :: English",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Multimedia :: Graphics :: 3D Rendering",
     "Topic :: Scientific/Engineering :: Visualization",
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
@@ -33,7 +34,7 @@ classifiers = [
 dependencies = [
     "numpy",
     "ws4py==0.5.1",
-    "Pillow==12.2.0",
+    "Pillow==12.3.0",
 ]
 
 [project.urls]
