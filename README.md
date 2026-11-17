@@ -201,3 +201,30 @@ or, to do the git steps manually:
 tbump major.minor.patch --only-patch
 
 ```
+
+### Prerelease builds
+
+Versions follow semver, with prerelease identifiers restricted to `dev`, `rc`,
+`alpha`, and `beta`: `major.minor.patch-{dev|rc|alpha|beta}.N` (tagged
+`vmajor.minor.patch-{dev|rc|alpha|beta}.N`), e.g.:
+
+```
+
+tbump 2.0.0-dev.1 --dry-run
+tbump 2.0.0-dev.1
+
+```
+
+The full version string (including the prerelease suffix) is shown in the AGAVE
+title bar and About dialog so users can tell they are running a prerelease.
+
+Pushing the tag triggers the release workflow, which enforces these rules:
+
+- Tags must be valid versions of the forms above or the workflow fails.
+- `-dev.N` tags may be created on any branch.
+- `-rc.N`, `-alpha.N`, `-beta.N`, and full release tags must point to a commit
+  on `main`.
+
+The npm package is published under a dist-tag matching the prerelease
+identifier (e.g. `dev`), and the Python packages are published with the
+PEP 440-normalized version (e.g. `2.0.0.dev1`).
