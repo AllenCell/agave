@@ -19,7 +19,7 @@ git submodule update --init
 ```
 
 The commands below build the desktop application, unit tests, and the
-Python native module (use Python 3.10 or later).
+Python native module (use Python 3.11 or later).
 CMake options are provided for AGAVE_BUILD_APP and AGAVE_BUILD_TESTS, and both default to "ON".
 
 Building requires Vulkan SDK **1.4.363.0** or later. CMake uses the SDK named by `VULKAN_SDK`,
