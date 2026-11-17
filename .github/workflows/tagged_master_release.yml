@@ -11,7 +11,42 @@ permissions:
   contents: read
 
 jobs:
+  # Versioning rules: semver X.Y.Z with prerelease identifiers restricted to
+  # dev, rc, alpha, and beta (X.Y.Z-{dev|rc|alpha|beta}.N).
+  # rc, alpha, beta, and full releases may only be built from tags on main;
+  # dev tags may trigger a build from any branch.
+  validate-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Validate tag version and source branch
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(dev|rc|alpha|beta)\.[0-9]+)?$ ]]; then
+            echo "Tag ${GITHUB_REF_NAME} is not a valid version."
+            echo "Allowed formats: vX.Y.Z or vX.Y.Z-{dev|rc|alpha|beta}.N"
+            exit 1
+          fi
+          if [[ "$VERSION" =~ -dev\.[0-9]+$ ]]; then
+            echo "dev prerelease $VERSION: release may be built from any branch"
+          else
+            git fetch origin main
+            TAG_COMMIT="$(git rev-parse HEAD)"
+            if git merge-base --is-ancestor "$TAG_COMMIT" origin/main; then
+              echo "Tag commit $TAG_COMMIT is on main"
+            else
+              echo "Tag ${GITHUB_REF_NAME} does not point to a commit on main."
+              echo "rc, alpha, beta, and full releases must be tagged on main;"
+              echo "only -dev.N prerelease tags (e.g. v2.0.0-dev.1) may be released from other branches."
+              exit 1
+            fi
+          fi
+
   linux-build:
+    needs: [validate-release]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -50,6 +85,7 @@ jobs:
           path: ./build/install/Release/agave-install
 
   macos-build:
+    needs: [validate-release]
     runs-on: macos-26
     env:
       CC: clang
@@ -97,6 +133,7 @@ jobs:
           path: ./build/agave-macos-arm64.dmg
 
   windows-build:
+    needs: [validate-release]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -146,6 +183,7 @@ jobs:
           path: ./build/agave-win.exe
 
   linux-pyvk-build:
+    needs: [validate-release]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -164,6 +202,7 @@ jobs:
           if-no-files-found: error
 
   macos-pyvk-build:
+    needs: [validate-release]
     runs-on: macos-26
     env:
       CC: clang
@@ -200,6 +239,7 @@ jobs:
           if-no-files-found: error
 
   windows-pyvk-build:
+    needs: [validate-release]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6

@@ -4,4 +4,5 @@
 #define AICS_VERSION_MINOR @PROJECT_VERSION_MINOR@
 #define AICS_VERSION_PATCH @PROJECT_VERSION_PATCH@
 #define AICS_VERSION_TWEAK 0
-#define AICS_VERSION_STRING "@PROJECT_VERSION@"
+// Full semver version, including any prerelease suffix (e.g. "2.0.0-dev.1")
+#define AICS_VERSION_STRING "@AGAVE_FULL_VERSION@"

@@ -1,3 +1,8 @@
+# Fallback when renderlib is configured without the top-level project.
+if(NOT DEFINED AGAVE_FULL_VERSION)
+	set(AGAVE_FULL_VERSION "${PROJECT_VERSION}")
+endif()
+
 configure_file(
 	"${CMAKE_CURRENT_SOURCE_DIR}/version.h.in"
 	"${CMAKE_CURRENT_SOURCE_DIR}/version.h"

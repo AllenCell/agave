@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agave_pyvk"
-version = "1.9.0"
+version = "1.10.0"
 description = "Headless in-process Vulkan Python bindings for AGAVE"
 readme = "README.md"
 license = { text = "Allen Institute Software License" }
