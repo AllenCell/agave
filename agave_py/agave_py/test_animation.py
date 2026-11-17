@@ -12,7 +12,7 @@
 # Frames 0 and 384 are both the untouched scene: the clip plane is parked at the
 # far edge of the displayed data, where it clips nothing.
 #
-#   pip install agave_pyvk
+#   pip install agave_py
 #   python test_animation.py
 #
 # Then encode, e.g.:
@@ -21,10 +21,10 @@
 import itertools
 from pathlib import Path
 
-import agave_pyvk as agave
-from agave_pyvk import channels
-from agave_pyvk.animation import Timeline, ease_in_out
-from agave_pyvk.drivers import pivot_camera, ramp, travel_clip_plane
+import agave_py as agave
+from agave_py import channels
+from agave_py.animation import Timeline, ease_in_out
+from agave_py.drivers import pivot_camera, ramp, travel_clip_plane
 
 AGAVE_PATH = "/Users/danielt/src/AllenCell/agave/build/agave.app/Contents/MacOS/agave"
 DATA_URL = (

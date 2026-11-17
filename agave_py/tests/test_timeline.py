@@ -1,7 +1,7 @@
-"""Tests for the animation timeline (agave_pyvk.animation / channels / drivers).
+"""Tests for the animation timeline (agave_py.animation / channels / drivers).
 
 Named test_timeline.py rather than test_animation.py to avoid a pytest basename
-collision with the agave_pyvk/agave_pyvk/test_animation.py example script.
+collision with the agave_py/agave_py/test_animation.py example script.
 """
 
 import ast
@@ -10,15 +10,15 @@ from pathlib import Path
 
 import pytest
 
-from agave_pyvk import channels
-from agave_pyvk.drivers import (
+from agave_py import channels
+from agave_py.drivers import (
     CameraOrbit,
     pivot_camera,
     ramp,
     rotate_about_axis,
     travel_clip_plane,
 )
-from agave_pyvk.animation import (
+from agave_py.animation import (
     ArityError,
     Keyframes,
     MissingInitialError,
@@ -51,9 +51,9 @@ class Recorder:
         return call
 
 
-def agave_renderer_methods():
+def agave_pyer_methods():
     """Public AgaveRenderer method names, parsed without importing _native."""
-    path = Path(__file__).resolve().parents[1] / "agave_pyvk" / "agave.py"
+    path = Path(__file__).resolve().parents[1] / "agave_py" / "agave.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
     cls = next(
         node
@@ -175,9 +175,9 @@ class TestChannelNamespace:
         with pytest.raises(UnknownChannelError, match=r"bogus\[0\].thing"):
             channels.resolve("bogus[0].thing")
 
-    def test_every_channel_calls_a_real_agave_renderer_method(self):
+    def test_every_channel_calls_a_real_agave_pyer_method(self):
         """Guards the namespace against drifting from the AgaveRenderer API."""
-        available = agave_renderer_methods()
+        available = agave_pyer_methods()
         for name in channels.names():
             spec = channels.resolve(name)
             r = Recorder()
@@ -368,7 +368,7 @@ class TestTimelineValidation:
 
 
 class FakeRenderer(Recorder):
-    """Recorder that also writes an RGBA frame, as agave_pyvk.redraw() does.
+    """Recorder that also writes an RGBA frame, as agave_py.redraw() does.
 
     Background pixels carry the composited RGB but zero alpha, which is exactly
     what renderlib's headless redraw produces.
@@ -601,7 +601,7 @@ class TestExampleAnimation:
     D_END = 0.058220958709716795
 
     def timeline(self):
-        from agave_pyvk import test_animation
+        from agave_py import test_animation
 
         return test_animation, test_animation.build_timeline(
             self.NORMAL, self.D_START, self.D_END

@@ -49,7 +49,7 @@ if __name__ == "__main__":
             contents / "MacOS/agave",
         )
     else:
-        spec = importlib.util.find_spec("agave_pyvk")
+        spec = importlib.util.find_spec("agave_py")
         package_dir = Path(spec.origin).parent
         extensions = list(package_dir.glob("_native*.so"))
         assert len(extensions) == 1, extensions

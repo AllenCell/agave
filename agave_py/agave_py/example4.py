@@ -10,7 +10,7 @@ The array path works for any volume you can get into a ZYX or CZYX array, not
 just files AGAVE knows how to read: segmentations, simulation output, etc.
 
     pip install bioio bioio-ome-tiff
-    python -m agave_pyvk.example4 mydata.ome.tiff out
+    python -m agave_py.example4 mydata.ome.tiff out
 """
 
 import sys
@@ -19,7 +19,7 @@ import numpy
 from bioio import BioImage
 from PIL import Image
 
-from agave_pyvk import AgaveRenderer
+from agave_py import AgaveRenderer
 
 # AGAVE's volume format is uint16; anything else gets converted on the way in.
 SUPPORTED_DTYPES = (numpy.uint8, numpy.uint16, numpy.float32)

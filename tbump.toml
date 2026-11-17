@@ -52,11 +52,16 @@ search = 'version = "{current_version}"'
 [[file]]
 src = "agave_pyclient/agave_pyclient/__init__.py"
 [[file]]
-src = "agave_pyvk/pyproject.toml"
+src = "agave_py/pyproject.toml"
 search = 'version = "{current_version}"'
 [[file]]
-src = "agave_pyvk/agave_pyvk/__init__.py"
+src = "agave_py/agave_py/__init__.py"
 search = '__version__ = "{current_version}"'
+# The project() call only accepts numeric versions (see CMakeLists.txt above).
+[[file]]
+src = "agave_py/CMakeLists.txt"
+version_template = "{major}.{minor}.{patch}"
+search = 'VERSION {current_version}'
 [[file]]
 src = "agave_pyclient/docs/conf.py"
 [[file]]

@@ -1,11 +1,11 @@
-# agave_pyvk
+# agave_py
 
-`agave_pyvk` is the standalone, headless, in-process Vulkan Python package for
+`agave_py` is the standalone, headless, in-process Vulkan Python package for
 AGAVE. It uses nanobind to execute Python commands directly in renderlib. It has no Qt or
 WebSocket dependency.
 
 ```python
-from agave_pyvk import AgaveRenderer
+from agave_py import AgaveRenderer
 
 with AgaveRenderer(mode="pathtrace") as renderer:
     info = renderer.load_data_and_get_info("image.ome.tif")
@@ -46,15 +46,15 @@ driver requires macOS 26 or later. AGAVE selects this bundled driver unless `VK_
 
 ### How the build is organized
 
-`agave_pyvk` produces a single Python-linked artifact: the nanobind extension
-`_native.<abi>.so` (target `agave_py2`). Everything below it — `renderlib`,
+`agave_py` produces a single Python-linked artifact: the nanobind extension
+`_native.<abi>.so` (target `agave_py_native`). Everything below it — `renderlib`,
 libCZI, tensorstore, curl, and the AGAVE app — is plain C++ that does **not**
 link `libpython` and therefore does **not** need to be rebuilt when you switch
-Python interpreters. Only `agave_py2` is ABI-specific.
+Python interpreters. Only `agave_py_native` is ABI-specific.
 
 `pip` never builds the extension in this project. The `pyproject.toml` uses
 plain `setuptools`; the `.so` is produced by CMake and staged into
-`agave_pyvk/agave_pyvk/` by the `stage_agave_pyvk` target. `pip install -e .`
+`agave_py/agave_py/` by the `stage_agave_py` target. `pip install -e .`
 just registers the pure-Python package and picks up whatever `.so` CMake last
 staged.
 
@@ -68,17 +68,17 @@ time — it is not re-detected by `cmake --build`.
 cmake -S <agave-root> -B <agave-root>/build -G Ninja \
       -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" \
       -DCMAKE_BUILD_TYPE=Release
-cmake --build <agave-root>/build --target stage_agave_pyvk
+cmake --build <agave-root>/build --target stage_agave_py
 ```
 
-Then from `agave_pyvk/`:
+Then from `agave_py/`:
 
 ```console
 python -m pip install -e .
 ```
 
 Python source edits are visible immediately; native edits require re-running
-the `stage_agave_pyvk` target.
+the `stage_agave_py` target.
 
 ### Switching Python interpreters — minimal rebuild
 
@@ -94,17 +94,17 @@ commands from the build directory:
 ```console
 cd <agave-root>/build
 cmake -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" ..
-cmake --build . --target stage_agave_pyvk
+cmake --build . --target stage_agave_py
 ```
 
 FindPython re-detects because `Python_EXECUTABLE` changed; nanobind's ABI
 suffix cache is already cleared on every reconfigure by
-`agave_pyvk/CMakeLists.txt`. Only `agave_py2` recompiles (a few seconds).
-`stage_agave_pyvk` deletes any previously staged `_native*.so` / `_native*.pyd`
+`agave_py/CMakeLists.txt`. Only `agave_py_native` recompiles (a few seconds).
+`stage_agave_py` deletes any previously staged `_native*.so` / `_native*.pyd`
 from the package directory and installs the fresh one, so the package never
 ends up with two mismatched extensions.
 
-If `import agave_pyvk` reports an ABI mismatch, the current interpreter and the
+If `import agave_py` reports an ABI mismatch, the current interpreter and the
 staged `.so` disagree. Re-run the two commands above from the environment you
 want to use.
 
@@ -114,7 +114,7 @@ want to use.
 cmake -S <agave-root> -B <agave-root>/build -G Ninja \
       -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" \
       -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
-cmake --build <agave-root>/build --target stage_agave_pyvk
+cmake --build <agave-root>/build --target stage_agave_py
 ```
 
 ### Building a wheel

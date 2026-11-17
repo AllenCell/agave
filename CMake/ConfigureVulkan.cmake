@@ -1,4 +1,4 @@
-# Unconditionally configure the Vulkan SDK used by renderlib and agave_pyvk.
+# Unconditionally configure the Vulkan SDK used by renderlib and agave_py.
 # This file is included at top-level scope so its targets and variables remain
 # available to the renderlib and Python subdirectories.
 

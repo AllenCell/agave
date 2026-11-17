@@ -35,7 +35,7 @@ namespace {
 // tensorstore v0.1.84 holds that transport in a function-local
 // `static std::shared_ptr<HttpTransport>` whose destructor is registered with
 // the C runtime's atexit table. When renderlib is loaded as a Python extension
-// module (agave_pyvk) that table runs during DLL_PROCESS_DETACH, after the
+// module (agave_py) that table runs during DLL_PROCESS_DETACH, after the
 // loader has already started tearing the process down. ~CurlTransport defers
 // its cleanup through internal::ScheduleAt(), which lazily constructs
 // tensorstore's DeadlineTaskQueue, whose constructor starts a thread. Creating

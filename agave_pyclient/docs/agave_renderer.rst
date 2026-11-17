@@ -1,4 +1,4 @@
-.. _agave-renderer-label:
+.. _agave-pyer-label:
 
 AgaveRenderer
 -------------

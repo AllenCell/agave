@@ -41,7 +41,7 @@ set(LIBCZI_BUILD_DYNLIB ON)
 set(LIBCZI_BUILD_CZICMD OFF)
 # EXCLUDE_FROM_ALL also suppresses install rules below this directory, which is
 # how the zstd libCZI fetches is kept out of the Agave install tree. The libCZI
-# shared library itself is installed explicitly by agave_app and agave_pyvk.
+# shared library itself is installed explicitly by agave_app and agave_py.
 add_subdirectory(libCZI EXCLUDE_FROM_ALL)
 
 # end libczi dependency

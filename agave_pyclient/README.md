@@ -78,4 +78,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for information related to developing the
    This will generate and launch a web browser to view the most up-to-date
    documentation for your Python package.
 
-**Allen Institute Software License**
+**BSD 3-Clause License** — see the `LICENSE` file for details.

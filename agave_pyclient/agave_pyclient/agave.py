@@ -987,7 +987,7 @@ class AgaveRenderer:
         subsetting. ``volume_dimensions`` describes the source file as the
         reader reported it, so it may be larger. ``commandId`` is a transport
         field and is the only key not also returned by the in-process
-        ``agave_pyvk`` loaders.
+        ``agave_py`` loaders.
 
         Note: any other commands queued in the buffer prior to calling
         this method will be flushed at the same time.

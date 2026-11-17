@@ -9,7 +9,7 @@ AGAVE (Advanced GPU Accelerated Volume Explorer) is a C++17/Qt6 desktop applicat
 | `agave_app/`      | Qt6 GUI layer — widgets, dialogs, dock panels, OpenGL viewport (`GLView3D`)                                                                       |
 | `renderlib/`      | Core rendering engine — image I/O (`io/`), graphics abstraction (`gfxapi/`) with OpenGL and Vulkan backends (`gfxOpenGL/`, `gfxVulkan/`), camera, scene, gesture handling (`gesture/`), JSON serialization (`json/`) |
 | `agave_pyclient/` | Python WebSocket client for remote control of AGAVE in server mode                                                                                |
-| `agave_pyvk/`     | Standalone Python client wrapping renderlib, including all data loading and rendering functionality via the Vulkan graphics backend                                                                             |
+| `agave_py/`     | Standalone Python client wrapping renderlib, including all data loading and rendering functionality via the Vulkan graphics backend                                                                             |
 | `test/`           | C++ unit tests (Catch2)                                                                                                                           |
 | `webclient/`      | JavaScript client                                                                                                                                 |
 
@@ -246,11 +246,11 @@ set_foo(x: number, mode: number) {
 }
 ```
 
-Steps 9–11 also make the command available in `agave_pyvk`, the in-process,
+Steps 9–11 also make the command available in `agave_py`, the in-process,
 headless Vulkan package. It does **not** serialize command buffers: `AgaveRenderer`
 passes typed arguments straight into `renderlib` through nanobind, and the C++ side
 dispatches on the integer command ID via `PythonRenderer`. Because that dispatch is
-data-driven, `agave_pyvk/src/bindings.cpp` is generic and needs **no** per-command
+data-driven, `agave_py/src/bindings.cpp` is generic and needs **no** per-command
 changes.
 
 ### 9. `renderlib/PythonRenderer.cpp` — register in both switches
@@ -264,7 +264,7 @@ COMMAND_ARGUMENT_TYPES(52, SetFooCommand);
 EXECUTE_COMMAND(52, 2, SetFooCommand, SetFooCommandD{ arg<float>(args, 0), arg<int32_t>(args, 1) });
 ```
 
-### 10. `agave_pyvk/agave_pyvk/commandbuffer.py` — add to `COMMANDS`
+### 10. `agave_py/agave_py/commandbuffer.py` — add to `COMMANDS`
 
 This module keeps only the ID (no argument-type list); it exists for API/source
 parity with `agave_pyclient`.
@@ -273,7 +273,7 @@ parity with `agave_pyclient`.
 "SET_FOO": 52,
 ```
 
-### 11. `agave_pyvk/agave_pyvk/agave.py` — add method to `AgaveRenderer`
+### 11. `agave_py/agave_py/agave.py` — add method to `AgaveRenderer`
 
 Mirror the `agave_pyclient` method, but dispatch through `self._execute`, which
 calls the native renderer synchronously and returns its result.
@@ -291,8 +291,8 @@ def set_foo(self, x: float, mode: int):
 - Python method name uses snake_case; `COMMANDS` dict key is UPPERCASE
 - `parse()`/`write()` field order must match the `CMD_ARGS` type list exactly, as
   must the `EXECUTE_COMMAND` arg count and `arg<T>()` order/types
-- `agave_pyvk/src/bindings.cpp` is generic — do not add per-command code there
+- `agave_py/src/bindings.cpp` is generic — do not add per-command code there
 - The public method must exist in **both** `agave_pyclient/agave.py` and
-  `agave_pyvk/agave.py`. `test_public_api_matches_pyclient` in
-  `agave_pyvk/tests/test_api.py` enforces that every `agave_pyclient` method is
-  also present on `agave_pyvk` (which only adds `load_array`)
+  `agave_py/agave.py`. `test_public_api_matches_pyclient` in
+  `agave_py/tests/test_api.py` enforces that every `agave_pyclient` method is
+  also present on `agave_py` (which only adds `load_array`)
