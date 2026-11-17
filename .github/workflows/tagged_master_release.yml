@@ -344,6 +344,10 @@ jobs:
           verbose: true
 
   publish_agave_py:
+    # Temporarily disabled: agave_py wheels are distributed only as workflow
+    # artifacts and GitHub release assets for now. Remove the `if: false` (and
+    # re-add this job to make-release's needs) to resume PyPI publishing.
+    if: false
     needs:
       [
         linux-build,
@@ -471,7 +475,11 @@ jobs:
         windows-build,
         docs,
         docs_pythonclient,
-        publish_agave_py,
+        # publish_agave_py is temporarily disabled; depend on the wheel build
+        # jobs directly so the agave-py-* artifacts exist for this job.
+        linux-agave-py-build,
+        macos-agave-py-build,
+        windows-agave-py-build,
         publish_pythonclient,
         publish_webclient,
       ]

@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agave_py"
 version = "1.10.0"
-description = "The AGAVE 3D Volume renderer core"
+description = "The AGAVE 3D volume renderer as a self-contained Python package - renders in-process, no separate AGAVE installation required"
 readme = "README.md"
 license = "BSD-3-Clause"
 requires-python = ">=3.10"

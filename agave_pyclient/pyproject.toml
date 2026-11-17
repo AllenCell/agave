@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agave_pyclient"
 version = "1.10.0"
-description = "A thin Python client for the AGAVE 3d volume renderer"
+description = "A Python client that drives an out-of-process AGAVE 3D volume renderer. Requires AGAVE to be installed separately, either from a desktop release running in server mode or on a remote server."
 readme = "README.md"
 license = "BSD-3-Clause"
 requires-python = ">=3.10"
