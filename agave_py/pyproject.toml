@@ -71,7 +71,7 @@ before-build = """cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Pyt
 # only vendors missing non-system dependencies (e.g. the MSVC runtime).
 # vulkan-1.dll must come from the user's GPU driver, never the wheel --
 # mirroring the system32 exclusion in the CMake staging step.
-repair-wheel-command = "delvewheel repair --exclude vulkan-1.dll -w {dest_dir} {wheel}"
+repair-wheel-command = "delvewheel repair --ignore-existing --exclude vulkan-1.dll -w {dest_dir} {wheel}"
 before-build = '''for /f "delims=" %P in ('python -c "import sys; print(sys.executable)"') do (cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="%P" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_py --config Release --parallel)'''
 
 [tool.ruff]
