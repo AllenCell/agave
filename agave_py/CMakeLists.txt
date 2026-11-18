@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(agave_py VERSION 1.10.0 LANGUAGES CXX)
+project(agave_py VERSION 2.0.0 LANGUAGES CXX)
 
 if(POLICY CMP0207)
   cmake_policy(SET CMP0207 NEW)
