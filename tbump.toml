@@ -2,7 +2,7 @@
 # github_url = "https://github.com/<user or organization>/<project>/"
 
 [version]
-current = "1.10.0"
+current = "2.0.0-dev.0"
 
 # Semver with a restricted set of prerelease identifiers.
 # Allowed versions: X.Y.Z or X.Y.Z-{dev|rc|alpha|beta}.N
