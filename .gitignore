@@ -4,6 +4,7 @@ webclient/es/
 
 build/
 build-cibw-linux/
+build-debug/
 **/__pycache__/
 **/*.egg-info/
 agave_py/agave_py/_native*.pyd
@@ -27,6 +28,13 @@ x64/
 \.vscode/
 \.idea/
 dask-worker-space/
+
+################
+# PYTHON ignores
+################
+
+__pycache__/
+*.py[cod]
 
 ###################
 # TERRAFORM ignores

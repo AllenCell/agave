@@ -20,7 +20,7 @@ AboutDialog::AboutDialog()
   label->setAlignment(Qt::AlignCenter);
   layout->addWidget(label);
 
-  QString agaveUrl = "https://github.com/allen-cell-animated/agave";
+  QString agaveUrl = "https://github.com/AllenCell/agave";
 
   auto text = new QLabel(this);
   text->setText(
