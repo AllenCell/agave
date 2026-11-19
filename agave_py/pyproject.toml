@@ -37,7 +37,8 @@ before-all = [
     "dnf update -y",
     "dnf install -y epel-release",
     "dnf install -y cmake curl git libcurl-devel openssl-devel mesa-libEGL-devel mesa-libGL-devel xz-devel libtiff-devel libX11-devel libxcb-devel libzstd-devel nasm ninja-build patch pkgconfig spdlog-devel xz zlib-devel",
-    "python3 -m pip install ninja sccache",
+    "python3 -m pip install ninja",
+    "pipx install sccache==0.16.0",
     
     "git clone --branch v1.5.7 --depth 1 https://github.com/facebook/zstd.git /tmp/zstd-1.5.7",
     "cmake -S /tmp/zstd-1.5.7/build/cmake -B /tmp/zstd-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/zstd -DCMAKE_INSTALL_LIBDIR=lib -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_SHARED=OFF -DZSTD_BUILD_STATIC=ON -DZSTD_BUILD_TESTS=OFF",
