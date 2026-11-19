@@ -48,6 +48,10 @@ jobs:
   linux-build:
     needs: [validate-release]
     runs-on: ubuntu-latest
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      CMAKE_C_COMPILER_LAUNCHER: sccache
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
     steps:
       - uses: actions/checkout@v6
         with:
@@ -55,6 +59,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba #v0.0.11
       - uses: jurplel/install-qt-action@v4
         with:
           version: 6.9.3
@@ -79,6 +84,8 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build --target agave_test --config Release
           cmake --build build --target install --config Release
+      - name: sccache stats
+        run: sccache --show-stats
       - uses: actions/upload-artifact@v6
         with:
           name: agave-linux
@@ -91,6 +98,9 @@ jobs:
       CC: clang
       CXX: clang++
       MACOSX_DEPLOYMENT_TARGET: "11.0"
+      SCCACHE_GHA_ENABLED: "true"
+      CMAKE_C_COMPILER_LAUNCHER: sccache
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
     steps:
       - uses: actions/checkout@v6
         with:
@@ -98,6 +108,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba #v0.0.11
       - uses: jurplel/install-qt-action@v4
         with:
           version: 6.9.3
@@ -127,6 +138,8 @@ jobs:
           cmake --build build --config Release
           cpack --config build/CPackConfig.cmake -B build -D CPACK_PACKAGE_FILE_NAME=agave-macos-arm64
           python3 test/verify_macos_vulkan.py --app build/_CPack_Packages
+      - name: sccache stats
+        run: sccache --show-stats
       - uses: actions/upload-artifact@v6
         with:
           name: agave-macos-arm64
@@ -135,6 +148,10 @@ jobs:
   windows-build:
     needs: [validate-release]
     runs-on: windows-latest
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      CMAKE_C_COMPILER_LAUNCHER: sccache
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
     steps:
       - uses: actions/checkout@v6
         with:
@@ -142,6 +159,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba #v0.0.11
       - uses: jurplel/install-qt-action@v4
         with:
           version: 6.9.3
@@ -177,6 +195,8 @@ jobs:
           cmake --build build --parallel --config Release
           if errorlevel 1 exit /b %errorlevel%
           cpack --config build\CPackConfig.cmake -B build -D CPACK_PACKAGE_FILE_NAME=agave-win
+      - name: sccache stats
+        run: sccache --show-stats
       - uses: actions/upload-artifact@v6
         with:
           name: agave-win
@@ -185,6 +205,15 @@ jobs:
   linux-agave-py-build:
     needs: [validate-release]
     runs-on: ubuntu-latest
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      CMAKE_C_COMPILER_LAUNCHER: sccache
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
+      # Forward sccache config and GHA cache credentials into the manylinux
+      # container; cibuildwheel passes only the variable names to docker.
+      CIBW_ENVIRONMENT_PASS_LINUX: >-
+        SCCACHE_GHA_ENABLED ACTIONS_RESULTS_URL ACTIONS_RUNTIME_TOKEN
+        CMAKE_C_COMPILER_LAUNCHER CMAKE_CXX_COMPILER_LAUNCHER
     steps:
       - uses: actions/checkout@v6
         with:
@@ -192,6 +221,9 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      # Needed to export ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN for the
+      # sccache running inside the cibuildwheel container.
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba #v0.0.11
       - run: python -m pip install cibuildwheel==4.3.5
       - name: Build agave_py wheels
         run: python -m cibuildwheel agave_py --output-dir wheelhouse
@@ -208,6 +240,9 @@ jobs:
       CC: clang
       CXX: clang++
       MACOSX_DEPLOYMENT_TARGET: "15.0"
+      SCCACHE_GHA_ENABLED: "true"
+      CMAKE_C_COMPILER_LAUNCHER: sccache
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
     steps:
       - uses: actions/checkout@v6
         with:
@@ -215,6 +250,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba #v0.0.11
       - uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
         with:
           vulkan_version: 1.4.363.0
@@ -228,6 +264,8 @@ jobs:
       - run: python -m pip install cibuildwheel==4.3.5
       - name: Build agave_py wheels
         run: python -m cibuildwheel agave_py --output-dir wheelhouse
+      - name: sccache stats
+        run: sccache --show-stats
       - name: Verify the Python 3.12 wheel's Vulkan bundle
         run: |
           python -m pip install wheelhouse/*cp312*.whl
@@ -241,6 +279,10 @@ jobs:
   windows-agave-py-build:
     needs: [validate-release]
     runs-on: windows-latest
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      CMAKE_C_COMPILER_LAUNCHER: sccache
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
     steps:
       - uses: actions/checkout@v6
         with:
@@ -248,6 +290,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba #v0.0.11
       - uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
         with:
           vulkan_version: 1.4.363.0
@@ -266,6 +309,8 @@ jobs:
         run: |
           call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
           python -m cibuildwheel agave_py --output-dir wheelhouse
+      - name: sccache stats
+        run: sccache --show-stats
       - uses: actions/upload-artifact@v6
         with:
           name: agave-py-agave-win
