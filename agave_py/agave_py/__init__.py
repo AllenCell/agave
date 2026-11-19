@@ -67,7 +67,7 @@ from .agave import AgaveRenderer
 
 __author__ = "Daniel Toloudis, Allen Institute"
 __email__ = "danielt@alleninstitute.org"
-__version__ = "2.0.0-dev.0"
+__version__ = "2.0.0-dev.1"
 
 
 def get_module_version() -> str:
