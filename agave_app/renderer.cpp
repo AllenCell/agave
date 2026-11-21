@@ -7,8 +7,7 @@
 #include "renderlib/RenderSettings.h"
 #include "renderlib/ScaleBarTool.h"
 #include "renderlib/SceneView.h"
-#include "renderlib/graphics/RenderGL.h"
-#include "renderlib/graphics/RenderGLPT.h"
+#include "renderlib/gfxapi/IRenderWindow.h"
 #include "renderlib/io/FileReader.h"
 
 #include "command.h"
@@ -46,7 +45,7 @@ Renderer::~Renderer()
 }
 
 void
-Renderer::configure(IRenderWindow* renderer,
+Renderer::configure(gfxApi::IRenderWindow* renderer,
                     const RenderSettings& renderSettings,
                     const Scene& scene,
                     const CCamera& camera,
