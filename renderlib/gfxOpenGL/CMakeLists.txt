@@ -7,12 +7,17 @@ target_include_directories(renderlib PUBLIC
 
 target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/Backend.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/Backend.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Device.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Device.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/FontGL.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/FontGL.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/FSQ.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/FSQ.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/GestureGraphicsGL.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/GestureGraphicsGL.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/GestureRenderer.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/GestureRenderer.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Image2D.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Image2D.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Image3D.cpp"

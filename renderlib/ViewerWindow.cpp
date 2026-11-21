@@ -15,14 +15,14 @@
 #include "TimeStampTool.h"
 #include "graphics/RenderGL.h"
 #include "graphics/RenderGLPT.h"
-#include "graphics/GestureGraphicsGL.h"
 #include "gfxOpenGL/Util.h"
+#include "gfxapi/Backend.h"
 #include "renderlib.h"
 
 ViewerWindow::ViewerWindow(RenderSettings* rs)
   : m_renderSettings(rs)
   , m_renderer(new RenderGLPT(rs))
-  , m_gestureRenderer(new GestureRendererGL())
+  , m_gestureRenderer(renderlib::graphicsBackend()->createGestureRenderer())
 {
   gesture.input.reset();
 
@@ -208,8 +208,7 @@ ViewerWindow::update(const SceneView::Viewport& viewport, const Clock& clock, Ge
   if (gesture.input.clickEnded() || gesture.input.isDragging()) {
     pickedAnything = gesture.graphics.m_retainedSelectionCode != Gesture::Graphics::k_noSelectionCode;
   } else {
-    pickedAnything =
-      m_gestureRenderer->pick(m_selection, gesture.input, viewport, gesture.graphics.m_retainedSelectionCode);
+    pickedAnything = m_gestureRenderer->pick(gesture.input, viewport, gesture.graphics.m_retainedSelectionCode);
   }
 
   if (pickedAnything) {
@@ -282,8 +281,8 @@ ViewerWindow::redraw()
     m_increments = 0;
   }
 
-  glm::ivec2 oldpickbuffersize = m_selection.resolution;
-  bool ok = m_selection.update(glm::ivec2(width(), height()));
+  bool selectionBufferResized = !m_gestureRenderer->selectionBufferMatches(width(), height());
+  bool ok = m_gestureRenderer->updateSelectionBuffer(width(), height());
   if (!ok) {
     LOG_ERROR << "Failed to update selection buffer";
   }
@@ -297,8 +296,7 @@ ViewerWindow::redraw()
   // renderer size may have been directly manipulated by e.g. the renderdialog
   uint32_t oldrendererwidth, oldrendererheight;
   m_renderer->getSize(oldrendererwidth, oldrendererheight);
-  if (width() != oldpickbuffersize.x || height() != oldpickbuffersize.y || width() != oldrendererwidth ||
-      height() != oldrendererheight) {
+  if (selectionBufferResized || width() != oldrendererwidth || height() != oldrendererheight) {
     m_renderer->resize(width(), height());
     m_CCamera.m_Film.m_Resolution.SetResX(width());
     m_CCamera.m_Film.m_Resolution.SetResY(height());
@@ -316,13 +314,13 @@ ViewerWindow::redraw()
   clearFramebuffer(sceneView.scene);
 
   // render and then clear out draw commands from gesture graphics
-  m_gestureRenderer->drawUnderlay(sceneView, &m_selection, gesture.graphics);
+  m_gestureRenderer->drawUnderlay(sceneView, gesture.graphics);
 
   // main scene rendering; need to blend/composite on top of overlay previously drawn
   m_renderer->render(sceneView.camera);
 
   // render and then clear out draw commands from gesture graphics
-  m_gestureRenderer->draw(sceneView, &m_selection, gesture.graphics);
+  m_gestureRenderer->draw(sceneView, gesture.graphics);
 
   // Make sure we consumed any unused input event before we poll new events.
   // (in the case of Qt we are not explicitly polling but using signals/slots.)
