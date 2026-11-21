@@ -43,7 +43,7 @@ project(
 # Full semver version string, including any prerelease suffix (e.g. "2.0.0-dev.1").
 # CMake's project(VERSION) only accepts numeric components, so the full string is
 # kept here. Managed by tbump; do not hand-edit.
-set(AGAVE_FULL_VERSION "2.0.0-dev.1")
+set(AGAVE_FULL_VERSION "2.0.0-dev.2")
 if(NOT AGAVE_FULL_VERSION MATCHES "^${PROJECT_VERSION}(-|$)")
   message(FATAL_ERROR "AGAVE_FULL_VERSION (${AGAVE_FULL_VERSION}) must start with project VERSION (${PROJECT_VERSION})")
 endif()
