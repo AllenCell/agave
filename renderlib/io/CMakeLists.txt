@@ -110,6 +110,9 @@ libCZI
  dcmdata dcmimgle dcmimage dcmjpeg dcmjpls
 
 tensorstore::tensorstore
+# FileReaderZarr uses DimExpression (Dims(...).HalfOpenInterval/Transpose),
+# whose implementation libraries are not propagated by the driver targets.
+tensorstore::index_space_dim_expression
 # FileReaderZarr uses JSON, Zarr v2/v3, and file/HTTP/GCS/S3 kvstores.
 # CacheManager uses Zarr v3 with the file kvstore. The Zarr targets include
 # their compression codecs and Zarr v3 sharding support transitively.
