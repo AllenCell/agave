@@ -10,8 +10,8 @@
 #include "renderlib/RotateTool.h"
 #include "renderlib/graphics/RenderGL.h"
 #include "renderlib/graphics/RenderGLPT.h"
-#include "renderlib/graphics/gl/Image3D.h"
-#include "renderlib/graphics/gl/Util.h"
+#include "renderlib/gfxOpenGL/Image3D.h"
+#include "renderlib/gfxOpenGL/Util.h"
 
 #include <glm.h>
 

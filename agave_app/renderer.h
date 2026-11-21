@@ -5,7 +5,7 @@
 
 #include "renderlib/command.h"
 #include "renderlib/gesture/gesture.h"
-#include "renderlib/graphics/gl/Util.h"
+#include "renderlib/gfxOpenGL/Util.h"
 #include "renderlib/graphics/GestureGraphicsGL.h"
 #include "renderlib/io/FileReader.h"
 #include "renderlib/renderlib.h"

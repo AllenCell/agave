@@ -5,8 +5,8 @@
 #include "ImageXYZC.h"
 #include "Logging.h"
 #include "RenderSettings.h"
-#include "gl/Image3D.h"
-#include "gl/Util.h"
+#include "gfxOpenGL/Image3D.h"
+#include "gfxOpenGL/Util.h"
 
 #include <iostream>
 

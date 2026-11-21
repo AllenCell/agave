@@ -13,8 +13,7 @@ namespace gfxopengl {
 // back each issued handle.
 //
 // This implementation currently delegates to the existing GLShader /
-// GLShaderProgram wrappers in renderlib/graphics/gl. Those wrappers will be
-// folded directly into this layer as later migration steps proceed.
+// GLShaderProgram wrappers in this layer while the migration proceeds.
 class Device : public gfxApi::IGraphicsDevice
 {
 public:
