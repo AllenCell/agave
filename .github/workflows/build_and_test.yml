@@ -221,11 +221,11 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          cmake -S . -B build -G "Ninja" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_BUILD_TYPE=Release
+          cmake -E time cmake -S . -B build -G "Ninja" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_BUILD_TYPE=Release
           if errorlevel 1 exit /b %errorlevel%
-          cmake --build build --parallel --target agave_test --config Release
+          cmake -E time cmake --build build --parallel --target agave_test --config Release
           if errorlevel 1 exit /b %errorlevel%
-          cmake --build build --parallel --config Release
+          cmake -E time cmake --build build --parallel --config Release
           if errorlevel 1 exit /b %errorlevel%
           cpack --config build\CPackConfig.cmake -B build -D CPACK_PACKAGE_FILE_NAME=agave-win
       - name: sccache stats
