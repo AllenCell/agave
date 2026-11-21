@@ -48,4 +48,11 @@ Backend::createFramebuffer(const gfxApi::FramebufferDesc& desc)
     desc.width, desc.height, toGlInternalFormat(desc.colorFormat), desc.depthStencil);
 }
 
+void
+Backend::clearCurrentFramebuffer(const gfxApi::ClearColor& color)
+{
+  glClearColor(color.r, color.g, color.b, color.a);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+}
+
 } // namespace gfxopengl
