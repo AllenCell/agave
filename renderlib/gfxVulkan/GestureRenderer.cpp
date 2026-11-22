@@ -834,4 +834,528 @@ GestureRenderer::ensureThickLinesResources()
   return true;
 }
 
+std::optional<resources::UniquePipeline>
+GestureRenderer::createThickLinesPipeline(VkRenderPass renderPass)
+{
+  const bool blendEnable = (renderPass == m_displayRenderPass.get());
+
+  auto vs = m_backend->device().createShaderModule(thickLines_vert_spv, thickLines_vert_spv_word_count);
+  auto fs = m_backend->device().createShaderModule(thickLines_frag_spv, thickLines_frag_spv_word_count);
+  if (!vs || !fs) {
+    return std::nullopt;
+  }
+
+  VkPipelineShaderStageCreateInfo stages[2] = {};
+  stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+  stages[0].module = vs->get();
+  stages[0].pName = "main";
+  stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+  stages[1].module = fs->get();
+  stages[1].pName = "main";
+
+  // No vertex input: the vertex shader synthesizes positions from gl_VertexIndex
+  // and reads geometry from the uniform texel buffer instead.
+  VkPipelineVertexInputStateCreateInfo vi = {};
+  vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+  VkPipelineInputAssemblyStateCreateInfo ia = {};
+  ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+  ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+  VkPipelineViewportStateCreateInfo vp = {};
+  vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+  vp.viewportCount = 1;
+  vp.scissorCount = 1;
+
+  VkPipelineRasterizationStateCreateInfo rs = {};
+  rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+  rs.polygonMode = VK_POLYGON_MODE_FILL;
+  rs.cullMode = VK_CULL_MODE_NONE;
+  rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+  rs.lineWidth = 1.0f;
+
+  VkPipelineMultisampleStateCreateInfo ms = {};
+  ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+  ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+  VkPipelineColorBlendAttachmentState cba = {};
+  cba.blendEnable = blendEnable ? VK_TRUE : VK_FALSE;
+  cba.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+  cba.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+  cba.colorBlendOp = VK_BLEND_OP_ADD;
+  cba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+  cba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+  cba.alphaBlendOp = VK_BLEND_OP_ADD;
+  cba.colorWriteMask =
+    VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+  VkPipelineColorBlendStateCreateInfo cb = {};
+  cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+  cb.attachmentCount = 1;
+  cb.pAttachments = &cba;
+
+  std::array<VkDynamicState, 2> dyn = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+  VkPipelineDynamicStateCreateInfo ds = {};
+  ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+  ds.dynamicStateCount = static_cast<uint32_t>(dyn.size());
+  ds.pDynamicStates = dyn.data();
+
+  VkGraphicsPipelineCreateInfo pi = {};
+  pi.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+  pi.stageCount = 2;
+  pi.pStages = stages;
+  pi.pVertexInputState = &vi;
+  pi.pInputAssemblyState = &ia;
+  pi.pViewportState = &vp;
+  pi.pRasterizationState = &rs;
+  pi.pMultisampleState = &ms;
+  pi.pColorBlendState = &cb;
+  pi.pDynamicState = &ds;
+  pi.layout = m_thickLinesPipelineLayout.get();
+  pi.renderPass = renderPass;
+  pi.subpass = 0;
+
+  return m_backend->device().createPipeline(pi);
+}
+
+bool
+GestureRenderer::ensureThickLinesPipelines(VkFormat colorFormat)
+{
+  const bool displayColorChanged = (m_thickLinesDisplayColorFormat != colorFormat);
+  if (!m_thickLinesDisplayPipeline || displayColorChanged) {
+    m_thickLinesDisplayPipeline.reset();
+    auto pipeline = createThickLinesPipeline(m_displayRenderPass.get());
+    if (!pipeline) {
+      return false;
+    }
+    m_thickLinesDisplayPipeline = std::move(*pipeline);
+    m_thickLinesDisplayColorFormat = colorFormat;
+  }
+  if (!m_thickLinesSelectionPipeline) {
+    auto pipeline = createThickLinesPipeline(m_selectionRenderPass.get());
+    if (!pipeline) {
+      return false;
+    }
+    m_thickLinesSelectionPipeline = std::move(*pipeline);
+  }
+  return true;
+}
+
+void
+GestureRenderer::uploadStripVerts(const void* data, size_t byteCount)
+{
+  VkDevice device = m_backend->logicalDevice();
+  const bool reallocate = byteCount > m_stripVertexCapacity;
+  if (reallocate) {
+    m_stripVertexView.reset();
+    m_stripVertexBuffer.reset();
+    auto buffer =
+      m_backend->device().createBuffer(byteCount,
+                                       VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT,
+                                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (!buffer) {
+      m_stripVertexCapacity = 0;
+      return;
+    }
+    m_stripVertexBuffer = std::move(*buffer);
+    m_stripVertexCapacity = byteCount;
+
+    // The shader indexes the buffer one float at a time (R32_SFLOAT
+    // samplerBuffer), so the buffer view spans the whole allocation as floats.
+    VkBufferViewCreateInfo vi = {};
+    vi.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
+    vi.buffer = m_stripVertexBuffer.get();
+    vi.format = VK_FORMAT_R32_SFLOAT;
+    vi.offset = 0;
+    vi.range = VK_WHOLE_SIZE;
+    auto view = m_backend->device().createBufferView(vi);
+    if (!view) {
+      return;
+    }
+    m_stripVertexView = std::move(*view);
+
+    VkWriteDescriptorSet write = {};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = m_thickLinesDescriptorSet;
+    write.dstBinding = 2;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+    write.descriptorCount = 1;
+    VkBufferView stripVertexView = m_stripVertexView.get();
+    write.pTexelBufferView = &stripVertexView;
+    vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+  }
+  void* mapped = nullptr;
+  vkMapMemory(device, m_stripVertexBuffer.memory(), 0, byteCount, 0, &mapped);
+  std::memcpy(mapped, data, byteCount);
+  vkUnmapMemory(device, m_stripVertexBuffer.memory());
+}
+
+void
+GestureRenderer::drawStrips(Framebuffer& target,
+                            VkRenderPass renderPass,
+                            VkPipeline pipeline,
+                            SceneView& sceneView,
+                            Gesture::Graphics& graphics,
+                            const std::vector<int>& sequenceOrder,
+                            int picking)
+{
+  if (graphics.stripRanges.empty() || pipeline == VK_NULL_HANDLE) {
+    return;
+  }
+
+  VkDevice device = m_backend->logicalDevice();
+
+  glm::mat4 viewMatrix(1.0f);
+  sceneView.camera.getViewMatrix(viewMatrix);
+  glm::mat4 projMatrix(1.0f);
+  sceneView.camera.getProjMatrix(projMatrix);
+  const glm::mat4 vpMat = vulkanProjectionCorrection() * projMatrix * viewMatrix;
+  const glm::mat4 ortho = vulkanProjectionCorrection() * glm::ortho((float)sceneView.viewport.region.lower.x,
+                                                                    (float)sceneView.viewport.region.upper.x,
+                                                                    (float)sceneView.viewport.region.lower.y,
+                                                                    (float)sceneView.viewport.region.upper.y,
+                                                                    1.0f,
+                                                                    -1.0f);
+  const glm::ivec2 vpSize = sceneView.viewport.region.size();
+
+  for (int sequence : sequenceOrder) {
+    for (size_t i = 0; i < graphics.stripRanges.size(); ++i) {
+      if ((int)graphics.stripProjections[i] != sequence) {
+        continue;
+      }
+      const glm::ivec2& range = graphics.stripRanges[i];
+      // The strip layout adds one leading and one trailing padding vertex for
+      // computing miters at the endpoints. See gesture.h::addLineStrip.
+      const int totalVerts = range.y - range.x;
+      const int N = totalVerts - 2; // real vertices
+      const int segments = N - 1;
+      if (segments <= 0) {
+        continue;
+      }
+
+      ThickLinesParams params;
+      params.projection =
+        (graphics.stripProjections[i] == Gesture::Graphics::CommandSequence::k2dScreen) ? ortho : vpMat;
+      params.resolution = glm::vec2(vpSize);
+      params.stripVertexOffset = range.x;
+      params.picking = picking;
+      params.thickness = graphics.stripThicknesses[i];
+
+      void* mapped = nullptr;
+      vkMapMemory(device, m_thickLinesUniformBuffer.memory(), 0, sizeof(ThickLinesParams), 0, &mapped);
+      std::memcpy(mapped, &params, sizeof(ThickLinesParams));
+      vkUnmapMemory(device, m_thickLinesUniformBuffer.memory());
+
+      VkCommandBuffer cmd = m_backend->beginSingleTimeCommands();
+      target.transitionColorImage(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+      VkFramebufferCreateInfo fbi = {};
+      fbi.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+      fbi.renderPass = renderPass;
+      fbi.attachmentCount = 1;
+      VkImageView attachment = target.colorImageView();
+      fbi.pAttachments = &attachment;
+      fbi.width = target.width();
+      fbi.height = target.height();
+      fbi.layers = 1;
+      auto vkfb = m_backend->device().createFramebuffer(fbi);
+      if (!vkfb) {
+        m_backend->endSingleTimeCommands(cmd);
+        continue;
+      }
+
+      VkRenderPassBeginInfo rpb = {};
+      rpb.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+      rpb.renderPass = renderPass;
+      rpb.framebuffer = vkfb->get();
+      rpb.renderArea.offset = { 0, 0 };
+      rpb.renderArea.extent = { target.width(), target.height() };
+      vkCmdBeginRenderPass(cmd, &rpb, VK_SUBPASS_CONTENTS_INLINE);
+
+      VkViewport viewport = {};
+      viewport.width = static_cast<float>(target.width());
+      viewport.height = static_cast<float>(target.height());
+      viewport.maxDepth = 1.0f;
+      VkRect2D scissor = {};
+      scissor.extent = { target.width(), target.height() };
+      vkCmdSetViewport(cmd, 0, 1, &viewport);
+      vkCmdSetScissor(cmd, 0, 1, &scissor);
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+      vkCmdBindDescriptorSets(cmd,
+                              VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              m_thickLinesPipelineLayout.get(),
+                              0,
+                              1,
+                              &m_thickLinesDescriptorSet,
+                              0,
+                              nullptr);
+      vkCmdDraw(cmd, 6u * static_cast<uint32_t>(segments), 1, 0, 0);
+
+      vkCmdEndRenderPass(cmd);
+      m_backend->endSingleTimeCommands(cmd);
+    }
+  }
+}
+
+void
+GestureRenderer::drawImpl(SceneView& sceneView, Gesture::Graphics& graphics, const std::vector<int>& sequenceOrder)
+{
+  if (!ensureBackend()) {
+    graphics.clearCommands();
+    return;
+  }
+
+  auto* target = dynamic_cast<Framebuffer*>(m_target);
+  const bool hasVerts = !graphics.verts.empty();
+  const bool hasStrips = !graphics.stripRanges.empty() && !graphics.stripVerts.empty();
+  if (!target || (!hasVerts && !hasStrips)) {
+    // No gizmo geometry this frame. Clear the selection buffer to the
+    // "no selection" code so next frame's pick() reports nothing under the
+    // cursor; otherwise stale codes make pick() report a false hit, which
+    // disables camera manipulation (the tool "grabs" instead of orbiting).
+    const glm::ivec2 vpSize = sceneView.viewport.region.size();
+    if (ensureSelectionFramebuffer(vpSize.x, vpSize.y) && m_selectionFbo) {
+      m_selectionFbo->clear({ 1.0f, 1.0f, 1.0f, 127.0f / 255.0f });
+    }
+    graphics.clearCommands();
+    return;
+  }
+
+  const glm::ivec2 vpSize = sceneView.viewport.region.size();
+  if (!ensureCommonResources() || !ensureSelectionFramebuffer(vpSize.x, vpSize.y) ||
+      !ensureDisplayPipelines(target->colorFormat()) || !ensureSelectionPipelines()) {
+    graphics.clearCommands();
+    return;
+  }
+  // Upload the font atlas once it's loaded so text glyphs sample real data
+  // instead of the 1x1 dummy image. Non-fatal on failure (text just won't
+  // render); log-only inside the helper.
+  ensureFontResources(graphics.font);
+
+  if (hasVerts) {
+    uploadVerts(graphics.verts.data(), graphics.verts.size() * sizeof(Gesture::Graphics::VertsCode));
+  }
+
+  bool thickLinesReady = false;
+  if (hasStrips && ensureThickLinesResources() && ensureThickLinesPipelines(target->colorFormat())) {
+    uploadStripVerts(graphics.stripVerts.data(), graphics.stripVerts.size() * sizeof(Gesture::Graphics::VertsCode));
+    thickLinesReady = m_stripVertexBuffer && m_stripVertexView;
+  }
+
+  // Composite the gizmo overlay onto the target framebuffer. Selection codes
+  // are rendered afterwards to an offscreen framebuffer for next-frame picking.
+  const bool clearSelection = true;
+  if (hasVerts) {
+    drawSequences(*target, m_displayRenderPass.get(), m_displayPipelines, false, sceneView, graphics, sequenceOrder, 0);
+  }
+  if (thickLinesReady) {
+    drawStrips(
+      *target, m_displayRenderPass.get(), m_thickLinesDisplayPipeline.get(), sceneView, graphics, sequenceOrder, 0);
+  }
+  if (hasVerts) {
+    drawSequences(*m_selectionFbo,
+                  m_selectionRenderPass.get(),
+                  m_selectionPipelines,
+                  clearSelection,
+                  sceneView,
+                  graphics,
+                  sequenceOrder,
+                  1);
+  } else {
+    // Still need to clear the selection buffer before drawing strip codes into
+    // it, otherwise stale codes from previous frames survive.
+    m_selectionFbo->clear({ 1.0f, 1.0f, 1.0f, 127.0f / 255.0f });
+  }
+  if (thickLinesReady) {
+    drawStrips(*m_selectionFbo,
+               m_selectionRenderPass.get(),
+               m_thickLinesSelectionPipeline.get(),
+               sceneView,
+               graphics,
+               sequenceOrder,
+               1);
+  }
+
+  graphics.clearCommands();
+}
+
+void
+GestureRenderer::draw(SceneView& sceneView, Gesture::Graphics& graphics)
+{
+  const std::vector<int> sequenceOrder = {
+    (int)Gesture::Graphics::CommandSequence::k3dDepthTested,
+    (int)Gesture::Graphics::CommandSequence::k3dStacked,
+    (int)Gesture::Graphics::CommandSequence::k2dScreen,
+  };
+  drawImpl(sceneView, graphics, sequenceOrder);
+}
+
+void
+GestureRenderer::drawUnderlay(SceneView& sceneView, Gesture::Graphics& graphics)
+{
+  // Draw the underlay sequence (e.g. back-facing bounding-box edges) into the
+  // target framebuffer before the volume render pass runs. The volume render
+  // pass is configured with LOAD_OP_LOAD so this content survives, and the
+  // tone-map/composite step alpha-blends the volume over it. We deliberately
+  // skip the selection buffer here: underlay geometry is not pickable and the
+  // subsequent draw() call handles the selection buffer for the overlay
+  // sequences. We also do not clear graphics commands here so draw() can still
+  // consume the remaining sequences.
+  if (!ensureBackend()) {
+    return;
+  }
+  auto* target = dynamic_cast<Framebuffer*>(m_target);
+  const bool hasVerts = !graphics.verts.empty();
+  const bool hasStrips = !graphics.stripRanges.empty() && !graphics.stripVerts.empty();
+  if (!target || (!hasVerts && !hasStrips)) {
+    return;
+  }
+
+  if (!ensureCommonResources() || !ensureDisplayPipelines(target->colorFormat())) {
+    return;
+  }
+  ensureFontResources(graphics.font);
+
+  if (hasVerts) {
+    uploadVerts(graphics.verts.data(), graphics.verts.size() * sizeof(Gesture::Graphics::VertsCode));
+  }
+
+  bool thickLinesReady = false;
+  if (hasStrips && ensureThickLinesResources() && ensureThickLinesPipelines(target->colorFormat())) {
+    uploadStripVerts(graphics.stripVerts.data(), graphics.stripVerts.size() * sizeof(Gesture::Graphics::VertsCode));
+    thickLinesReady = m_stripVertexBuffer && m_stripVertexView;
+  }
+
+  const std::vector<int> sequenceOrder = {
+    (int)Gesture::Graphics::CommandSequence::k3dStackedUnderlay,
+  };
+  if (hasVerts) {
+    drawSequences(*target, m_displayRenderPass.get(), m_displayPipelines, false, sceneView, graphics, sequenceOrder, 0);
+  }
+  if (thickLinesReady) {
+    drawStrips(
+      *target, m_displayRenderPass.get(), m_thickLinesDisplayPipeline.get(), sceneView, graphics, sequenceOrder, 0);
+  }
+}
+
+bool
+GestureRenderer::pick(const Gesture::Input& input, const SceneView::Viewport& viewport, uint32_t& selectionCode)
+{
+  selectionCode = Gesture::Graphics::k_noSelectionCode;
+  if (!ensureBackend() || !m_selectionFbo) {
+    return false;
+  }
+  if (m_selectionFbo->width() != (uint32_t)viewport.region.size().x ||
+      m_selectionFbo->height() != (uint32_t)viewport.region.size().y) {
+    return false;
+  }
+
+  // The selection image is rendered with the same projection as the on-screen
+  // gesture overlay and shares the framebuffer's top-left origin, so the cursor
+  // position maps directly (no Y flip). (viewport.toRaster() flips Y for the
+  // OpenGL bottom-left convention, which is wrong for the Vulkan selection image.)
+  glm::ivec2 pixel(static_cast<int>(input.cursorPos.x), static_cast<int>(input.cursorPos.y));
+  constexpr int kClickRadius = 7;
+  SceneView::Viewport::Region region;
+  region.extend(pixel - glm::ivec2(kClickRadius));
+  region.extend(pixel + glm::ivec2(kClickRadius));
+  SceneView::Viewport::Region viewRegion(viewport.region.lower, viewport.region.upper - glm::ivec2(1));
+  region = SceneView::Viewport::Region::intersect(region, viewRegion);
+  if (region.empty()) {
+    return false;
+  }
+
+  const glm::ivec2 regionSize = region.size() + glm::ivec2(1);
+  const size_t pixelCount = size_t(regionSize.x) * size_t(regionSize.y);
+  const VkDeviceSize byteCount = pixelCount * 4;
+
+  auto staging =
+    m_backend->device().createBuffer(byteCount,
+                                     VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  if (!staging) {
+    return false;
+  }
+
+  VkCommandBuffer cmd = m_backend->beginSingleTimeCommands();
+  m_selectionFbo->transitionColorImage(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+  VkBufferImageCopy copy = {};
+  copy.bufferOffset = 0;
+  copy.bufferRowLength = 0;
+  copy.bufferImageHeight = 0;
+  copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  copy.imageSubresource.mipLevel = 0;
+  copy.imageSubresource.baseArrayLayer = 0;
+  copy.imageSubresource.layerCount = 1;
+  copy.imageOffset = { region.lower.x, region.lower.y, 0 };
+  copy.imageExtent = { (uint32_t)regionSize.x, (uint32_t)regionSize.y, 1 };
+  vkCmdCopyImageToBuffer(
+    cmd, m_selectionFbo->colorImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging->get(), 1, &copy);
+  m_backend->endSingleTimeCommands(cmd);
+
+  VkDevice device = m_backend->logicalDevice();
+  void* mapped = nullptr;
+  if (vkMapMemory(device, staging->memory(), 0, byteCount, 0, &mapped) != VK_SUCCESS) {
+    return false;
+  }
+  const uint8_t* pixels = static_cast<const uint8_t*>(mapped);
+  uint32_t best = Gesture::Graphics::k_noSelectionCode;
+  for (size_t i = 0; i < pixelCount; ++i) {
+    uint32_t code = selectionRGB8ToCode(pixels + i * 4);
+    if (code != Gesture::Graphics::k_noSelectionCode && code < best) {
+      best = code;
+    }
+  }
+  vkUnmapMemory(device, staging->memory());
+
+  selectionCode = best;
+  return best != Gesture::Graphics::k_noSelectionCode;
+}
+
+void
+GestureRenderer::destroy()
+{
+  if (!m_backend) {
+    return;
+  }
+  VkDevice device = m_backend->logicalDevice();
+  if (device == VK_NULL_HANDLE) {
+    return;
+  }
+  vkDeviceWaitIdle(device);
+
+  for (auto& p : m_displayPipelines) {
+    p.reset();
+  }
+  for (auto& p : m_selectionPipelines) {
+    p.reset();
+  }
+  m_thickLinesDisplayPipeline.reset();
+  m_thickLinesSelectionPipeline.reset();
+  m_thickLinesDisplayColorFormat = VK_FORMAT_UNDEFINED;
+  m_displayRenderPass.reset();
+  m_selectionRenderPass.reset();
+  m_pipelineLayout.reset();
+  m_thickLinesPipelineLayout.reset();
+  m_descriptorPool.reset();
+  m_descriptorSet = VK_NULL_HANDLE;
+  m_thickLinesDescriptorPool.reset();
+  m_thickLinesDescriptorSet = VK_NULL_HANDLE;
+  m_descriptorSetLayout.reset();
+  m_thickLinesDescriptorSetLayout.reset();
+  m_dummyTexture.reset();
+  m_fontTexture.reset();
+  m_fontWidth = 0;
+  m_fontHeight = 0;
+  m_uniformBuffer.reset();
+  m_thickLinesUniformBuffer.reset();
+  m_vertexBuffer.reset();
+  m_stripVertexView.reset();
+  m_stripVertexBuffer.reset();
+  m_stripVertexCapacity = 0;
+  m_selectionFbo.reset();
+}
+
 } // namespace gfxvulkan
