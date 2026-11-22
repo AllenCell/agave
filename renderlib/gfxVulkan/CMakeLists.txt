@@ -7,6 +7,8 @@ add_library(agave_vulkan_device_check OBJECT
 	"${CMAKE_CURRENT_SOURCE_DIR}/Device.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Framebuffer.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Framebuffer.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/GestureRenderer.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/GestureRenderer.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RendererVkContext.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RendererVkContext.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RenderVk.cpp"

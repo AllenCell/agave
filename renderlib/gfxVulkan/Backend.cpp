@@ -1,6 +1,7 @@
 #include "Backend.h"
 
 #include "Framebuffer.h"
+#include "GestureRenderer.h"
 #include "Logging.h"
 #include "RenderVk.h"
 #include "RenderVkPT.h"
@@ -167,7 +168,7 @@ Backend::~Backend()
 std::unique_ptr<gfxApi::IGestureRenderer>
 Backend::createGestureRenderer()
 {
-  return {};
+  return std::make_unique<GestureRenderer>();
 }
 
 std::unique_ptr<gfxApi::IGLContext>
