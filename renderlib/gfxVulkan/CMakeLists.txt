@@ -13,6 +13,8 @@ add_library(agave_vulkan_device_check OBJECT
 	"${CMAKE_CURRENT_SOURCE_DIR}/Swapchain.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/VulkanUtil.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/VulkanUtil.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/VolumeTextureVk.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/VolumeTextureVk.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/resources/Buffer.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/resources/DeviceObject.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/resources/Image.h"
