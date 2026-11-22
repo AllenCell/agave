@@ -5,6 +5,7 @@
 #include "Camera.h"
 #include "CacheSettings.h"
 #include "GLView3D.h"
+#include "IAppView3D.h"
 #include "QtGLContext.h"
 #include "QRenderSettings.h"
 #include "ViewerState.h"
@@ -69,7 +70,7 @@ private slots:
   void view_frame();
   void view_toggleProjection();
   void showAxisHelper();
-  void viewFocusChanged(GLView3D* glView);
+  void viewFocusChanged(IAppView3D* view);
   void tabChanged(int index);
   void openMeshDialog();
   void openMesh(const QString& file);
@@ -158,7 +159,7 @@ private:
   CacheSettingsDockWidget* m_cacheSettingsDockWidget = nullptr;
 
   QTabWidget* m_tabs;
-  GLView3D* m_glView;
+  IAppView3D* m_view;
   // Owns the IGLContext wrapper around m_glView's QOpenGLContext. The
   // underlying QOpenGLContext is owned by m_glView; this object owns only the
   // QOffscreenSurface created lazily during rendering. RenderDialog borrows
