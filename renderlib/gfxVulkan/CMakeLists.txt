@@ -1,6 +1,9 @@
-# This PR compiles the device before the Vulkan backend is wired into renderlib.
-# Keep it out of the OpenGL application's link and packaging dependencies.
-add_library(agave_vulkan_device_check OBJECT
+target_include_directories(renderlib PUBLIC
+	"${CMAKE_CURRENT_SOURCE_DIR}/.."
+	"${Vulkan_INCLUDE_DIRS}"
+)
+
+target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/Backend.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Backend.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Device.cpp"
@@ -9,18 +12,24 @@ add_library(agave_vulkan_device_check OBJECT
 	"${CMAKE_CURRENT_SOURCE_DIR}/Framebuffer.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/GestureRenderer.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/GestureRenderer.h"
-	"${CMAKE_CURRENT_SOURCE_DIR}/RendererVkContext.cpp"
-	"${CMAKE_CURRENT_SOURCE_DIR}/RendererVkContext.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RenderVk.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RenderVk.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RenderVkPT.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/RenderVkPT.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/RendererVkContext.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/RendererVkContext.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/resources/Buffer.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/resources/DeviceObject.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/resources/Image.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/resources/ResourceRegistry.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/resources/ResourceRegistry.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/resources/SampledImage.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Swapchain.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Swapchain.h"
-	"${CMAKE_CURRENT_SOURCE_DIR}/VulkanUtil.cpp"
-	"${CMAKE_CURRENT_SOURCE_DIR}/VulkanUtil.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/VolumeTextureVk.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/VolumeTextureVk.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/VulkanUtil.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/VulkanUtil.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/basicVolume.frag"
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/basicVolume.vert"
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/basicVolume_frag_spv.hpp"
@@ -41,7 +50,6 @@ add_library(agave_vulkan_device_check OBJECT
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/imageNoLut.vert"
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/imageNoLut_frag_spv.hpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/imageNoLut_vert_spv.hpp"
-	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/make_spirv.py"
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/pathTraceVolume.frag"
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/pathTraceVolume.vert"
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/pathTraceVolume_frag_spv.hpp"
@@ -62,32 +70,44 @@ add_library(agave_vulkan_device_check OBJECT
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/volume.vert"
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/volume_frag_spv.hpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/volume_vert_spv.hpp"
-	"${CMAKE_CURRENT_SOURCE_DIR}/resources/Buffer.h"
-	"${CMAKE_CURRENT_SOURCE_DIR}/resources/DeviceObject.h"
-	"${CMAKE_CURRENT_SOURCE_DIR}/resources/Image.h"
-	"${CMAKE_CURRENT_SOURCE_DIR}/resources/ResourceRegistry.cpp"
-	"${CMAKE_CURRENT_SOURCE_DIR}/resources/ResourceRegistry.h"
-	"${CMAKE_CURRENT_SOURCE_DIR}/resources/SampledImage.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/make_spirv.py"
 )
 
-target_include_directories(agave_vulkan_device_check PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/.."
-    "${glm_SOURCE_DIR}"
-)
-
-target_link_libraries(agave_vulkan_device_check PRIVATE
-    Vulkan::Vulkan
-    Vulkan::shaderc_combined
-    spdlog::spdlog_header_only
-)
-
-target_compile_definitions(agave_vulkan_device_check PRIVATE AGAVE_HAS_VULKAN=1)
+if(APPLE)
+	target_sources(renderlib PRIVATE
+		"${CMAKE_CURRENT_SOURCE_DIR}/Swapchain_mac.mm"
+	)
+endif()
 
 if(WIN32)
-	target_sources(agave_vulkan_device_check PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Swapchain_win.cpp")
-elseif(APPLE)
-	enable_language(OBJCXX)
-	target_sources(agave_vulkan_device_check PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Swapchain_mac.mm")
-else()
-	target_sources(agave_vulkan_device_check PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Swapchain_linux.cpp")
+	target_sources(renderlib PRIVATE
+		"${CMAKE_CURRENT_SOURCE_DIR}/Swapchain_win.cpp"
+	)
+endif()
+
+if(UNIX AND NOT APPLE)
+	target_sources(renderlib PRIVATE
+		"${CMAKE_CURRENT_SOURCE_DIR}/Swapchain_linux.cpp"
+	)
+endif()
+
+target_compile_definitions(renderlib PUBLIC AGAVE_HAS_VULKAN=1)
+target_link_libraries(renderlib
+	Vulkan::Vulkan
+	${AGAVE_VULKAN_RUNTIME_LIBRARY}
+	Vulkan::shaderc_combined
+)
+
+if(APPLE)
+	target_link_libraries(renderlib
+		"-framework AppKit"
+		"-framework QuartzCore"
+	)
+endif()
+
+if(UNIX AND NOT APPLE)
+	find_package(PkgConfig REQUIRED)
+	pkg_check_modules(XCB REQUIRED IMPORTED_TARGET GLOBAL xcb)
+	pkg_check_modules(X11 REQUIRED IMPORTED_TARGET GLOBAL x11)
+	target_link_libraries(renderlib PkgConfig::XCB PkgConfig::X11)
 endif()

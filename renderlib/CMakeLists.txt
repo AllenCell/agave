@@ -100,7 +100,7 @@ target_sources(renderlib PRIVATE
 add_subdirectory(gesture)
 add_subdirectory(gfxapi)
 add_subdirectory(gfxOpenGL)
-if(AGAVE_VULKAN_DEVICE_AVAILABLE)
+if(AGAVE_HAS_VULKAN)
 	add_subdirectory(gfxVulkan)
 endif()
 add_subdirectory(io)
