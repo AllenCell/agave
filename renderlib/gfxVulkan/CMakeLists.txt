@@ -31,3 +31,12 @@ target_link_libraries(agave_vulkan_device_check PRIVATE
 )
 
 target_compile_definitions(agave_vulkan_device_check PRIVATE AGAVE_HAS_VULKAN=1)
+
+if(WIN32)
+	target_sources(agave_vulkan_device_check PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Swapchain_win.cpp")
+elseif(APPLE)
+	enable_language(OBJCXX)
+	target_sources(agave_vulkan_device_check PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Swapchain_mac.mm")
+else()
+	target_sources(agave_vulkan_device_check PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Swapchain_linux.cpp")
+endif()

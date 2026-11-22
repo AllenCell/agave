@@ -278,7 +278,7 @@ struct Gesture
     // the thickness of each strip
     std::vector<float> stripThicknesses;
 
-    Font font;
+    AgaveFont font;
 
     // remember selection code to reuse while dragging
     // 1 bit is reserved for component flags.
