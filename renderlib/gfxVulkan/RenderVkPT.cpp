@@ -1123,4 +1123,473 @@ RenderVkPT::ensurePtVolumeResources()
   return true;
 }
 
+bool
+RenderVkPT::updatePtVolumeUniforms(const CCamera& camera, int sampleCounter)
+{
+  if (!m_scene || !m_scene->m_volume || !m_renderSettings) {
+    return false;
+  }
+
+  PtVolumeUniforms u = {};
+  const PathTraceRenderSettings& rs = m_renderSettings->m_RenderSettings;
+
+  // Camera
+  u.gCamera.m_from = camera.m_From;
+  u.gCamera.m_U = camera.m_U;
+  u.gCamera.m_V = camera.m_V;
+  u.gCamera.m_N = camera.m_N;
+  u.gCamera.m_screen = glm::vec4(camera.m_Film.m_Screen[0][0],
+                                 camera.m_Film.m_Screen[0][1],
+                                 camera.m_Film.m_Screen[1][0],
+                                 camera.m_Film.m_Screen[1][1]);
+  u.gCamera.m_invScreen = camera.m_Film.m_InvScreen;
+  u.gCamera.m_focalDistance = camera.m_Focus.m_FocalDistance;
+  u.gCamera.m_apertureSize = camera.m_Aperture.m_Size;
+  u.gCamera.m_isPerspective = (camera.m_Projection == PERSPECTIVE) ? 1.0f : 0.0f;
+
+  // Lights
+  auto setLight = [](GpuPtLight& d, const Light& l) {
+    d.m_theta = l.m_Theta;
+    d.m_phi = l.m_Phi;
+    d.m_width = l.m_Width;
+    d.m_halfWidth = l.m_HalfWidth;
+    d.m_height = l.m_Height;
+    d.m_halfHeight = l.m_HalfHeight;
+    d.m_distance = l.m_Distance;
+    d.m_skyRadius = l.m_SkyRadius;
+    d.m_P = l.m_P;
+    d.m_target = l.m_Target;
+    d.m_N = l.m_N;
+    d.m_U = l.m_U;
+    d.m_V = l.m_V;
+    d.m_area = l.m_Area;
+    d.m_areaPdf = l.m_AreaPdf;
+    d.m_color = l.m_Color * l.m_ColorIntensity;
+    d.m_colorTop = l.m_ColorTop * l.m_ColorTopIntensity;
+    d.m_colorMiddle = l.m_ColorMiddle * l.m_ColorMiddleIntensity;
+    d.m_colorBottom = l.m_ColorBottom * l.m_ColorBottomIntensity;
+    d.m_T = l.m_T;
+  };
+  setLight(u.gLights[0], m_scene->SphereLight());
+  setLight(u.gLights[1], m_scene->AreaLight());
+
+  // Clipped bounding box (scene bbox intersected with the ROI), matching RenderGLPT.
+  const glm::vec3 sn = m_scene->m_boundingBox.GetMinP();
+  const glm::vec3 ext = m_scene->m_boundingBox.GetExtent();
+  u.gClippedAaBbMin = glm::vec3(ext.x * m_scene->m_roi.GetMinP().x + sn.x,
+                                ext.y * m_scene->m_roi.GetMinP().y + sn.y,
+                                ext.z * m_scene->m_roi.GetMinP().z + sn.z);
+  u.gClippedAaBbMax = glm::vec3(ext.x * m_scene->m_roi.GetMaxP().x + sn.x,
+                                ext.y * m_scene->m_roi.GetMaxP().y + sn.y,
+                                ext.z * m_scene->m_roi.GetMaxP().z + sn.z);
+
+  u.gDensityScale = rs.m_DensityScale;
+  u.gStepSize = rs.m_StepSizeFactor * rs.m_GradientDelta;
+  u.gStepSizeShadow = rs.m_StepSizeFactorShadow * rs.m_GradientDelta;
+  u.gPosToUVW = m_scene->m_boundingBox.GetInverseExtent() * glm::vec3(m_scene->m_volume->getVolumeAxesFlipped());
+  u.gShadingType = rs.m_ShadingType;
+
+  const float gradientDelta = 1.0f * rs.m_GradientDelta;
+  u.gGradientDeltaX = glm::vec3(gradientDelta, 0.0f, 0.0f);
+  u.gGradientDeltaY = glm::vec3(0.0f, gradientDelta, 0.0f);
+  u.gGradientDeltaZ = glm::vec3(0.0f, 0.0f, gradientDelta);
+  u.gInvGradientDelta = 1.0f / gradientDelta;
+  u.gGradientFactor = rs.m_GradientFactor;
+  u.uShowLights = 0.0f;
+
+  // Per-channel material + transfer functions.
+  glm::vec4 intensityMax(1.0f), intensityMin(0.0f), lutMax(1.0f), lutMin(0.0f), labels(0.0f);
+  const int NC = m_scene->m_volume->sizeC();
+  int activeChannel = 0;
+  for (int i = 0; i < NC && activeChannel < 4; ++i) {
+    if (!m_scene->m_material.m_enabled[i]) {
+      continue;
+    }
+    const Histogram& histo = m_scene->m_volume->channel(i)->m_histogram;
+    intensityMax[activeChannel] = histo.getDataMax();
+    intensityMin[activeChannel] = histo.getDataMin();
+    u.g_diffuse[activeChannel] = glm::vec4(m_scene->m_material.m_diffuse[i * 3 + 0],
+                                           m_scene->m_material.m_diffuse[i * 3 + 1],
+                                           m_scene->m_material.m_diffuse[i * 3 + 2],
+                                           0.0f);
+    u.g_specular[activeChannel] = glm::vec4(m_scene->m_material.m_specular[i * 3 + 0],
+                                            m_scene->m_material.m_specular[i * 3 + 1],
+                                            m_scene->m_material.m_specular[i * 3 + 2],
+                                            0.0f);
+    u.g_emissive[activeChannel] = glm::vec4(m_scene->m_material.m_emissive[i * 3 + 0],
+                                            m_scene->m_material.m_emissive[i * 3 + 1],
+                                            m_scene->m_material.m_emissive[i * 3 + 2],
+                                            0.0f);
+    u.g_roughness[activeChannel] = glm::vec4(m_scene->m_material.m_roughness[i], 0.0f, 0.0f, 0.0f);
+    u.g_opacity[activeChannel] = glm::vec4(m_scene->m_material.m_opacity[i], 0.0f, 0.0f, 0.0f);
+
+    uint16_t imin16 = 0;
+    uint16_t imax16 = 0;
+    const bool hasMinMax = m_scene->m_material.m_gradientData[i].getMinMax(histo, &imin16, &imax16);
+    lutMin[activeChannel] = hasMinMax ? static_cast<float>(imin16) : intensityMin[activeChannel];
+    lutMax[activeChannel] = hasMinMax ? static_cast<float>(imax16) : intensityMax[activeChannel];
+    labels[activeChannel] = m_scene->m_material.m_labels[i];
+
+    const auto& tf = m_scene->m_material.m_gradientData[i].getControlPoints(histo);
+    const int nTfPoints = std::min(static_cast<int>(tf.size()), static_cast<int>(kMaxNoTfNodes));
+    u.g_tf_nNodes[activeChannel] = static_cast<uint32_t>(nTfPoints);
+    for (int j = 0; j < nTfPoints; ++j) {
+      u.g_tf[activeChannel * kMaxNoTfNodes + j] = glm::vec4(tf[j].first, tf[j].second, 0.0f, 0.0f);
+    }
+    ++activeChannel;
+  }
+  u.g_nChannels = activeChannel;
+  u.g_intensityMax = intensityMax;
+  u.g_intensityMin = intensityMin;
+  u.g_lutMax = lutMax;
+  u.g_lutMin = lutMin;
+  u.g_labels = labels;
+
+  if (m_scene->m_clipPlane && m_scene->m_clipPlane->m_enabled) {
+    Plane p = Plane().transform(m_scene->m_clipPlane->m_transform.getMatrix());
+    u.g_clipPlane = p.asVec4();
+  } else {
+    u.g_clipPlane = glm::vec4(0.0f);
+  }
+
+  u.uFrameCounter = static_cast<float>(sampleCounter + 1);
+  u.uSampleCounter = static_cast<float>(sampleCounter);
+  u.uResolution =
+    glm::vec2(static_cast<float>(std::max<uint32_t>(1, m_w)), static_cast<float>(std::max<uint32_t>(1, m_h)));
+
+  void* mapped = nullptr;
+  vkMapMemory(m_backend.logicalDevice(), m_ptVolumeUniformBuffer.memory(), 0, sizeof(PtVolumeUniforms), 0, &mapped);
+  std::memcpy(mapped, &u, sizeof(PtVolumeUniforms));
+  vkUnmapMemory(m_backend.logicalDevice(), m_ptVolumeUniformBuffer.memory());
+  return true;
+}
+
+bool
+RenderVkPT::updatePtVolumeDescriptorSet(VkImageView previousAccumView)
+{
+  const VolumeTextureVk& vol = volumeTexture();
+
+  VkDescriptorBufferInfo bufferInfo = {};
+  bufferInfo.buffer = m_ptVolumeUniformBuffer.get();
+  bufferInfo.offset = 0;
+  bufferInfo.range = sizeof(PtVolumeUniforms);
+
+  VkDescriptorImageInfo volumeInfo = {};
+  volumeInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  volumeInfo.imageView = vol.volumeView();
+  volumeInfo.sampler = vol.volumeSampler();
+
+  std::array<VkDescriptorImageInfo, 4> lutInfos = {};
+  for (auto& info : lutInfos) {
+    info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    info.imageView = m_dummyLutTexture.view();
+    info.sampler = m_dummyLutTexture.sampler();
+  }
+
+  VkDescriptorImageInfo colormapInfo = {};
+  colormapInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  colormapInfo.imageView = vol.transferView();
+  colormapInfo.sampler = vol.transferSampler();
+
+  VkDescriptorImageInfo previousInfo = {};
+  previousInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  previousInfo.imageView = previousAccumView;
+  previousInfo.sampler = m_framebufferSampler.get();
+
+  std::array<VkWriteDescriptorSet, 5> writes = {};
+  writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  writes[0].dstSet = m_ptVolumeDescriptorSet;
+  writes[0].dstBinding = 0;
+  writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  writes[0].descriptorCount = 1;
+  writes[0].pBufferInfo = &bufferInfo;
+
+  writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  writes[1].dstSet = m_ptVolumeDescriptorSet;
+  writes[1].dstBinding = 1;
+  writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  writes[1].descriptorCount = 1;
+  writes[1].pImageInfo = &volumeInfo;
+
+  writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  writes[2].dstSet = m_ptVolumeDescriptorSet;
+  writes[2].dstBinding = 2;
+  writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  writes[2].descriptorCount = static_cast<uint32_t>(lutInfos.size());
+  writes[2].pImageInfo = lutInfos.data();
+
+  writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  writes[3].dstSet = m_ptVolumeDescriptorSet;
+  writes[3].dstBinding = 3;
+  writes[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  writes[3].descriptorCount = 1;
+  writes[3].pImageInfo = &colormapInfo;
+
+  writes[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  writes[4].dstSet = m_ptVolumeDescriptorSet;
+  writes[4].dstBinding = 4;
+  writes[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  writes[4].descriptorCount = 1;
+  writes[4].pImageInfo = &previousInfo;
+
+  vkUpdateDescriptorSets(m_backend.logicalDevice(), static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+  return true;
+}
+
+void
+RenderVkPT::renderPtVolume(Framebuffer& target)
+{
+  VkCommandBuffer commandBuffer = m_backend.beginSingleTimeCommands();
+  target.transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+  VkFramebufferCreateInfo framebufferInfo = {};
+  framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+  framebufferInfo.renderPass = m_ptVolumeRenderPass.get();
+  framebufferInfo.attachmentCount = 1;
+  VkImageView attachment = target.colorImageView();
+  framebufferInfo.pAttachments = &attachment;
+  framebufferInfo.width = target.width();
+  framebufferInfo.height = target.height();
+  framebufferInfo.layers = 1;
+
+  auto vkFramebuffer = m_backend.device().createFramebuffer(framebufferInfo);
+  if (!vkFramebuffer) {
+    m_backend.endSingleTimeCommands(commandBuffer);
+    return;
+  }
+
+  VkClearValue clearValue = {};
+  clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+
+  VkRenderPassBeginInfo renderPassBegin = {};
+  renderPassBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+  renderPassBegin.renderPass = m_ptVolumeRenderPass.get();
+  renderPassBegin.framebuffer = vkFramebuffer->get();
+  renderPassBegin.renderArea.offset = { 0, 0 };
+  renderPassBegin.renderArea.extent = { target.width(), target.height() };
+  renderPassBegin.clearValueCount = 1;
+  renderPassBegin.pClearValues = &clearValue;
+
+  vkCmdBeginRenderPass(commandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
+
+  VkViewport viewport = {};
+  viewport.width = static_cast<float>(target.width());
+  viewport.height = static_cast<float>(target.height());
+  viewport.maxDepth = 1.0f;
+  VkRect2D scissor = {};
+  scissor.extent = { target.width(), target.height() };
+  vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+  vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_ptVolumePipeline.get());
+  vkCmdBindDescriptorSets(commandBuffer,
+                          VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          m_ptVolumePipelineLayout.get(),
+                          0,
+                          1,
+                          &m_ptVolumeDescriptorSet,
+                          0,
+                          nullptr);
+  VkDeviceSize offset = 0;
+  VkBuffer quadVertexBuffer = m_quadVertexBuffer.get();
+  vkCmdBindVertexBuffers(commandBuffer, 0, 1, &quadVertexBuffer, &offset);
+  vkCmdBindIndexBuffer(commandBuffer, m_quadIndexBuffer.get(), 0, VK_INDEX_TYPE_UINT16);
+  vkCmdDrawIndexed(commandBuffer, m_quadIndexCount, 1, 0, 0, 0);
+
+  vkCmdEndRenderPass(commandBuffer);
+  m_backend.endSingleTimeCommands(commandBuffer);
+}
+
+void
+RenderVkPT::runAccumulationPass(Framebuffer& framebuffer)
+{
+  VkCommandBuffer commandBuffer = m_backend.beginSingleTimeCommands();
+  framebuffer.transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+  VkFramebufferCreateInfo framebufferInfo = {};
+  framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+  framebufferInfo.renderPass = m_accumRenderPass.get();
+  framebufferInfo.attachmentCount = 1;
+  VkImageView attachment = framebuffer.colorImageView();
+  framebufferInfo.pAttachments = &attachment;
+  framebufferInfo.width = framebuffer.width();
+  framebufferInfo.height = framebuffer.height();
+  framebufferInfo.layers = 1;
+
+  auto vkFramebuffer = m_backend.device().createFramebuffer(framebufferInfo);
+  if (!vkFramebuffer) {
+    m_backend.endSingleTimeCommands(commandBuffer);
+    return;
+  }
+
+  VkClearValue clearValue = {};
+  clearValue.color = { { 0.0f, 0.0f, 0.0f, 0.0f } };
+
+  VkRenderPassBeginInfo renderPassBegin = {};
+  renderPassBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+  renderPassBegin.renderPass = m_accumRenderPass.get();
+  renderPassBegin.framebuffer = vkFramebuffer->get();
+  renderPassBegin.renderArea.offset = { 0, 0 };
+  renderPassBegin.renderArea.extent = { framebuffer.width(), framebuffer.height() };
+  renderPassBegin.clearValueCount = 1;
+  renderPassBegin.pClearValues = &clearValue;
+
+  vkCmdBeginRenderPass(commandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
+
+  VkViewport viewport = {};
+  viewport.width = static_cast<float>(framebuffer.width());
+  viewport.height = static_cast<float>(framebuffer.height());
+  viewport.maxDepth = 1.0f;
+  VkRect2D scissor = {};
+  scissor.extent = { framebuffer.width(), framebuffer.height() };
+  vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+  vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_accumPipeline.get());
+  vkCmdBindDescriptorSets(commandBuffer,
+                          VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          m_accumPipelineLayout.get(),
+                          0,
+                          1,
+                          &m_accumDescriptorSet,
+                          0,
+                          nullptr);
+  VkDeviceSize offset = 0;
+  VkBuffer quadVertexBuffer = m_quadVertexBuffer.get();
+  vkCmdBindVertexBuffers(commandBuffer, 0, 1, &quadVertexBuffer, &offset);
+  vkCmdBindIndexBuffer(commandBuffer, m_quadIndexBuffer.get(), 0, VK_INDEX_TYPE_UINT16);
+  vkCmdDrawIndexed(commandBuffer, m_quadIndexCount, 1, 0, 0, 0);
+
+  vkCmdEndRenderPass(commandBuffer);
+  m_backend.endSingleTimeCommands(commandBuffer);
+}
+
+void
+RenderVkPT::runToneMapPass(Framebuffer& framebuffer)
+{
+  VkCommandBuffer commandBuffer = m_backend.beginSingleTimeCommands();
+  framebuffer.transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+  VkFramebufferCreateInfo framebufferInfo = {};
+  framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+  framebufferInfo.renderPass = m_toneMapRenderPass.get();
+  framebufferInfo.attachmentCount = 1;
+  VkImageView attachment = framebuffer.colorImageView();
+  framebufferInfo.pAttachments = &attachment;
+  framebufferInfo.width = framebuffer.width();
+  framebufferInfo.height = framebuffer.height();
+  framebufferInfo.layers = 1;
+
+  auto vkFramebuffer = m_backend.device().createFramebuffer(framebufferInfo);
+  if (!vkFramebuffer) {
+    m_backend.endSingleTimeCommands(commandBuffer);
+    return;
+  }
+
+  VkClearValue clearValue = {};
+  clearValue.color = { { 0.0f, 0.0f, 0.0f, 1.0f } };
+
+  VkRenderPassBeginInfo renderPassBegin = {};
+  renderPassBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+  renderPassBegin.renderPass = m_toneMapRenderPass.get();
+  renderPassBegin.framebuffer = vkFramebuffer->get();
+  renderPassBegin.renderArea.offset = { 0, 0 };
+  renderPassBegin.renderArea.extent = { framebuffer.width(), framebuffer.height() };
+  renderPassBegin.clearValueCount = 1;
+  renderPassBegin.pClearValues = &clearValue;
+
+  vkCmdBeginRenderPass(commandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
+
+  VkViewport viewport = {};
+  viewport.width = static_cast<float>(framebuffer.width());
+  viewport.height = static_cast<float>(framebuffer.height());
+  viewport.maxDepth = 1.0f;
+  VkRect2D scissor = {};
+  scissor.extent = { framebuffer.width(), framebuffer.height() };
+  vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+  vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_toneMapPipeline.get());
+  vkCmdBindDescriptorSets(commandBuffer,
+                          VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          m_toneMapPipelineLayout.get(),
+                          0,
+                          1,
+                          &m_toneMapDescriptorSet,
+                          0,
+                          nullptr);
+  VkDeviceSize offset = 0;
+  VkBuffer quadVertexBuffer = m_quadVertexBuffer.get();
+  vkCmdBindVertexBuffers(commandBuffer, 0, 1, &quadVertexBuffer, &offset);
+  vkCmdBindIndexBuffer(commandBuffer, m_quadIndexBuffer.get(), 0, VK_INDEX_TYPE_UINT16);
+  vkCmdDrawIndexed(commandBuffer, m_quadIndexCount, 1, 0, 0, 0);
+
+  vkCmdEndRenderPass(commandBuffer);
+  m_backend.endSingleTimeCommands(commandBuffer);
+}
+
+void
+RenderVkPT::transitionToShaderRead(Framebuffer& framebuffer)
+{
+  VkCommandBuffer commandBuffer = m_backend.beginSingleTimeCommands();
+  framebuffer.transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  m_backend.endSingleTimeCommands(commandBuffer);
+}
+
+void
+RenderVkPT::destroyFullscreenResources()
+{
+  m_displayFramebuffer.reset();
+  m_sampleFramebuffer.reset();
+  m_accumFramebuffer.reset();
+  m_accumScratchFramebuffer.reset();
+
+  destroyPipelines();
+
+  VkDevice device = m_backend.logicalDevice();
+  if (device == VK_NULL_HANDLE) {
+    return;
+  }
+
+  m_toneMapDescriptorPool.reset();
+  m_toneMapDescriptorSet = VK_NULL_HANDLE;
+  m_toneMapDescriptorSetLayout.reset();
+  m_accumDescriptorPool.reset();
+  m_accumDescriptorSet = VK_NULL_HANDLE;
+  m_accumDescriptorSetLayout.reset();
+
+  m_framebufferSampler.reset();
+  m_toneMapUniformBuffer.reset();
+  m_accumUniformBuffer.reset();
+  m_quadIndexBuffer.reset();
+  m_quadVertexBuffer.reset();
+  m_quadIndexCount = 0;
+
+  // Path-trace volume pass resources.
+  m_ptVolumeDescriptorPool.reset();
+  m_ptVolumeDescriptorSet = VK_NULL_HANDLE;
+  m_ptVolumeDescriptorSetLayout.reset();
+  m_ptVolumeUniformBuffer.reset();
+  m_dummyLutTexture.reset();
+}
+
+void
+RenderVkPT::destroyPipelines()
+{
+  VkDevice device = m_backend.logicalDevice();
+  if (device == VK_NULL_HANDLE) {
+    return;
+  }
+
+  m_toneMapPipeline.reset();
+  m_toneMapPipelineLayout.reset();
+  m_toneMapRenderPass.reset();
+
+  m_accumPipeline.reset();
+  m_accumPipelineLayout.reset();
+  m_accumRenderPass.reset();
+
+  m_ptVolumePipeline.reset();
+  m_ptVolumePipelineLayout.reset();
+  m_ptVolumeRenderPass.reset();
+  m_toneMapPipelineColorFormat = VK_FORMAT_UNDEFINED;
+}
+
 } // namespace gfxvulkan
