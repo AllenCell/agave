@@ -8,25 +8,12 @@
 #include "renderlib/ScaleBarTool.h"
 #include "renderlib/TimeStampTool.h"
 #include "renderlib/gfxOpenGL/Backend.h"
+#include "renderlib/gfxapi/RenderToFramebuffer.h"
 #include "renderlib/io/FileReader.h"
 #include "renderlib/renderlib.h"
 
-namespace {
-
-gfxApi::ClearColor
-backgroundClearColor(const Scene* scene)
-{
-  if (!scene) {
-    return {};
-  }
-
-  return { scene->m_material.m_backgroundColor[0],
-           scene->m_material.m_backgroundColor[1],
-           scene->m_material.m_backgroundColor[2],
-           0.0f };
-}
-
-} // namespace
+#include <cstddef>
+#include <memory>
 
 OffscreenRenderer::OffscreenRenderer()
   : m_rglContext(static_cast<gfxopengl::Backend&>(*renderlib::graphicsBackend()))
@@ -123,19 +110,15 @@ OffscreenRenderer::render()
   timestamp.clear();
   timestamp.draw(sceneView, m_myVolumeData.m_gesture);
 
-  m_fbo->bind();
-  m_fbo->clear(backgroundClearColor(sceneView.scene));
-  m_myVolumeData.m_gestureRenderer->drawUnderlay(sceneView, m_myVolumeData.m_gesture.graphics);
-  m_fbo->release();
+  gfxApi::renderToFramebuffer(*m_fbo,
+                              *m_myVolumeData.m_renderer,
+                              *m_myVolumeData.m_gestureRenderer,
+                              sceneView,
+                              m_myVolumeData.m_gesture.graphics,
+                              0.0f);
 
-  // main scene rendering
-  m_myVolumeData.m_renderer->renderTo(sceneView.camera, m_fbo.get());
-
-  m_fbo->bind();
-  m_myVolumeData.m_gestureRenderer->draw(sceneView, m_myVolumeData.m_gesture.graphics);
-  m_fbo->release();
-
-  std::unique_ptr<uint8_t> bytes(new uint8_t[vw * vh * 4]);
+  const std::size_t byteCount = static_cast<std::size_t>(vw) * vh * 4;
+  auto bytes = std::make_unique<uint8_t[]>(byteCount);
   m_fbo->toImage(bytes.get());
   QImage img = QImage(bytes.get(), vw, vh, QImage::Format_RGB32).copy().mirrored();
 
