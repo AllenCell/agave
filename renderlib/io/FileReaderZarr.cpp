@@ -17,6 +17,7 @@
 #include <map>
 #include <numeric>
 #include <set>
+#include <sstream>
 
 static bool
 isHTTP(const std::string& filepath)
@@ -38,6 +39,21 @@ static bool
 isCloud(const std::string& filepath)
 {
   return isHTTP(filepath) || isGS(filepath) || isS3(filepath);
+}
+
+static std::string
+shapeToString(const std::vector<int64_t>& shape)
+{
+  std::ostringstream ss;
+  ss << "[";
+  for (size_t i = 0; i < shape.size(); ++i) {
+    if (i > 0) {
+      ss << ", ";
+    }
+    ss << shape[i];
+  }
+  ss << "]";
+  return ss.str();
 }
 
 static nlohmann::json
@@ -382,8 +398,8 @@ FileReaderZarr::loadMultiscaleDims(const std::string& filepath, uint32_t scene)
 
             tensorstore::DataType dtype = store.dtype();
             auto shape_span = store.domain().shape();
-            LOG_INFO << "Level " << multiscaleDims.size() << " shape " << shape_span;
             std::vector<int64_t> shape(shape_span.begin(), shape_span.end());
+            LOG_INFO << "Level " << multiscaleDims.size() << " shape " << shapeToString(shape);
 
             // when the metadata has no "axes" (e.g. ome-zarr v0.1/v0.2), dimorder defaults
             // to TCZYX but the array may have fewer dimensions; assume the trailing axes

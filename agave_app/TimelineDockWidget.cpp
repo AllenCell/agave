@@ -82,16 +82,10 @@ QTimelineWidget::OnTimeChanged(int newTime)
     LoadSpec loadSpec = m_loadSpec;
     loadSpec.time = newTime;
 
-    if (!m_reader) {
-      m_reader = std::shared_ptr<IFileReader>(FileReader::getReader(loadSpec.filepath, loadSpec.isImageSequence));
-      if (!m_reader) {
-        LOG_ERROR << "Could not find a reader for file " << loadSpec.filepath;
-        return;
-      }
-    }
-
     QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
-    std::shared_ptr<ImageXYZC> image = m_reader->loadFromFile(loadSpec);
+    // Reuse the reader created at file-open time so we skip re-opening the file
+    // and re-parsing metadata on every time-step.
+    std::shared_ptr<ImageXYZC> image = FileReader::loadAndCache(loadSpec, m_reader);
     QApplication::restoreOverrideCursor();
     if (!image) {
       // TODO FIXME if we fail to set the new time, then reset the GUI to previous time
