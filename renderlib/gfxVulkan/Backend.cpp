@@ -6,10 +6,6 @@
 #include "RenderVk.h"
 #include "RenderVkPT.h"
 #include "RendererVkContext.h"
-#include "gfxapi/Framebuffer.h"
-#include "gfxapi/IGestureRenderer.h"
-#include "gfxapi/IGLContext.h"
-#include "gfxapi/IRenderWindow.h"
 
 #include <algorithm>
 #include <cstring>
@@ -181,10 +177,13 @@ Backend::createRendererContext(gfxApi::IGLContext* externalContext)
 std::unique_ptr<gfxApi::IRenderWindow>
 Backend::createRenderWindow(gfxApi::RenderWindowKind kind, RenderSettings* renderSettings)
 {
-  if (kind == gfxApi::RenderWindowKind::RaymarchBlended) {
-    return std::make_unique<RenderVk>(*this, renderSettings);
+  switch (kind) {
+    case gfxApi::RenderWindowKind::RaymarchBlended:
+      return std::make_unique<RenderVk>(*this, renderSettings);
+    case gfxApi::RenderWindowKind::PathTrace:
+    default:
+      return std::make_unique<RenderVkPT>(*this, renderSettings);
   }
-  return std::make_unique<RenderVkPT>(*this, renderSettings);
 }
 
 std::unique_ptr<gfxApi::Framebuffer>
@@ -208,6 +207,14 @@ Backend::createInstance()
   const std::vector<std::string> availableLayers = availableInstanceLayers();
 
   std::vector<const char*> enabledExtensions;
+  for (const auto& requested : m_params.vulkanInstanceExtensions) {
+    if (!containsName(availableExtensions, requested.c_str())) {
+      LOG_ERROR << "Required Vulkan instance extension is not available: " << requested;
+      return false;
+    }
+    enabledExtensions.push_back(requested.c_str());
+  }
+
   if (!m_params.headless) {
     appendIfAvailable(enabledExtensions, availableExtensions, VK_KHR_SURFACE_EXTENSION_NAME);
 #if defined(__APPLE__)
