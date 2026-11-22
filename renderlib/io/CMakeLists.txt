@@ -65,6 +65,19 @@ endif()
 target_link_libraries(renderlib
 libCZI
 
-tensorstore::tensorstore tensorstore::all_drivers
+tensorstore::tensorstore
+# FileReaderZarr uses DimExpression (Dims(...).HalfOpenInterval/Transpose),
+# whose implementation libraries are not propagated by the driver targets.
+tensorstore::index_space_dim_expression
+# FileReaderZarr uses JSON, Zarr v2/v3, and file/HTTP/GCS/S3 kvstores.
+# CacheManager uses Zarr v3 with the file kvstore. The Zarr targets include
+# their compression codecs and Zarr v3 sharding support transitively.
+tensorstore::driver_json
+tensorstore::driver_zarr
+tensorstore::driver_zarr3
+tensorstore::kvstore_file
+tensorstore::kvstore_http
+tensorstore::kvstore_gcs
+tensorstore::kvstore_s3
 )
 
