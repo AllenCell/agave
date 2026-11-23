@@ -16,6 +16,7 @@ import tempfile
 
 
 SHADERS = [
+    "fuse.comp",
     "basicVolume.vert",
     "basicVolume.frag",
     "copy.vert",

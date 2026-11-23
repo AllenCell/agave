@@ -36,6 +36,8 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/VulkanUtil.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/VulkanUtil.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/basicVolume.frag"
+	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/fuse.comp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/fuse_comp_spv.hpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/basicVolume.vert"
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/basicVolume_frag_spv.hpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/shadersrc/basicVolume_vert_spv.hpp"

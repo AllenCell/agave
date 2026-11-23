@@ -10,10 +10,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <vector>
 
 class Scene;
+class ImageXYZC;
 
 namespace gfxvulkan {
 
@@ -78,6 +80,10 @@ public:
 
   bool valid() const { return m_volumeTexture.valid(); }
   VkImageView volumeView() const { return m_volumeTexture.view(); }
+  VkImage volumeImage() const { return m_volumeTexture.image(); }
+  bool lastFuseUsedGpu() const { return m_lastFuseWasGpu; }
+  uint64_t fuseRawUploadCount() const { return m_fuseRawUploads; }
+  void setFuseChunkVoxelLimitForTesting(size_t limit) { m_fuseChunkVoxelLimit = limit; }
   VkSampler volumeSampler() const { return m_volumeTexture.sampler(); }
   VkImageView transferView() const { return m_transferTexture.view(); }
   VkSampler transferSampler() const { return m_transferTexture.sampler(); }
@@ -106,12 +112,9 @@ public:
 private:
   // Upload voxels produced directly into the staging buffer by `fill`.
   //
-  // Inverting the control flow this way lets both upload modes write their
-  // voxels exactly once: uploadRaw's channel interleave and uploadFused's fuse
-  // both target the mapped staging memory, instead of filling a std::vector that
-  // is then memcpy'd into staging. It also lets the image, its view, its sampler
-  // and the staging buffer persist across uploads, which matters because a time
-  // series re-uploads the same shape every frame.
+  // Raw path-trace uploads and the CPU fallback write directly into mapped
+  // staging. GPU fusion uses the same staging buffer for channel-major u16
+  // input, then writes the RGBA volume in a compute pass.
   bool uploadVolumeFrom(const std::function<void(void* mapped)>& fill,
                         size_t byteCount,
                         VkFormat format,
@@ -131,6 +134,9 @@ private:
   bool updateTransferBytes(const void* data, size_t byteCount);
   std::optional<resources::UniqueSampler> createSampler(bool linearFiltering, VkSamplerAddressMode addressMode);
   bool uploadFused(const Scene& scene, bool linearFiltering);
+  bool uploadFusedCpu(const Scene& scene, bool linearFiltering);
+  bool ensureFusePipeline();
+  bool ensureFuseDescriptorSets(size_t count);
   bool uploadRaw(const Scene& scene, bool linearFiltering);
   std::array<uint32_t, 4> activeChannels(const Scene& scene) const;
   // Compute m_cellBounds for `slots` channels of the image.
@@ -150,6 +156,11 @@ private:
   glm::vec4 m_lutMax = glm::vec4(1.0f);
   size_t m_gpuBytes = 0;
   bool m_linearFiltering = false;
+  bool m_fuseUseStorage = true;
+  bool m_volumeStorage = false;
+  bool m_lastFuseWasGpu = false;
+  uint64_t m_fuseRawUploads = 0;
+  size_t m_fuseChunkVoxelLimit = SIZE_MAX;
 
   resources::SampledImage m_volumeTexture;
   resources::SampledImage m_transferTexture;
@@ -168,6 +179,25 @@ private:
   std::optional<resources::Buffer> m_staging;
   size_t m_stagingCapacity = 0;
   void* m_stagingMapped = nullptr;
+
+  // Persistent resources for the raymarch compute fusion pass.
+  std::optional<resources::Buffer> m_fuseRaw;
+  std::optional<resources::Buffer> m_fuseParams;
+  void* m_fuseParamsMapped = nullptr;
+  bool m_fuseLimitsCached = false;
+  bool m_fuseStorageSupported = false;
+  size_t m_fuseMaxGroups = 0;
+  size_t m_fuseAlignment = 0;
+  size_t m_fuseDescriptorLimit = 0;
+  size_t m_fuseRawCapacity = 0;
+  size_t m_fuseChunkStride = 0;
+  size_t m_fuseChunkCount = 0;
+  std::weak_ptr<ImageXYZC> m_fuseImage;
+  resources::UniqueDescriptorSetLayout m_fuseSetLayout;
+  resources::UniqueDescriptorPool m_fusePool;
+  resources::UniquePipelineLayout m_fusePipelineLayout;
+  resources::UniquePipeline m_fusePipeline;
+  std::vector<VkDescriptorSet> m_fuseSets;
 };
 
 } // namespace gfxvulkan
