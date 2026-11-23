@@ -472,19 +472,15 @@ VolumeTextureVk::uploadFused(const Scene& scene, bool linearFiltering)
     if (scene.m_material.m_enabled[i]) {
       colors.push_back(glm::vec3(scene.m_material.m_diffuse[i * 3],
                                  scene.m_material.m_diffuse[i * 3 + 1],
-                                 scene.m_material.m_diffuse[i * 3 + 2]) *
-                       scene.m_material.m_opacity[i]);
+                                 scene.m_material.m_diffuse[i * 3 + 2]));
     } else {
       colors.push_back(glm::vec3(0.0f));
     }
   }
 
-  // Fuse still writes tightly packed rgb, so the rgb->rgba expansion remains a
-  // separate pass, but it now writes into staging rather than into a second
-  // vector that would then be copied again.
-  std::vector<uint8_t> rgb(voxelCount * 3);
-  uint8_t* rgbPtr = rgb.data();
-  Fuse::fuse(img, colors, scene.m_material, &rgbPtr, nullptr);
+  std::vector<uint8_t> rgba(voxelCount * 4);
+  uint8_t* rgbaPtr = rgba.data();
+  Fuse::fuse(img, colors, scene.m_material, &rgbaPtr, nullptr);
 
   std::array<uint8_t, kTransferSize * kTransferLayers * 4> transfer = {};
   for (uint32_t layer = 0; layer < kTransferLayers; ++layer) {
@@ -497,16 +493,8 @@ VolumeTextureVk::uploadFused(const Scene& scene, bool linearFiltering)
     }
   }
 
-  auto fill = [voxelCount, &rgb](void* mapped) {
-    uint8_t* rgba = static_cast<uint8_t*>(mapped);
-    parallel_for(voxelCount, [&rgb, rgba](size_t s, size_t e) {
-      for (size_t i = s; i < e; ++i) {
-        rgba[i * 4 + 0] = rgb[i * 3 + 0];
-        rgba[i * 4 + 1] = rgb[i * 3 + 1];
-        rgba[i * 4 + 2] = rgb[i * 3 + 2];
-        rgba[i * 4 + 3] = 255;
-      }
-    });
+  auto fill = [&rgba](void* mapped) {
+    std::memcpy(mapped, rgba.data(), rgba.size());
   };
 
   m_cellBounds = VolumeCellBounds();
