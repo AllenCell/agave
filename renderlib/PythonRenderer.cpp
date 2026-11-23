@@ -27,6 +27,8 @@ namespace {
 
 std::mutex s_runtimeMutex;
 int s_runtimeUsers = 0;
+std::string s_runtimeAssetPath;
+int s_runtimeGpu = gfxApi::kAutoSelectGpu;
 
 template<typename T>
 T
@@ -103,8 +105,13 @@ PythonRenderer::initialize(const std::string& mode, const std::string& assetPath
     params.enableDebug = true;
 #endif
     if (!renderlib::initialize(params)) {
+      renderlib::cleanup();
       throw std::runtime_error("Unable to initialize the headless Vulkan backend");
     }
+    s_runtimeAssetPath = assetPath;
+    s_runtimeGpu = selectedGpu;
+  } else if (assetPath != s_runtimeAssetPath || selectedGpu != s_runtimeGpu) {
+    throw PythonRendererValueError("All Python renderers must use the same asset path and Vulkan GPU");
   }
   ++s_runtimeUsers;
   m_ownsRuntime = true;
@@ -147,6 +154,8 @@ PythonRenderer::initialize(const std::string& mode, const std::string& assetPath
     m_renderSettings.reset();
     if (--s_runtimeUsers == 0) {
       renderlib::cleanup();
+      s_runtimeAssetPath.clear();
+      s_runtimeGpu = gfxApi::kAutoSelectGpu;
     }
     m_ownsRuntime = false;
     throw;
@@ -175,6 +184,8 @@ PythonRenderer::close()
   std::lock_guard<std::mutex> lock(s_runtimeMutex);
   if (m_ownsRuntime && --s_runtimeUsers == 0) {
     renderlib::cleanup();
+    s_runtimeAssetPath.clear();
+    s_runtimeGpu = gfxApi::kAutoSelectGpu;
   }
   m_ownsRuntime = false;
 }

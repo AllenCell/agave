@@ -69,7 +69,40 @@ def test_public_api_matches_pyclient():
     pyclient_methods = public_methods(client)
     native_methods = public_methods(native)
     assert pyclient_methods.issubset(native_methods)
-    assert native_methods - pyclient_methods == {"load_array"}
+    assert native_methods - pyclient_methods == {"load_array", "render_frame"}
+
+
+def test_multiple_renderers_have_independent_frames_and_gpu_selection(monkeypatch):
+    import numpy as np
+
+    module = load_api(monkeypatch)
+    first = module.AgaveRenderer(mode="raymarch", gpu=2)
+    second = module.AgaveRenderer(mode="pathtrace", gpu=2)
+    assert first._renderer is not second._renderer
+    assert first._renderer.constructor_args[::2] == ("raymarch", 2)
+    assert second._renderer.constructor_args[::2] == ("pathtrace", 2)
+    frame = first.render_frame()
+    assert frame.shape == (1, 1, 4)
+    assert frame.dtype == np.uint8
+    assert not frame.flags.writeable
+    first.close()
+    assert not second._renderer.closed
+    assert second.render_frame().shape == (1, 1, 4)
+
+
+def test_canvas_loads_its_own_volume_and_resolution(monkeypatch):
+    import numpy as np
+
+    module = load_api(monkeypatch)
+    volume_a = np.zeros((2, 3, 4), dtype=np.uint16)
+    volume_b = np.ones((2, 3, 4), dtype=np.uint16)
+    first = module.AgaveCanvas(volume_a, mode="raymarch", width=320, height=240)
+    second = module.AgaveCanvas(volume_b, mode="pathtrace", width=640, height=480)
+    assert first._renderer is not second._renderer
+    assert first._renderer.calls[0][1][0] is volume_a
+    assert second._renderer.calls[0][1][0] is volume_b
+    assert first._renderer.calls[1] == (16, (320, 240))
+    assert second._renderer.calls[1] == (16, (640, 480))
 
 
 def test_commands_are_forwarded_directly(monkeypatch):

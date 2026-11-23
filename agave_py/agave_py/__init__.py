@@ -63,7 +63,7 @@ def _check_native_abi() -> None:
 
 _check_native_abi()
 
-from .agave import AgaveRenderer
+from .agave import AgaveCanvas, AgaveRenderer
 
 __author__ = "Daniel Toloudis, Allen Institute"
 __email__ = "danielt@alleninstitute.org"
@@ -74,4 +74,4 @@ def get_module_version() -> str:
     return __version__
 
 
-__all__ = ["AgaveRenderer", "get_module_version"]
+__all__ = ["AgaveCanvas", "AgaveRenderer", "get_module_version"]
