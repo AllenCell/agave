@@ -27,7 +27,7 @@ agave_py = ["*.pyd", "*.dll", "*.so", "*.so.*", "*.dylib", "share/vulkan/icd.d/*
 
 [tool.cibuildwheel]
 build = "cp3{11,12,13,14,15}-*"
-skip =  "cp38-* cp39-* cp310-* cp314t-win* cp315t-* *_i686 *-win32 *-musllinux*"
+skip =  "cp39-* cp310-* cp314t-win* cp315t-* *_i686 *-win32 *-musllinux*"
 archs = ["auto64"]
 
 [tool.cibuildwheel.linux]
