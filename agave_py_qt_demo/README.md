@@ -27,7 +27,9 @@ python zarr_grid.py --count 16
 ```
 
 Volumes load in background threads at the multiresolution level one finer than
-the coarsest. Each canvas is created on the GUI thread once its data arrives.
+the coarsest. Set `USE_BIOIO = True` near the top of `zarr_grid.py` to read
+through `bioio` + `bioio-ome-zarr` instead of `zarr` directly; the status bar
+and stdout report which loader was used and the total load time. Each canvas is created on the GUI thread once its data arrives.
 The **Level** selector lists every level of the first volume (with its XYZ
 size) and reloads all tiles at that level; the new data goes into the existing
 canvases with `load_array()`, so the shared Vulkan device stays up (the camera

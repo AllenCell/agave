@@ -58,6 +58,9 @@ MODES = [
     ("Triple slice", "triple"),
 ]
 SLICE_MODES = ("slice_z", "slice_y", "slice_x", "triple")
+# Volume loader: True reads through bioio + bioio-ome-zarr, False through zarr
+# directly. Flip to compare load times (status bar, stdout, and tile captions).
+USE_BIOIO = False
 
 
 @dataclass
@@ -94,6 +97,55 @@ def resolve_level(level: int, count: int) -> int:
 
 
 def load_volume(url: str, level: int, time_index: int) -> LoadedVolume:
+    if USE_BIOIO:
+        return load_volume_bioio(url, level, time_index)
+    return load_volume_zarr(url, level, time_index)
+
+
+def load_volume_bioio(url: str, level: int, time_index: int) -> LoadedVolume:
+    # Imported lazily so the zarr path works without bioio installed.
+    import bioio_ome_zarr
+    from bioio import BioImage
+
+    start = time.perf_counter()
+    image = BioImage(url, reader=bioio_ome_zarr.Reader)
+    level_dims = image.resolution_level_dims
+    levels = sorted(level_dims)
+    level_index = resolve_level(level, len(levels))
+    image.set_resolution_level(levels[level_index])
+    # bioio always reports TCZYX shapes.
+    level_shapes = [tuple(level_dims[lvl][-3:]) for lvl in levels]
+
+    t = min(time_index, image.dims.T - 1)
+    data = numpy.asarray(image.get_image_data("CZYX", T=t))
+
+    sizes = image.physical_pixel_sizes
+    voxel_size = tuple(float(s) if s else 1.0 for s in (sizes.X, sizes.Y, sizes.Z))
+    unit = image.dimension_properties.X.unit
+
+    names = list(image.channel_names or [])
+    if len(names) != data.shape[0]:
+        names = [f"Ch{i}" for i in range(data.shape[0])]
+
+    if data.dtype not in (numpy.uint8, numpy.uint16, numpy.float32):
+        data = data.astype(numpy.float32)
+
+    return LoadedVolume(
+        url=url,
+        label=source_label(url),
+        data=numpy.ascontiguousarray(data),
+        voxel_size=voxel_size,
+        spatial_units=str(unit) if unit else "units",
+        channel_names=names,
+        level_path=str(levels[level_index]),
+        level_count=len(levels),
+        level_index=level_index,
+        level_shapes=level_shapes,
+        load_seconds=time.perf_counter() - start,
+    )
+
+
+def load_volume_zarr(url: str, level: int, time_index: int) -> LoadedVolume:
     start = time.perf_counter()
     group = zarr.open_group(url, mode="r")
     multiscale = group.attrs["multiscales"][0]
@@ -310,6 +362,7 @@ class GridWindow(QMainWindow):
         self.levels_populated = False
         self.level = args.level
         self.load_started = time.perf_counter()
+        self.load_seconds = 0.0
         self.mode = args.mode
 
         self.renderer = QComboBox()
@@ -486,6 +539,12 @@ class GridWindow(QMainWindow):
         if generation != self.generation:
             return
         self.pending -= 1
+        if self.pending == 0:
+            self.load_seconds = time.perf_counter() - self.load_started
+            print(
+                f"Loaded {len(self.tiles)} volumes via "
+                f"{'bioio' if USE_BIOIO else 'zarr'} in {self.load_seconds:.2f}s"
+            )
         tile = self.tiles[index]
         if isinstance(result, LoadFailure):
             print(f"[{index}] {result.label}: {result.error}", file=sys.stderr)
@@ -650,7 +709,8 @@ class GridWindow(QMainWindow):
         if self.pending:
             text += f" — loading {self.pending}…"
         else:
-            text += f" — loaded in {time.perf_counter() - self.load_started:.1f}s"
+            loader = "bioio" if USE_BIOIO else "zarr"
+            text += f" — loaded via {loader} in {self.load_seconds:.1f}s"
         if self.mode == "pathtrace" and live:
             done = min(tile.iterations for tile in live)
             text += f" — iteration {done}/{self.args.pathtrace_iterations}"
@@ -761,6 +821,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if USE_BIOIO:
+        # bioio pulls in dask and xarray (~1.3 s). Import once up front so the
+        # cost isn't counted as load time and loader threads don't serialize
+        # on Python's import lock.
+        import bioio  # noqa: F401
+        import bioio_ome_zarr  # noqa: F401
     app = QApplication(sys.argv[:1])
     window = GridWindow(args)
     window.show()
