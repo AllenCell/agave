@@ -16,6 +16,9 @@ from PIL import Image
 from . import _native
 from .commandbuffer import COMMANDS
 
+# Render modes supported by desktop AGAVE, in its renderer-id order.
+RENDER_MODES = ("pathtrace", "raymarch", "slice_z", "slice_y", "slice_x", "triple")
+
 
 def lerp(startframe, endframe, startval, endval):
     x = numpy.linspace(
@@ -87,7 +90,7 @@ class AgaveRenderer:
         gpu: int = -1,
     ) -> None:
         del url, agave_path, auto_launch, launch_retries, launch_retry_delay
-        if mode not in ("pathtrace", "raymarch"):
+        if mode not in RENDER_MODES:
             mode = "pathtrace"
         asset_path = Path(_native.__file__).resolve().parent / "assets"
         self._renderer = _native.PythonRenderer(mode, str(asset_path), gpu)
@@ -172,6 +175,28 @@ class AgaveRenderer:
         """
         width, height, pixels = self._execute("REDRAW")
         return numpy.frombuffer(pixels, dtype=numpy.uint8).reshape(height, width, 4)
+
+    def set_render_mode(self, mode: str):
+        """Switch render mode without reloading the volume.
+
+        ``mode`` is one of ``RENDER_MODES``: "pathtrace", "raymarch",
+        "slice_z", "slice_y", "slice_x", or "triple" (all three planes). The
+        scene, camera, and channel settings are kept; path tracing restarts its
+        accumulation from the first iteration. Raises ValueError for other modes.
+        """
+        if self._renderer is None:
+            raise RuntimeError("Renderer is closed")
+        self._renderer.set_render_mode(mode)
+
+    def set_slice_indices(self, x: int, y: int, z: int):
+        """Set the voxel index of the X, Y, and Z slice planes.
+
+        Used by the slice modes; indices are clamped to the volume. Loading a
+        volume centers all three planes.
+        """
+        if self._renderer is None:
+            raise RuntimeError("Renderer is closed")
+        self._renderer.set_slice_indices(x, y, z)
 
     def set_resolution(self, x: int, y: int):
         return self._execute("SET_RESOLUTION", x, y)

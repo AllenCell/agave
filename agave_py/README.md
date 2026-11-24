@@ -38,8 +38,15 @@ range. A new call replaces the current volume and represents one time point.
 
 For a Python GUI, create one `AgaveCanvas` per displayed volume. Each canvas
 has its own scene, camera, renderer, and framebuffer; the Vulkan device is
-initialized once and shared until the last canvas closes. All canvases in a
-process must select the same GPU. `render_frame()` returns a read-only BGRA
+initialized once and shared until the last canvas closes. Canvases that omit
+`gpu` reuse whichever device is already in use; an explicit `gpu` must name that
+same device, otherwise the constructor raises `ValueError`. Canvases support
+every desktop AGAVE render mode: `"raymarch"`, `"pathtrace"`, `"slice_z"`,
+`"slice_y"`, `"slice_x"`, and `"triple"` (all three planes). Pass one as `mode`,
+or call `set_render_mode(...)` to swap a canvas's renderer while keeping its
+volume, camera, and channel settings. In slice modes, `set_slice_indices(x, y, z)`
+moves the planes (voxel indices, clamped; loading a volume centers them), and
+the slice fills the canvas as a fitted 2D view, ignoring the 3D camera. `render_frame()` returns a read-only BGRA
 NumPy view of the frame bytes for passing to a GUI image widget.
 
 ```python

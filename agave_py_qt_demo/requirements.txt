@@ -1,0 +1,5 @@
+PyQt6
+zarr>=3
+fsspec
+aiohttp
+numpy

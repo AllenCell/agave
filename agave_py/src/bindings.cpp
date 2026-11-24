@@ -74,13 +74,7 @@ convertResult(PythonRendererResult result)
 nb::object
 execute(PythonRenderer& renderer, int commandId, const nb::args& args)
 {
-  try {
-    return convertResult(renderer.execute(commandId, convertArguments(commandId, args)));
-  } catch (const PythonRendererArgumentError& error) {
-    throw nb::type_error(error.what());
-  } catch (const PythonRendererValueError& error) {
-    throw nb::value_error(error.what());
-  }
+  return convertResult(renderer.execute(commandId, convertArguments(commandId, args)));
 }
 
 size_t
@@ -182,6 +176,18 @@ NB_MODULE(_native, m)
 {
   m.doc() = "Headless Vulkan bindings for AGAVE renderlib";
 
+  // Applies to every binding, including the constructor (e.g. a GPU that does
+  // not match the shared Vulkan device raises ValueError).
+  nb::register_exception_translator([](const std::exception_ptr& p, void*) {
+    try {
+      std::rethrow_exception(p);
+    } catch (const PythonRendererArgumentError& error) {
+      PyErr_SetString(PyExc_TypeError, error.what());
+    } catch (const PythonRendererValueError& error) {
+      PyErr_SetString(PyExc_ValueError, error.what());
+    }
+  });
+
   nb::class_<PythonRenderer>(m, "PythonRenderer")
     .def(nb::init<const std::string&, const std::string&, int>(),
          nb::arg("mode") = "pathtrace",
@@ -195,5 +201,7 @@ NB_MODULE(_native, m)
          nb::arg("voxel_size") = std::vector<float>{ 1.0f, 1.0f, 1.0f },
          nb::arg("spatial_units") = "units",
          nb::arg("channel_names") = std::vector<std::string>{})
+    .def("set_render_mode", &PythonRenderer::setRenderMode, nb::arg("mode"))
+    .def("set_slice_indices", &PythonRenderer::setSliceIndices, nb::arg("x"), nb::arg("y"), nb::arg("z"))
     .def("close", &PythonRenderer::close);
 }
