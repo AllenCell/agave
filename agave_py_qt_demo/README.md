@@ -30,12 +30,25 @@ Volumes load in background threads at the multiresolution level one finer than
 the coarsest. Set `USE_BIOIO = True` near the top of `zarr_grid.py` to read
 through `bioio` + `bioio-ome-zarr` instead of `zarr` directly; the status bar
 and stdout report which loader was used and the total load time. Each canvas is created on the GUI thread once its data arrives.
+
+The controls are on two rows. The first row selects what is loaded:
+**Renderer**, **Level** and **Time**. The second row adjusts how it is shown.
+
 The **Level** selector lists every level of the first volume (with its XYZ
-size) and reloads all tiles at that level; the new data goes into the existing
-canvases with `load_array()`, so the shared Vulkan device stays up (the camera
-resets, slice positions are kept proportionally). Drag a tile to orbit
+size) and reloads all tiles at that level. The **Time** slider reloads all
+tiles at the chosen time point when the slider is released; arrow keys step one
+time point. Both swap the new data into the existing canvases with
+`load_array()`, so the shared Vulkan device stays up. A newer request cancels
+any loads still queued, and slice positions are kept proportionally.
+
+The camera is owned by Python. [camera.py](camera.py) keeps each tile's view
+direction and up vector and turns them into eye/target/up, framing the volume
+from its physical size the same way renderlib's front view does. The demo sends
+these with `eye()`, `target()` and `up()` after every drag and after every
+reload, so the view is kept across level and time changes. Drag a tile to orbit
 it. With **Sync views** checked, all tiles orbit together. **Reset view**
-reframes all tiles, and the **Density** slider controls volume density.
+returns all tiles to the front view, and the **Density** slider controls volume
+density.
 **Min %** / **Max %** set the intensity percentile window of every visible
 channel using the existing `set_percentile_threshold()` API.
 

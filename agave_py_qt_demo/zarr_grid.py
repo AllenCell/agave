@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+import camera
 import triple_slice
 from sources import ZARR_SOURCES
 
@@ -60,7 +61,7 @@ MODES = [
 SLICE_MODES = ("slice_z", "slice_y", "slice_x", "triple")
 # Volume loader: True reads through bioio + bioio-ome-zarr, False through zarr
 # directly. Flip to compare load times (status bar, stdout, and tile captions).
-USE_BIOIO = False
+USE_BIOIO = True
 
 
 @dataclass
@@ -75,6 +76,8 @@ class LoadedVolume:
     level_count: int
     level_index: int
     level_shapes: list[tuple]  # ZYX shape of every level, full resolution first
+    time_index: int
+    time_count: int
     load_seconds: float
 
 
@@ -116,7 +119,7 @@ def load_volume_bioio(url: str, level: int, time_index: int) -> LoadedVolume:
     # bioio always reports TCZYX shapes.
     level_shapes = [tuple(level_dims[lvl][-3:]) for lvl in levels]
 
-    t = min(time_index, image.dims.T - 1)
+    t = max(0, min(time_index, image.dims.T - 1))
     data = numpy.asarray(image.get_image_data("CZYX", T=t))
 
     sizes = image.physical_pixel_sizes
@@ -141,6 +144,8 @@ def load_volume_bioio(url: str, level: int, time_index: int) -> LoadedVolume:
         level_count=len(levels),
         level_index=level_index,
         level_shapes=level_shapes,
+        time_index=t,
+        time_count=image.dims.T,
         load_seconds=time.perf_counter() - start,
     )
 
@@ -164,10 +169,9 @@ def load_volume_zarr(url: str, level: int, time_index: int) -> LoadedVolume:
         )
 
     array = group[dataset["path"]]
-    selection = tuple(
-        min(time_index, array.shape[i] - 1) if name == "t" else slice(None)
-        for i, name in enumerate(axes)
-    )
+    time_count = array.shape[axes.index("t")] if "t" in axes else 1
+    t = max(0, min(time_index, time_count - 1))
+    selection = tuple(t if name == "t" else slice(None) for name in axes)
     data = numpy.asarray(array[selection])
     kept = [name for name in axes if name != "t"]
     if "c" not in kept:
@@ -204,6 +208,8 @@ def load_volume_zarr(url: str, level: int, time_index: int) -> LoadedVolume:
         level_count=len(datasets),
         level_index=level_index,
         level_shapes=level_shapes,
+        time_index=t,
+        time_count=time_count,
         load_seconds=time.perf_counter() - start,
     )
 
@@ -225,6 +231,8 @@ class Tile(QWidget):
         self.canvas: AgaveCanvas | None = None
         self.shape_zyx = (1, 1, 1)
         self.voxel_size = (1.0, 1.0, 1.0)
+        # The demo owns the camera; the canvas only receives eye/target/up.
+        self.orientation = camera.FRONT
         self.slice_xyz = (0, 0, 0)
         self.visible_channels: list[int] = []
         # In triple-slice mode a drag moves the slice planes instead of orbiting.
@@ -258,6 +266,15 @@ class Tile(QWidget):
         self.shape_zyx = shape_zyx
         self.voxel_size = voxel_size
         self.caption.setText(caption)
+        # Loading resets the native camera, so always resend ours.
+        self.apply_camera()
+
+    def apply_camera(self) -> None:
+        physical = tuple(n * s for n, s in zip(self.dims_xyz, self.voxel_size))
+        eye, target, up = camera.pose(physical, self.orientation)
+        self.canvas.eye(*eye)
+        self.canvas.target(*target)
+        self.canvas.up(*up)
         self.invalidate()
 
     @property
@@ -361,6 +378,8 @@ class GridWindow(QMainWindow):
         self.generation = 0
         self.levels_populated = False
         self.level = args.level
+        self.time_index = max(0, args.time)
+        self.futures = []
         self.load_started = time.perf_counter()
         self.load_seconds = 0.0
         self.mode = args.mode
@@ -400,13 +419,29 @@ class GridWindow(QMainWindow):
         self.slice.setValue(max(0, min(100, args.slice)))
         self.slice.setFixedWidth(120)
         self.slice.valueChanged.connect(self.apply_slice)
+        # Time point; the range is filled in from the first volume's metadata.
+        # Tracking is off so dragging reloads once on release, not per tick.
+        self.time_slider = QSlider(Qt.Orientation.Horizontal)
+        self.time_slider.setRange(0, self.time_index)
+        self.time_slider.setValue(self.time_index)
+        self.time_slider.setTracking(False)
+        self.time_slider.setMinimumWidth(240)
+        self.time_label = QLabel()
+        self.time_slider.sliderMoved.connect(self.show_time)
+        self.time_slider.valueChanged.connect(self.set_time)
+        self.show_time(self.time_index)
         self.status = QLabel()
 
+        top = QHBoxLayout()
+        top.addWidget(QLabel("Renderer"))
+        top.addWidget(self.renderer)
+        top.addWidget(QLabel("Level"))
+        top.addWidget(self.level_box)
+        top.addWidget(QLabel("Time"))
+        top.addWidget(self.time_slider, 1)
+        top.addWidget(self.time_label)
+
         toolbar = QHBoxLayout()
-        toolbar.addWidget(QLabel("Renderer"))
-        toolbar.addWidget(self.renderer)
-        toolbar.addWidget(QLabel("Level"))
-        toolbar.addWidget(self.level_box)
         toolbar.addWidget(self.sync)
         toolbar.addWidget(reset)
         toolbar.addWidget(QLabel("Density"))
@@ -437,6 +472,7 @@ class GridWindow(QMainWindow):
 
         central = QWidget()
         layout = QVBoxLayout(central)
+        layout.addLayout(top)
         layout.addLayout(toolbar)
         layout.addWidget(self.status)
         layout.addWidget(scroll)
@@ -444,7 +480,7 @@ class GridWindow(QMainWindow):
         self.resize(
             min(1800, max(1100, columns * (args.tile_size + 8) + 40)),
             min(
-                1100, math.ceil(len(self.urls) / columns) * (args.tile_size + 26) + 100
+                1100, math.ceil(len(self.urls) / columns) * (args.tile_size + 26) + 130
             ),
         )
 
@@ -474,10 +510,17 @@ class GridWindow(QMainWindow):
 
     def start_loading(self) -> None:
         self.generation += 1
+        # Drop downloads that haven't started; their results would be stale.
+        for future in self.futures:
+            future.cancel()
         self.pending = len(self.urls)
         self.load_started = time.perf_counter()
-        for index, url in enumerate(self.urls):
-            self.executor.submit(self._load, self.generation, index, url, self.level)
+        self.futures = [
+            self.executor.submit(
+                self._load, self.generation, index, url, self.level, self.time_index
+            )
+            for index, url in enumerate(self.urls)
+        ]
         self.update_status()
 
     def set_level(self, level: int) -> None:
@@ -486,6 +529,24 @@ class GridWindow(QMainWindow):
         self.level = level
         # Canvases stay alive; on_loaded swaps the new data into each one.
         self.start_loading()
+
+    def show_time(self, value: int) -> None:
+        self.time_label.setText(f"{value} / {self.time_slider.maximum()}")
+
+    def set_time(self, value: int) -> None:
+        self.show_time(value)
+        if value == self.time_index:
+            return
+        self.time_index = value
+        self.start_loading()
+
+    def populate_time(self, result: "LoadedVolume") -> None:
+        self.time_slider.blockSignals(True)
+        self.time_slider.setRange(0, max(0, result.time_count - 1))
+        self.time_slider.setValue(result.time_index)
+        self.time_slider.blockSignals(False)
+        self.time_index = result.time_index
+        self.show_time(result.time_index)
 
     def populate_levels(self, result: "LoadedVolume") -> None:
         # Items are relative to the coarsest level so they apply to every zarr.
@@ -526,10 +587,14 @@ class GridWindow(QMainWindow):
         self.update_title()
         self.schedule_render()
 
-    def _load(self, generation: int, index: int, url: str, level: int) -> None:
+    def _load(
+        self, generation: int, index: int, url: str, level: int, time_index: int
+    ) -> None:
         try:
-            result = load_volume(url, level, self.args.time)
-        except Exception as error:  # noqa: BLE001 - surface any loader failure in the tile
+            result = load_volume(url, level, time_index)
+        except (
+            Exception
+        ) as error:  # noqa: BLE001 - surface any loader failure in the tile
             result = LoadFailure(
                 url, source_label(url), f"{type(error).__name__}: {error}"
             )
@@ -552,6 +617,7 @@ class GridWindow(QMainWindow):
         else:
             if not self.levels_populated:
                 self.populate_levels(result)
+                self.populate_time(result)
             # Keep each slice at the same relative position across levels.
             old_dims = tile.dims_xyz
             fractions = [
@@ -568,6 +634,10 @@ class GridWindow(QMainWindow):
                     channel_names=result.channel_names,
                 )
             else:
+                # A late-arriving tile joins the synced view.
+                live = self.live_tiles()
+                if self.sync.isChecked() and live:
+                    tile.orientation = live[0].orientation
                 tile.canvas = AgaveCanvas(
                     result.data,
                     mode=self.mode,
@@ -587,6 +657,7 @@ class GridWindow(QMainWindow):
                 (z, y, x),
                 result.voxel_size,
                 f"{result.label}  L{result.level_path}/{result.level_count - 1}  "
+                f"t{result.time_index}  "
                 f"{c}x{z}x{y}x{x}  {result.load_seconds:.1f}s",
             )
             if reload:
@@ -658,14 +729,14 @@ class GridWindow(QMainWindow):
     def orbit(self, source: Tile, theta: float, phi: float) -> None:
         targets = self.live_tiles() if self.sync.isChecked() else [source]
         for tile in targets:
-            tile.canvas.orbit_camera(theta, phi)
-            tile.invalidate()
+            tile.orientation = camera.orbit(tile.orientation, theta, phi)
+            tile.apply_camera()
         self.schedule_render()
 
     def reset_views(self) -> None:
         for tile in self.live_tiles():
-            tile.canvas.frame_scene()
-            tile.invalidate()
+            tile.orientation = camera.FRONT
+            tile.apply_camera()
         self.schedule_render()
 
     def apply_density(self, value: int) -> None:
