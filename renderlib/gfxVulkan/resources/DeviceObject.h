@@ -6,6 +6,11 @@
 
 namespace gfxvulkan::resources {
 
+// Common code for handling standard Vulkan resource objects with automatic
+// resource management.
+// Each DeviceObject has a Vulkan handle (e.g. VkBuffer, VkImage) and a Deleter
+// (e.g. vkDestroyBuffer, vkDestroyImage)
+// Destruction happens in application defined phases via the ResourceRegistry.
 template<typename Handle, typename Deleter, DestructionPhase Phase>
 class DeviceObject
 {
@@ -44,6 +49,7 @@ public:
     return *this;
   }
 
+  // NO COPYING ALLOWED
   DeviceObject(const DeviceObject&) = delete;
   DeviceObject& operator=(const DeviceObject&) = delete;
 
@@ -62,19 +68,6 @@ public:
     m_token = 0;
     m_handle = VK_NULL_HANDLE;
     m_registry.reset();
-  }
-
-  // Stops registry ownership without destroying the Vulkan object. This is
-  // intentionally explicit and should be reserved for APIs that transfer
-  // ownership to another Vulkan owner.
-  Handle release()
-  {
-    if (m_token != 0 && m_registry) {
-      m_registry->forget(m_token);
-    }
-    m_token = 0;
-    m_registry.reset();
-    return std::exchange(m_handle, VK_NULL_HANDLE);
   }
 
 private:

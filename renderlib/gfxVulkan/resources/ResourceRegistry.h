@@ -11,10 +11,10 @@
 
 namespace gfxvulkan::resources {
 
-// Device teardown is a safety net, not the normal ownership path. Resources
-// ordinarily unregister themselves when their move-only wrapper is destroyed.
-// If a wrapper outlives Device, the registry drains its Vulkan object before
-// vkDestroyDevice and the later wrapper destructor becomes a no-op.
+// Categories to define the order of destruction of various resource types.
+// This is used by releaseAll to determine the order in which resources are destroyed.
+// It's designed to ensure that resources are destroyed in a safe order, respecting dependencies between them.
+// See DeviceObject.h for the mapping of resource types to destruction phases.
 enum class DestructionPhase : uint8_t
 {
   Synchronization = 0,
@@ -31,11 +31,14 @@ enum class DestructionPhase : uint8_t
   CommandPool,
 };
 
+// This class exists as a safety net for DeviceObjects that are not cleaned up properly by their owned classes.
+// If this registry actually destroys anything at Device cleanup time, it should issue warnings into the log.
 class ResourceRegistry
 {
 public:
+  // Token is a unique identifier for a tracked resource within the registry.
   using Token = uint64_t;
-  using Destroy = std::function<void(VkDevice)>;
+  using DestroyFunc = std::function<void(VkDevice)>;
 
   explicit ResourceRegistry(VkDevice device);
   ~ResourceRegistry();
@@ -43,12 +46,13 @@ public:
   ResourceRegistry(const ResourceRegistry&) = delete;
   ResourceRegistry& operator=(const ResourceRegistry&) = delete;
 
-  Token track(DestructionPhase phase, Destroy destroy);
+  // every DeviceObject is tracked by this registry.
+  // We return a unique id for this registration.
+  Token track(DestructionPhase phase, DestroyFunc destroy);
   void destroy(Token token);
-  void forget(Token token);
 
-  // Destroys every still-registered resource in dependency-safe phase order.
-  // After this call, wrappers backed by this registry report invalid handles.
+  // Destroys every still-registered resource, using the DestructionPhase order.
+  // After this call, DeviceObjects backed by this registry report invalid handles.
   void releaseAll();
 
   bool isAlive() const;
@@ -59,7 +63,7 @@ private:
   {
     Token token = 0;
     DestructionPhase phase = DestructionPhase::Allocation;
-    Destroy destroy;
+    DestroyFunc destroy;
   };
 
   mutable std::mutex m_mutex;

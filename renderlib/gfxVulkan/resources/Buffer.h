@@ -9,12 +9,6 @@ namespace gfxvulkan::resources {
 class Buffer
 {
 public:
-  struct Released
-  {
-    VkBuffer buffer = VK_NULL_HANDLE;
-    VkDeviceMemory memory = VK_NULL_HANDLE;
-  };
-
   Buffer() = default;
   Buffer(UniqueBuffer buffer, UniqueDeviceMemory memory, VkDeviceSize size)
     : m_memory(std::move(memory))
@@ -39,12 +33,6 @@ public:
     m_buffer.reset();
     m_memory.reset();
     m_size = 0;
-  }
-
-  Released release()
-  {
-    m_size = 0;
-    return { m_buffer.release(), m_memory.release() };
   }
 
 private:

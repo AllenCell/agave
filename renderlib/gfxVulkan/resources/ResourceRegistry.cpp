@@ -17,7 +17,7 @@ ResourceRegistry::~ResourceRegistry()
 }
 
 ResourceRegistry::Token
-ResourceRegistry::track(DestructionPhase phase, Destroy destroy)
+ResourceRegistry::track(DestructionPhase phase, DestroyFunc destroy)
 {
   if (!destroy) {
     return 0;
@@ -36,7 +36,7 @@ ResourceRegistry::track(DestructionPhase phase, Destroy destroy)
 void
 ResourceRegistry::destroy(Token token)
 {
-  Destroy destroy;
+  DestroyFunc destroy;
   VkDevice device = VK_NULL_HANDLE;
   {
     std::lock_guard<std::mutex> lock(m_mutex);
@@ -52,13 +52,6 @@ ResourceRegistry::destroy(Token token)
   if (device != VK_NULL_HANDLE && destroy) {
     destroy(device);
   }
-}
-
-void
-ResourceRegistry::forget(Token token)
-{
-  std::lock_guard<std::mutex> lock(m_mutex);
-  m_records.erase(token);
 }
 
 void

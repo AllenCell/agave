@@ -9,12 +9,6 @@ namespace gfxvulkan::resources {
 class Image
 {
 public:
-  struct Released
-  {
-    VkImage image = VK_NULL_HANDLE;
-    VkDeviceMemory memory = VK_NULL_HANDLE;
-  };
-
   Image() = default;
   Image(UniqueImage image, UniqueDeviceMemory memory)
     : m_memory(std::move(memory))
@@ -37,8 +31,6 @@ public:
     m_image.reset();
     m_memory.reset();
   }
-
-  Released release() { return { m_image.release(), m_memory.release() }; }
 
 private:
   UniqueDeviceMemory m_memory;
