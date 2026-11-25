@@ -7,7 +7,6 @@
 #include "gfxapi/Backend.h"
 
 #include <QGuiApplication>
-#include <QOpenGLDebugLogger>
 
 #include <string>
 
@@ -66,8 +65,15 @@ static std::unique_ptr<gfxApi::Backend>
 createGraphicsBackend(gfxApi::BackendKind kind, const gfxApi::InitParams& params)
 {
   switch (kind) {
-    case gfxApi::BackendKind::OpenGL:
-      return std::make_unique<gfxopengl::Backend>(params);
+    case gfxApi::BackendKind::OpenGL: {
+      auto backend = std::make_unique<gfxopengl::Backend>(params);
+      if (!backend->isValid()) {
+        LOG_ERROR << "createGraphicsBackend: OpenGL backend initialization failed";
+        return nullptr;
+      }
+      LOG_INFO << "createGraphicsBackend: OpenGL backend initialized successfully";
+      return backend;
+    }
     case gfxApi::BackendKind::Vulkan:
     case gfxApi::BackendKind::WebGPU:
     default:
@@ -80,11 +86,6 @@ createGraphicsBackend(gfxApi::BackendKind kind, const gfxApi::InitParams& params
 static EGLDisplay eglDpy = NULL;
 #endif
 
-static QOpenGLContext* dummyContext = nullptr;
-static QOffscreenSurface* dummySurface = nullptr;
-
-static QOpenGLDebugLogger* logger = nullptr;
-
 std::map<std::shared_ptr<ImageXYZC>, std::shared_ptr<ImageGpu>> renderlib::sGpuImageCache;
 
 static const struct
@@ -96,14 +97,6 @@ static const struct
 static const uint32_t AICS_DEFAULT_STENCIL_BUFFER_BITS = 8;
 
 static const uint32_t AICS_DEFAULT_DEPTH_BUFFER_BITS = 24;
-
-namespace {
-static void
-logMessage(const QOpenGLDebugMessage& message)
-{
-  LOG_DEBUG << message.message().toStdString();
-}
-}
 
 QSurfaceFormat
 renderlib::getQSurfaceFormat(bool enableDebug)
@@ -139,208 +132,47 @@ renderlib::createOpenGLContext()
   return context;
 }
 
-#if HAS_EGL
-
-void
-checkEGLError(std::string message)
-{
-  EGLint lastError = EGL_SUCCESS;
-  if ((lastError = eglGetError()) != EGL_SUCCESS) {
-    LOG_ERROR << "eglGetError " << lastError;
-    LOG_ERROR << message;
-  }
-}
-
-EGLDisplay
-getEGLDefaultDisplay()
-{
-  EGLint lastError = EGL_SUCCESS;
-  EGLDisplay eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-  LOG_INFO << "eglGetDisplay returns " << eglDpy;
-  checkEGLError("Failed eglGetDisplay");
-  return eglDisplay;
-}
-
-EGLDisplay
-initEGLDisplay(int selectedGpu)
-{
-  PFNEGLQUERYDEVICESEXTPROC eglQueryDevicesEXT = (PFNEGLQUERYDEVICESEXTPROC)eglGetProcAddress("eglQueryDevicesEXT");
-  checkEGLError("Failed to get EGLEXT: eglQueryDevicesEXT");
-  PFNEGLGETPLATFORMDISPLAYEXTPROC eglGetPlatformDisplayEXT =
-    (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
-  checkEGLError("Failed to get EGLEXT: eglGetPlatformDisplayEXT");
-  PFNEGLQUERYDEVICEATTRIBEXTPROC eglQueryDeviceAttribEXT =
-    (PFNEGLQUERYDEVICEATTRIBEXTPROC)eglGetProcAddress("eglQueryDeviceAttribEXT");
-  checkEGLError("Failed to get EGLEXT: eglQueryDeviceAttribEXT");
-  PFNEGLQUERYDEVICESTRINGEXTPROC eglQueryDeviceStringEXT =
-    (PFNEGLQUERYDEVICESTRINGEXTPROC)eglGetProcAddress("eglQueryDeviceStringEXT");
-  checkEGLError("Failed to get EGLEXT: eglQueryDeviceStringEXT");
-
-  if (!eglQueryDevicesEXT || !eglGetPlatformDisplayEXT || !eglQueryDeviceAttribEXT || !eglQueryDeviceStringEXT) {
-    return getEGLDefaultDisplay();
-  }
-
-  EGLint numberDevices;
-  // Get number of devices
-  EGLBoolean ok = eglQueryDevicesEXT(0, NULL, &numberDevices);
-  if (!ok) {
-    LOG_ERROR << "Failed to get number of devices. Bad parameter suspected";
-  }
-  checkEGLError("Error getting number of devices: eglQueryDevicesEXT");
-
-  LOG_INFO << numberDevices << " devices found";
-  if (numberDevices > 0) {
-    EGLDeviceEXT* eglDevs = new EGLDeviceEXT[numberDevices];
-    ok = eglQueryDevicesEXT(numberDevices, eglDevs, &numberDevices);
-    if (!ok) {
-      LOG_ERROR << "Failed to get devices. Bad parameter suspected";
-    }
-    checkEGLError("Error getting number of devices: eglQueryDevicesEXT");
-    for (int i = 0; i < numberDevices; ++i) {
-      LOG_INFO << "Device " << i << ":";
-#ifdef EGL_VENDOR
-      const char* vendorstring = eglQueryDeviceStringEXT(eglDevs[i], EGL_VENDOR);
-      checkEGLError("Error retrieving EGL_VENDOR string for device");
-      if (vendorstring) {
-        LOG_INFO << "  Vendor: " << vendorstring;
-      }
-#endif
-#ifdef EGL_RENDERER_EXT
-      const char* rendererstring = eglQueryDeviceStringEXT(eglDevs[i], EGL_RENDERER_EXT);
-      checkEGLError("Error retrieving EGL_RENDERER_EXT string for device");
-      if (rendererstring) {
-        LOG_INFO << "  Renderer: " << rendererstring;
-      }
-#endif
-#ifdef EGL_EXTENSIONS
-      const char* extensionsstring = eglQueryDeviceStringEXT(eglDevs[i], EGL_EXTENSIONS);
-      checkEGLError("Error retrieving EGL_EXTENSIONS string for device");
-      if (extensionsstring) {
-        LOG_INFO << "  Extensions: " << extensionsstring;
-      }
-#endif
-    }
-    if (selectedGpu >= numberDevices || selectedGpu < 0) {
-      LOG_WARNING << "Invalid GPU " << selectedGpu << " requested. Using default gpu.";
-      return getEGLDefaultDisplay();
-    }
-    // select device by index
-    EGLDisplay eglDisplay = eglGetPlatformDisplayEXT(EGL_PLATFORM_DEVICE_EXT, eglDevs[selectedGpu], 0);
-    checkEGLError("Error getting Platform Display: eglGetPlatformDisplayEXT");
-    return eglDisplay;
-  } else {
-    return getEGLDefaultDisplay();
-  }
-}
-#endif
-
 int
-renderlib::initialize(std::string assetPath, bool headless, bool listDevices, int selectedGpu)
+renderlib::initialize(const gfxApi::InitParams& initParams, bool listDevices)
 {
   if (renderLibInitialized) {
     return 1;
   }
+  gfxApi::InitParams params = initParams;
   renderLibInitialized = true;
-  s_assetPath = assetPath;
+  s_assetPath = params.assetPath;
 
-// no MACOS support for EGL
-#if HAS_EGL
-#else
-  headless = false;
-#endif
-  renderLibHeadless = headless;
+  if (params.headless && !gfxopengl::Backend::supportsHeadless()) {
+    params.headless = false;
+  }
 
   LOG_INFO << "Renderlib startup";
 
-  // TODO: backend selection. For now the only supported gfxapi backend is
-  // OpenGL; create it unconditionally so renderer code can begin migrating
-  // through the backend's device(). The GL context itself is still
-  // initialized below via Qt / EGL.
-  s_graphicsBackend = createGraphicsBackend(gfxApi::BackendKind::OpenGL, gfxApi::InitParams{ assetPath, headless, selectedGpu });
+  if (params.headless && listDevices) {
+    gfxopengl::Backend::listDevices(params.selectedGpu);
+    return 0;
+  }
 
-  bool enableDebug = false;
+  s_graphicsBackend = createGraphicsBackend(gfxApi::BackendKind::OpenGL, params);
+  if (!s_graphicsBackend) {
+    LOG_ERROR << "renderlib::initialize: failed to create the graphics backend";
+    return 0;
+  }
 
-  QSurfaceFormat format = getQSurfaceFormat();
-  QSurfaceFormat::setDefaultFormat(format);
-
-  HeadlessGLContext* dummyHeadlessContext = nullptr;
-
-  if (headless) {
+  // Transitional bridge for render workers that still use renderlib's legacy
+  // context wrappers. The next application-consumer layer removes this state.
+  renderLibHeadless = params.headless;
 #if HAS_EGL
-
-    // one-time EGL init
-
-    EGLint lastError = EGL_SUCCESS;
-
-    // 1. Initialize EGL
-    eglDpy = initEGLDisplay(selectedGpu);
-
-    if (listDevices) {
-      return 0;
-    }
-
-    EGLint major, minor;
-
-    EGLBoolean init_ok = eglInitialize(eglDpy, &major, &minor);
-    if (init_ok == EGL_FALSE) {
-      LOG_ERROR << "renderlib::initialize, eglInitialize failed";
-    }
-    if ((lastError = eglGetError()) != EGL_SUCCESS) {
-      LOG_ERROR << "eglGetError " << lastError;
-    }
-    // 2. Bind the API
-    EGLBoolean bindapi_ok = eglBindAPI(EGL_OPENGL_API);
-    if (bindapi_ok == EGL_FALSE) {
-      LOG_ERROR << "renderlib::initialize, eglBindAPI failed";
-    }
-    if ((lastError = eglGetError()) != EGL_SUCCESS) {
-      LOG_ERROR << "eglGetError " << lastError;
-    }
-    dummyHeadlessContext = new HeadlessGLContext();
-    dummyHeadlessContext->makeCurrent();
-#else
-    LOG_ERROR << "Headless operation without EGL support is not available";
+  eglDpy = static_cast<EGLDisplay>(static_cast<gfxopengl::Backend*>(s_graphicsBackend.get())->eglDisplay());
 #endif
-  } else {
-    dummyContext = renderlib::createOpenGLContext();
 
-    dummySurface = new QOffscreenSurface();
-    dummySurface->setFormat(dummyContext->format());
-    dummySurface->create();
-    LOG_INFO << "Created offscreen surface";
-    if (!dummySurface->isValid()) {
-      LOG_ERROR << "QOffscreenSurface is not valid";
-    }
+  return 1;
+}
 
-    bool ok = dummyContext->makeCurrent(dummySurface);
-    if (!ok) {
-      LOG_ERROR << "Failed to makeCurrent on offscreen surface";
-    } else {
-      LOG_INFO << "Made context current on offscreen surface";
-    }
-  }
-
-  if (enableDebug) {
-    logger = new QOpenGLDebugLogger();
-    QObject::connect(logger, &QOpenGLDebugLogger::messageLogged, logMessage);
-    if (logger->initialize()) {
-      logger->startLogging(QOpenGLDebugLogger::SynchronousLogging);
-      logger->enableMessages();
-    }
-  }
-
-  // note: there MUST be a valid current gl context in order to run this:
-  int status = gladLoadGL();
-  if (!status) {
-    LOG_ERROR << "Failed to init GL";
-    return status;
-  }
-
-  LOG_INFO << "GL_VENDOR: " << std::string((char*)glGetString(GL_VENDOR));
-  LOG_INFO << "GL_RENDERER: " << std::string((char*)glGetString(GL_RENDERER));
-
-  delete dummyHeadlessContext;
-  return status;
+bool
+renderlib::supportsHeadlessRendering()
+{
+  return gfxopengl::Backend::supportsHeadless();
 }
 
 std::string
@@ -375,20 +207,8 @@ renderlib::cleanup()
 
   clearGpuVolumeCache();
 
-  delete dummySurface;
-  dummySurface = nullptr;
-  delete dummyContext;
-  dummyContext = nullptr;
-  delete logger;
-  logger = nullptr;
-
-  if (renderLibHeadless) {
-#if HAS_EGL
-    eglTerminate(eglDpy);
-#endif
-  }
-
   s_graphicsBackend.reset();
+  LOG_INFO << "graphicsBackend teardown successful";
 
   renderLibInitialized = false;
 }
