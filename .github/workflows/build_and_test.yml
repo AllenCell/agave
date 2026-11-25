@@ -105,6 +105,11 @@ jobs:
         with:
           version: 6.9.3
           modules: qtwebsockets qtimageformats
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
+        with:
+          vulkan_version: 1.4.363.0
+          cache: true
       - name: macos install deps
         if: contains(matrix.os, 'macos')
         env:
@@ -126,7 +131,7 @@ jobs:
           export Qt6_DIR=${{ runner.workspace }}/Qt/6.9.3/macos
           mkdir ./build
           cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DAGAVE_REQUIRE_VULKAN_DEVICE=ON
           cmake --build . --target agave_test --config Release
           cmake --build . --config Release
           cpack -D CPACK_PACKAGE_FILE_NAME=${{ matrix.artifact }}
@@ -152,7 +157,7 @@ jobs:
         run: |
           mkdir ./build
           cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DAGAVE_REQUIRE_VULKAN_DEVICE=ON
           cmake --build . --target agave_test --config Release
           cmake --build . --target install --config Release
         shell: bash
@@ -191,7 +196,7 @@ jobs:
           mkdir build
           cd build
           call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          cmake -G "Ninja" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_BUILD_TYPE=Release ..
+          cmake -G "Ninja" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_BUILD_TYPE=Release -DAGAVE_REQUIRE_VULKAN_DEVICE=ON ..
           cmake --build . --parallel --target agave_test --config Release
           cmake --build . --parallel --config Release
           cpack -D CPACK_PACKAGE_FILE_NAME=${{ matrix.artifact }}

@@ -104,6 +104,22 @@ find_package(CURL REQUIRED)
 
 find_package(OpenGL)
 
+# Compile the Vulkan device as soon as its sources enter the PR stack. The
+# renderer is enabled separately once the backend is complete.
+option(AGAVE_COMPILE_VULKAN_DEVICE "Compile the available Vulkan device sources" ON)
+option(AGAVE_REQUIRE_VULKAN_DEVICE "Fail configuration when the Vulkan device cannot be compiled" OFF)
+set(AGAVE_VULKAN_DEVICE_AVAILABLE OFF)
+if(AGAVE_COMPILE_VULKAN_DEVICE)
+  find_package(Vulkan COMPONENTS shaderc_combined QUIET)
+  if(Vulkan_FOUND AND Vulkan_shaderc_combined_FOUND)
+    set(AGAVE_VULKAN_DEVICE_AVAILABLE ON)
+  elseif(AGAVE_REQUIRE_VULKAN_DEVICE)
+    message(FATAL_ERROR "Vulkan SDK with shaderc_combined is required to compile the Vulkan device")
+  else()
+    message(STATUS "Vulkan SDK with shaderc_combined not found; Vulkan device compilation disabled")
+  endif()
+endif()
+
 # normally CMAKE_INSTALL_PREFIX is meant to be outside of the build tree
 if("${CMAKE_BUILD_TYPE}" STREQUAL "")
   set(CMAKE_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/install)

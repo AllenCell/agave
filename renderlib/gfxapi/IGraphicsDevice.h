@@ -1,8 +1,5 @@
 #pragma once
 
-#include "Descriptors.h"
-#include "Handles.h"
-
 namespace gfxApi {
 
 // Identifies which backend implementation is in use. The renderlib bootstrap
@@ -26,14 +23,6 @@ public:
   virtual ~IGraphicsDevice() = default;
 
   virtual BackendKind backend() const = 0;
-
-  // Shader objects -------------------------------------------------------
-  virtual ShaderHandle createShader(const ShaderDesc& desc) = 0;
-  virtual void destroyShader(ShaderHandle handle) = 0;
-
-  // Shader programs ------------------------------------------------------
-  virtual ShaderProgramHandle createShaderProgram(const ShaderProgramDesc& desc) = 0;
-  virtual void destroyShaderProgram(ShaderProgramHandle handle) = 0;
 };
 
 } // namespace gfxApi
