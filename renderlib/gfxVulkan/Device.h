@@ -26,12 +26,6 @@ public:
 
   gfxApi::BackendKind backend() const override { return gfxApi::BackendKind::Vulkan; }
 
-  gfxApi::ShaderHandle createShader(const gfxApi::ShaderDesc& desc) override;
-  void destroyShader(gfxApi::ShaderHandle handle) override;
-
-  gfxApi::ShaderProgramHandle createShaderProgram(const gfxApi::ShaderProgramDesc& desc) override;
-  void destroyShaderProgram(gfxApi::ShaderProgramHandle handle) override;
-
   VkShaderModule shaderModule(gfxApi::ShaderHandle handle) const;
   gfxApi::ShaderStage shaderStage(gfxApi::ShaderHandle handle) const;
 
