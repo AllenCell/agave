@@ -468,8 +468,11 @@ GestureRendererGL::draw(SceneView& sceneView, SelectionBuffer* selection, Gestur
   check_gl("get point size");
   bool depthTest = glIsEnabled(GL_DEPTH_TEST);
   check_gl("is depth test enabled");
+  bool lineSmooth = glIsEnabled(GL_LINE_SMOOTH);
+  check_gl("is line smooth enabled");
 
   glEnable(GL_CULL_FACE);
+  glEnable(GL_LINE_SMOOTH);
 
   // Draw UI and viewport manipulators
   {
@@ -517,6 +520,12 @@ GestureRendererGL::draw(SceneView& sceneView, SelectionBuffer* selection, Gestur
     glDisable(GL_DEPTH_TEST);
   }
   check_gl("toggle depth test");
+  if (lineSmooth) {
+    glEnable(GL_LINE_SMOOTH);
+  } else {
+    glDisable(GL_LINE_SMOOTH);
+  }
+  check_gl("toggle line smoothing");
 
   graphics.clearCommands();
 }
@@ -575,8 +584,11 @@ GestureRendererGL::drawUnderlay(SceneView& sceneView, SelectionBuffer* selection
   check_gl("get point size");
   bool depthTest = glIsEnabled(GL_DEPTH_TEST);
   check_gl("is depth test enabled");
+  bool lineSmooth = glIsEnabled(GL_LINE_SMOOTH);
+  check_gl("is line smooth enabled");
 
   glEnable(GL_CULL_FACE);
+  glEnable(GL_LINE_SMOOTH);
 
   // Draw UI and viewport manipulators
   {
@@ -615,6 +627,12 @@ GestureRendererGL::drawUnderlay(SceneView& sceneView, SelectionBuffer* selection
     glDisable(GL_DEPTH_TEST);
   }
   check_gl("toggle depth test");
+  if (lineSmooth) {
+    glEnable(GL_LINE_SMOOTH);
+  } else {
+    glDisable(GL_LINE_SMOOTH);
+  }
+  check_gl("toggle line smoothing");
 }
 
 uint32_t
