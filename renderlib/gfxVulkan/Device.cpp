@@ -9,62 +9,6 @@
 
 namespace gfxvulkan {
 
-namespace {
-
-shaderc_shader_kind
-toShadercKind(gfxApi::ShaderStage stage)
-{
-  switch (stage) {
-    case gfxApi::ShaderStage::Vertex:
-      return shaderc_vertex_shader;
-    case gfxApi::ShaderStage::Fragment:
-      return shaderc_fragment_shader;
-    case gfxApi::ShaderStage::Geometry:
-      return shaderc_geometry_shader;
-    case gfxApi::ShaderStage::Compute:
-      return shaderc_compute_shader;
-  }
-  return shaderc_vertex_shader;
-}
-
-std::vector<uint32_t>
-compileGlslToSpirv(const gfxApi::ShaderDesc& desc)
-{
-  shaderc::Compiler compiler;
-  shaderc::CompileOptions options;
-  options.SetSourceLanguage(shaderc_source_language_glsl);
-  options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_3);
-  options.SetOptimizationLevel(shaderc_optimization_level_performance);
-
-  const char* name = desc.debugName.empty() ? "agave-vulkan-shader" : desc.debugName.c_str();
-  shaderc::SpvCompilationResult result =
-    compiler.CompileGlslToSpv(desc.source, toShadercKind(desc.stage), name, options);
-
-  if (result.GetCompilationStatus() != shaderc_compilation_status_success) {
-    LOG_ERROR << "Vulkan GLSL compile failed (" << name << "): " << result.GetErrorMessage();
-    return {};
-  }
-
-  return { result.cbegin(), result.cend() };
-}
-
-std::vector<uint32_t>
-spirvFromString(const std::string& source, const std::string& debugName)
-{
-  if (source.size() % sizeof(uint32_t) != 0) {
-    LOG_ERROR << "SPIR-V shader payload size is not 32-bit aligned (" << debugName << ")";
-    return {};
-  }
-
-  std::vector<uint32_t> spirv(source.size() / sizeof(uint32_t));
-  if (!spirv.empty()) {
-    std::memcpy(spirv.data(), source.data(), source.size());
-  }
-  return spirv;
-}
-
-} // namespace
-
 Device::Device() = default;
 
 Device::~Device()
@@ -84,15 +28,10 @@ void
 Device::release()
 {
   if (m_device == VK_NULL_HANDLE) {
-    m_shaders.clear();
-    m_programs.clear();
     m_resources.reset();
     m_physicalDevice = VK_NULL_HANDLE;
     return;
   }
-
-  m_programs.clear();
-  m_shaders.clear();
 
   if (m_resources) {
     const size_t remaining = m_resources->trackedResourceCount();
@@ -106,20 +45,6 @@ Device::release()
 
   m_device = VK_NULL_HANDLE;
   m_physicalDevice = VK_NULL_HANDLE;
-}
-
-VkShaderModule
-Device::shaderModule(gfxApi::ShaderHandle handle) const
-{
-  auto it = m_shaders.find(handle.id);
-  return it == m_shaders.end() ? VK_NULL_HANDLE : it->second.module.get();
-}
-
-gfxApi::ShaderStage
-Device::shaderStage(gfxApi::ShaderHandle handle) const
-{
-  auto it = m_shaders.find(handle.id);
-  return it == m_shaders.end() ? gfxApi::ShaderStage::Vertex : it->second.stage;
 }
 
 std::optional<resources::Buffer>

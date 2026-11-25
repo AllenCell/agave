@@ -26,9 +26,6 @@ public:
 
   gfxApi::BackendKind backend() const override { return gfxApi::BackendKind::Vulkan; }
 
-  VkShaderModule shaderModule(gfxApi::ShaderHandle handle) const;
-  gfxApi::ShaderStage shaderStage(gfxApi::ShaderHandle handle) const;
-
   std::optional<resources::Buffer> createBuffer(VkDeviceSize size,
                                                 VkBufferUsageFlags usage,
                                                 VkMemoryPropertyFlags properties);
@@ -63,23 +60,10 @@ public:
   size_t trackedResourceCount() const;
 
 private:
-  struct ShaderRecord
-  {
-    resources::UniqueShaderModule module;
-    gfxApi::ShaderStage stage = gfxApi::ShaderStage::Vertex;
-  };
-
-  struct ShaderProgramRecord
-  {
-    std::vector<gfxApi::ShaderHandle> shaders;
-  };
-
   uint64_t m_nextId = 1;
   VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
   VkDevice m_device = VK_NULL_HANDLE;
   resources::ResourceRegistryPtr m_resources;
-  std::unordered_map<uint64_t, ShaderRecord> m_shaders;
-  std::unordered_map<uint64_t, ShaderProgramRecord> m_programs;
 };
 
 } // namespace gfxvulkan

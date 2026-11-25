@@ -1,8 +1,5 @@
 #pragma once
 
-#include "Descriptors.h"
-#include "Handles.h"
-
 namespace gfxApi {
 
 // Identifies which backend implementation is in use. The renderlib bootstrap
