@@ -1,6 +1,6 @@
 #include "FontGL.h"
 
-#include "gfxOpenGL/Util.h"
+#include "Util.h"
 
 #include <stdio.h>
 
