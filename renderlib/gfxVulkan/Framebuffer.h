@@ -30,6 +30,9 @@ public:
   uint32_t height() const override { return m_height; }
 
   void clear(const gfxApi::ClearColor& color) override;
+  // Record the same clear into a caller-owned command buffer, for batching with
+  // other work instead of paying a submit + fence wait of its own.
+  void recordClear(VkCommandBuffer commandBuffer, const gfxApi::ClearColor& color);
   void toImage(void* pixels) override;
 
   VkImage colorImage() const { return m_ownsColorImage ? m_colorAllocation.get() : m_externalColorImage; }

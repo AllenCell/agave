@@ -1,6 +1,18 @@
 #include "RenderToFramebuffer.h"
 
 #include "AppScene.h"
+#include "Logging.h"
+
+#include <chrono>
+
+namespace {
+using Clock = std::chrono::high_resolution_clock;
+double
+msSince(const Clock::time_point& t)
+{
+  return std::chrono::duration<double, std::milli>(Clock::now() - t).count();
+}
+}
 
 namespace gfxApi {
 
@@ -22,16 +34,26 @@ renderToFramebuffer(Framebuffer& framebuffer,
 
   gestureRenderer.setTargetFramebuffer(&framebuffer);
 
+  auto t0 = Clock::now();
   framebuffer.bind();
   framebuffer.clear(clearColor);
+  const double clearMs = msSince(t0);
+  t0 = Clock::now();
   gestureRenderer.drawUnderlay(sceneView, graphics);
   framebuffer.release();
+  const double underlayMs = msSince(t0);
 
+  t0 = Clock::now();
   renderer.renderTo(sceneView.camera, &framebuffer);
+  const double renderMs = msSince(t0);
 
+  t0 = Clock::now();
   framebuffer.bind();
   gestureRenderer.draw(sceneView, graphics);
   framebuffer.release();
+  // const double overlayMs = msSince(t0);
+  // LOG_INFO << "PROFILE renderToFramebuffer clear=" << clearMs << " underlay=" << underlayMs << " render=" << renderMs
+  //         << " overlay=" << overlayMs;
 }
 
 } // namespace gfxApi

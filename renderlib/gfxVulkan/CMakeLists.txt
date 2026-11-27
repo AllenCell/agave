@@ -27,6 +27,8 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/resources/ResourceRegistry.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/resources/ResourceRegistry.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/resources/SampledImage.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/resources/UniformRing.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/resources/UniformRing.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Swapchain.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Swapchain.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/VolumeTextureVk.cpp"

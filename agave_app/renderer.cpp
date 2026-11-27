@@ -8,6 +8,7 @@
 #include "renderlib/RenderSettings.h"
 #include "renderlib/ScaleBarTool.h"
 #include "renderlib/SceneView.h"
+#include "renderlib/TimeStampTool.h"
 #include "renderlib/gfxapi/Backend.h"
 #include "renderlib/gfxapi/IGLContext.h"
 #include "renderlib/gfxapi/IRenderWindow.h"
@@ -211,6 +212,19 @@ Renderer::addRequest(RenderRequest* request)
   this->m_wait.wakeAll();
 }
 
+void
+Renderer::addRequestAndSetStreamMode(RenderRequest* request, int32_t mode)
+{
+  m_requestMutex.lock();
+
+  this->m_requests << request;
+  this->m_totalQueueDuration += request->getDuration();
+  m_streamMode = mode > 0 ? true : false;
+  m_requestMutex.unlock();
+
+  this->m_wait.wakeAll();
+}
+
 bool
 Renderer::shouldContinue()
 {
@@ -271,16 +285,24 @@ Renderer::processRequest()
                   << ":" << QString::number(ws->peerPort()).toStdString() << ")";
       }
 
-      img = this->render();
+      this->renderFrame();
       // LOG_DEBUG << "RENDERED sample iteration " << m_frameIterations << " in " << timer.nsecsElapsed() << "ns";
-
-      lastReq->setActualDuration(timer.nsecsElapsed());
 
       // in stream mode:
       // if queue is empty, then keep firing redraws back to client, to build up iterations.
       m_frameIterations++;
       m_frameTimeSeconds += timer.nsecsElapsed() / (1000.0f * 1000.0f * 1000.0f);
-      if (m_streamMode && shouldContinue()) {
+
+      // The accumulation buffer keeps the result on the GPU, so only pay for a
+      // readback when this sample is actually going to be looked at or saved.
+      const bool frameComplete = !shouldContinue();
+      if (needsImageCapture(frameComplete)) {
+        img = this->captureImage();
+      }
+
+      lastReq->setActualDuration(timer.nsecsElapsed());
+
+      if (m_streamMode && !frameComplete) {
         // push another redraw request.
         std::vector<Command*> cmd;
         RequestRedrawCommandD data;
@@ -309,11 +331,30 @@ Renderer::processRequest()
         this->processCommandBuffer(r);
       }
 
-      img = this->render();
+      this->renderFrame();
+      img = this->captureImage();
 
       r->setActualDuration(timer.nsecsElapsed());
       lastReq = r;
     }
+  }
+
+  // Keep the progressive render loop alive. The streaming branch above queues
+  // its own follow-up redraw; this re-checks that against the stream mode as it
+  // stands now, once the request (and any setStreamMode command it carried) has
+  // been processed, and only when nothing else is pending. Without it the loop
+  // can dead-end: a request consumed while streaming was momentarily off goes
+  // through the non-streaming path, which queues nothing, leaving the render
+  // thread parked below in processRequest() with an empty queue, streaming back
+  // on, and no remaining source of wakeups.
+  if (lastReq && m_streamMode && shouldContinue() && this->m_requests.isEmpty()) {
+    std::vector<Command*> cmd;
+    RequestRedrawCommandD data;
+    cmd.push_back(new RequestRedrawCommand(data));
+    RenderRequest* rr = new RenderRequest(lastReq->getClient(), cmd, false);
+
+    this->m_requests << rr;
+    this->m_totalQueueDuration += rr->getDuration();
   }
 
   // unlock mutex BEFORE emit, in case the signal handler wants to add a request
@@ -364,8 +405,8 @@ Renderer::processCommandBuffer(RenderRequest* rr)
   }
 }
 
-QImage
-Renderer::render()
+void
+Renderer::renderFrame()
 {
   MutexContextLocker locker(m_openGLMutex, m_renderContext.get());
 
@@ -390,6 +431,9 @@ Renderer::render()
   BoundingBoxTool bbox;
   bbox.clear();
   bbox.draw(sceneView, m_myVolumeData.m_gesture);
+  TimeStampTool timestamp;
+  timestamp.clear();
+  timestamp.draw(sceneView, m_myVolumeData.m_gesture);
 
   gfxApi::renderToFramebuffer(*m_fbo,
                               *m_myVolumeData.m_renderer,
@@ -397,6 +441,12 @@ Renderer::render()
                               sceneView,
                               m_myVolumeData.m_gesture.graphics,
                               0.0f);
+}
+
+QImage
+Renderer::captureImage()
+{
+  MutexContextLocker locker(m_openGLMutex, m_renderContext.get());
 
   const std::size_t byteCount = static_cast<std::size_t>(m_fbo->width()) * m_fbo->height() * 4;
   auto bytes = std::make_unique<uint8_t[]>(byteCount);
@@ -410,6 +460,21 @@ Renderer::render()
   }
 
   return img;
+}
+
+bool
+Renderer::needsImageCapture(bool frameComplete)
+{
+  if (frameComplete || m_imageCaptureIntervalSeconds <= 0.0f) {
+    m_sinceLastImageCapture.start();
+    return true;
+  }
+  if (!m_sinceLastImageCapture.isValid() ||
+      m_sinceLastImageCapture.elapsed() >= static_cast<qint64>(m_imageCaptureIntervalSeconds * 1000.0f)) {
+    m_sinceLastImageCapture.start();
+    return true;
+  }
+  return false;
 }
 
 void

@@ -163,7 +163,6 @@ private:
   int mHeight;
   float mAspectRatio;
   qint64 m_frameRenderTime;
-  qint64 m_uiUpdateTime;
 
   void endRenderThread();
   void setRenderDurationType(eRenderDurationType type);
