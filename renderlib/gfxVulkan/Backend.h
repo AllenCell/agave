@@ -30,6 +30,14 @@ public:
   bool isHeadless() const override { return m_params.headless; }
   gfxApi::BackendKind kind() const override { return gfxApi::BackendKind::Vulkan; }
 
+  bool initDeviceForWindow(gfxApi::IWindowSurface* surface = nullptr) override;
+
+  // Headless counterpart to initDeviceForWindow: there is no surface to wait
+  // for, so the owner brings the device up right after construction.
+  bool initDeviceHeadless();
+
+  // True once the VkInstance exists. A valid backend still has no device until
+  // initDeviceHeadless() or initDeviceForWindow() succeeds.
   bool isValid() const { return m_valid; }
 
   VkInstance instance() const { return m_instance; }
@@ -48,13 +56,19 @@ public:
 private:
   bool createInstance();
   bool setupDebugMessenger();
-  bool pickPhysicalDevice();
+  // Select a physical device and bring up the logical device, queues, and
+  // command pool. presentationSurface is VK_NULL_HANDLE for headless and must
+  // be a real surface when windowed.
+  bool initializeDevice(VkSurfaceKHR presentationSurface);
+  bool pickPhysicalDevice(VkSurfaceKHR presentationSurface);
   bool createLogicalDevice();
   bool createCommandPool();
+  // Tear down everything created by initializeDevice, leaving the instance.
+  void destroyDevice();
   void destroy();
 
   std::vector<const char*> enabledInstanceExtensions() const;
-  std::vector<const char*> enabledDeviceExtensions(VkPhysicalDevice physicalDevice) const;
+  bool enabledDeviceExtensions(VkPhysicalDevice physicalDevice, std::vector<const char*>& extensions) const;
 
   gfxApi::InitParams m_params;
   Device m_device;
@@ -67,6 +81,7 @@ private:
   resources::UniqueCommandPool m_commandPool;
   uint32_t m_graphicsQueueFamilyIndex = UINT32_MAX;
   bool m_valid = false;
+  bool m_deviceReady = false;
 };
 
 } // namespace gfxvulkan

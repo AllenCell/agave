@@ -39,8 +39,6 @@ public:
   QSize minimumSizeHint() const override;
   QSize sizeHint() const override;
 
-  VkInstance vkInstance() const;
-
   // VulkanView3D draws to its own native surface (a CAMetalLayer attached to its
   // NSView), so Qt must not paint over it with the regular backing store.
   QPaintEngine* paintEngine() const override { return nullptr; }
