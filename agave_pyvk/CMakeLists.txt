@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.28)
 project(agave_pyvk VERSION 1.9.0 LANGUAGES CXX)
 
 if(POLICY CMP0207)
