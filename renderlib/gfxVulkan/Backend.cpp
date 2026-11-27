@@ -769,6 +769,7 @@ Backend::pickPhysicalDevice(VkSurfaceKHR presentationSurface)
   }
 
   m_physicalDevice = devices[chosenIndex];
+  m_selectedGpuIndex = static_cast<int>(chosenIndex);
   m_graphicsQueueFamilyIndex = requiresPresent ? capabilities[chosenIndex].graphicsPresentQueueFamilyIndex
                                                : capabilities[chosenIndex].graphicsQueueFamilyIndex;
 
@@ -872,6 +873,7 @@ Backend::destroyDevice()
   }
 
   m_physicalDevice = VK_NULL_HANDLE;
+  m_selectedGpuIndex = gfxApi::kAutoSelectGpu;
   m_graphicsQueue = VK_NULL_HANDLE;
   m_graphicsQueueFamilyIndex = UINT32_MAX;
   m_deviceReady = false;

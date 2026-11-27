@@ -92,6 +92,11 @@ public:
   // The kind of backend this is.
   virtual BackendKind kind() const = 0;
 
+  // Zero-based index (in --list_devices order) of the GPU the backend actually
+  // selected, resolving kAutoSelectGpu. kAutoSelectGpu if no device is selected
+  // yet or the backend cannot report it.
+  virtual int selectedGpuIndex() const { return kAutoSelectGpu; }
+
   // Two-part initialization when windowed.
   // We would like to initialize the renderlib graphics backend as early
   // as possible.  But some backends require the native window surface to

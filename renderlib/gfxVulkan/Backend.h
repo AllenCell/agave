@@ -29,6 +29,7 @@ public:
   void clearCurrentFramebuffer(const gfxApi::ClearColor& color) override;
   bool isHeadless() const override { return m_params.headless; }
   gfxApi::BackendKind kind() const override { return gfxApi::BackendKind::Vulkan; }
+  int selectedGpuIndex() const override { return m_selectedGpuIndex; }
 
   bool initDeviceForWindow(gfxApi::IWindowSurface* surface = nullptr) override;
 
@@ -80,6 +81,7 @@ private:
   VkQueue m_graphicsQueue = VK_NULL_HANDLE;
   resources::UniqueCommandPool m_commandPool;
   uint32_t m_graphicsQueueFamilyIndex = UINT32_MAX;
+  int m_selectedGpuIndex = gfxApi::kAutoSelectGpu;
   bool m_valid = false;
   bool m_deviceReady = false;
 };

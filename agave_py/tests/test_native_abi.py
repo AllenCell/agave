@@ -15,7 +15,9 @@ def test_windows_native_abi_check_accepts_only_current_python(
     package_dir.mkdir()
     source_init = Path(__file__).resolve().parents[1] / "agave_py" / "__init__.py"
     (package_dir / "__init__.py").write_bytes(source_init.read_bytes())
-    (package_dir / "agave.py").write_text("class AgaveRenderer: pass\n")
+    (package_dir / "agave.py").write_text(
+        "class AgaveRenderer: pass\nclass AgaveCanvas: pass\n"
+    )
 
     minor = sys.version_info.minor if matching else sys.version_info.minor - 1
     (package_dir / f"_native.cp{sys.version_info.major}{minor}-win_amd64.pyd").touch()

@@ -62,20 +62,43 @@ public:
   PythonRendererResult execute(int commandId, const PythonRendererArguments& args);
   std::string loadVolume(std::shared_ptr<ImageXYZC> image, const VolumeDimensions& dimensions, const std::string& name);
   void close();
+  // Replace the renderer with one of the desktop view modes: "pathtrace",
+  // "raymarch", "slice_z", "slice_y", "slice_x", or "triple". The scene,
+  // camera, and render settings are kept.
+  void setRenderMode(const std::string& mode);
+  // Voxel indices of the X, Y, and Z slice planes, clamped to the volume.
+  void setSliceIndices(int32_t x, int32_t y, int32_t z);
 
   void setStreamMode(int32_t mode) override;
   void resizeGL(int x, int y) override;
 
 private:
+  // Matches the desktop renderer ids (Serialize::RendererType_PID).
+  enum class RenderMode : uint8_t
+  {
+    Pathtrace,
+    Raymarch,
+    SliceZ,
+    SliceY,
+    SliceX,
+    Triple
+  };
+  static RenderMode parseRenderMode(const std::string& mode);
+  static bool isSliceMode(RenderMode mode) { return mode >= RenderMode::SliceZ; }
+
   PythonRendererResult run(Command& command);
   PythonRendererResult run(RequestRedrawCommand& command);
   PythonRendererResult redraw();
   void initialize(const std::string& mode, const std::string& assetPath, int selectedGpu);
+  std::unique_ptr<gfxApi::IRenderWindow> createVolumeRenderer(RenderMode mode);
+  void applySliceViewMode(RenderMode mode);
+  void syncSliceDimensions();
 
   int32_t m_width = 1024;
   int32_t m_height = 1024;
   bool m_closed = false;
   bool m_ownsRuntime = false;
+  RenderMode m_renderMode = RenderMode::Pathtrace;
 
   std::unique_ptr<RenderSettings> m_renderSettings;
   std::unique_ptr<CCamera> m_camera;

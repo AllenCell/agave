@@ -16,6 +16,9 @@ from PIL import Image
 from . import _native
 from .commandbuffer import COMMANDS
 
+# Render modes supported by desktop AGAVE, in its renderer-id order.
+RENDER_MODES = ("pathtrace", "raymarch", "slice_z", "slice_y", "slice_x", "triple")
+
 
 def lerp(startframe, endframe, startval, endval):
     x = numpy.linspace(
@@ -84,12 +87,13 @@ class AgaveRenderer:
         auto_launch: bool = True,
         launch_retries: int = 10,
         launch_retry_delay: float = 1.0,
+        gpu: int = -1,
     ) -> None:
         del url, agave_path, auto_launch, launch_retries, launch_retry_delay
-        if mode not in ("pathtrace", "raymarch"):
+        if mode not in RENDER_MODES:
             mode = "pathtrace"
         asset_path = Path(_native.__file__).resolve().parent / "assets"
-        self._renderer = _native.PythonRenderer(mode, str(asset_path), 0)
+        self._renderer = _native.PythonRenderer(mode, str(asset_path), gpu)
         self.session_name = ""
 
     def __enter__(self):
@@ -162,6 +166,37 @@ class AgaveRenderer:
         image = Image.frombytes("RGBA", (width, height), pixels, "raw", "BGRA")
         image.save(self.session_name)
         self.session_name = ""
+
+    def render_frame(self) -> numpy.ndarray:
+        """Render one frame as a read-only H x W x 4 BGRA uint8 array.
+
+        Each AgaveRenderer owns its own scene and framebuffer. The returned
+        array views the frame bytes, so no extra Python pixel copy is needed.
+        """
+        width, height, pixels = self._execute("REDRAW")
+        return numpy.frombuffer(pixels, dtype=numpy.uint8).reshape(height, width, 4)
+
+    def set_render_mode(self, mode: str):
+        """Switch render mode without reloading the volume.
+
+        ``mode`` is one of ``RENDER_MODES``: "pathtrace", "raymarch",
+        "slice_z", "slice_y", "slice_x", or "triple" (all three planes). The
+        scene, camera, and channel settings are kept; path tracing restarts its
+        accumulation from the first iteration. Raises ValueError for other modes.
+        """
+        if self._renderer is None:
+            raise RuntimeError("Renderer is closed")
+        self._renderer.set_render_mode(mode)
+
+    def set_slice_indices(self, x: int, y: int, z: int):
+        """Set the voxel index of the X, Y, and Z slice planes.
+
+        Used by the slice modes; indices are clamped to the volume. Loading a
+        volume centers all three planes.
+        """
+        if self._renderer is None:
+            raise RuntimeError("Renderer is closed")
+        self._renderer.set_slice_indices(x, y, z)
 
     def set_resolution(self, x: int, y: int):
         return self._execute("SET_RESOLUTION", x, y)
@@ -380,4 +415,29 @@ class AgaveRenderer:
             self.trackball_camera(0.0, angle_delta * direction * quadrant_direction)
 
 
-__all__ = ["AgaveRenderer"]
+class AgaveCanvas(AgaveRenderer):
+    """One volume, scene, and framebuffer in a shared Vulkan runtime."""
+
+    def __init__(
+        self,
+        data: numpy.ndarray,
+        *,
+        mode: str = "raymarch",
+        gpu: int = -1,
+        name: str = "array",
+        voxel_size: Sequence[float] = (1.0, 1.0, 1.0),
+        spatial_units: str = "units",
+        channel_names: Optional[Sequence[str]] = None,
+        width: int = 1024,
+        height: int = 1024,
+    ) -> None:
+        super().__init__(mode=mode, gpu=gpu)
+        try:
+            self.load_array(data, name, voxel_size, spatial_units, channel_names)
+            self.set_resolution(width, height)
+        except BaseException:
+            self.close()
+            raise
+
+
+__all__ = ["AgaveRenderer", "AgaveCanvas"]

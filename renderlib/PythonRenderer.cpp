@@ -7,6 +7,7 @@
 #include "RenderSettings.h"
 #include "ScaleBarTool.h"
 #include "SceneView.h"
+#include "SliceCrosshairTool.h"
 #include "TimeStampTool.h"
 #include "VolumeDimensions.h"
 #include "VolumeInfoToJson.h"
@@ -27,6 +28,7 @@ namespace {
 
 std::mutex s_runtimeMutex;
 int s_runtimeUsers = 0;
+std::string s_runtimeAssetPath;
 
 template<typename T>
 T
@@ -91,6 +93,7 @@ PythonRenderer::~PythonRenderer()
 void
 PythonRenderer::initialize(const std::string& mode, const std::string& assetPath, int selectedGpu)
 {
+  const RenderMode renderMode = parseRenderMode(mode);
   std::lock_guard<std::mutex> lock(s_runtimeMutex);
   if (s_runtimeUsers == 0) {
     gfxApi::InitParams params;
@@ -103,7 +106,21 @@ PythonRenderer::initialize(const std::string& mode, const std::string& assetPath
     params.enableDebug = true;
 #endif
     if (!renderlib::initialize(params)) {
+      renderlib::cleanup();
       throw std::runtime_error("Unable to initialize the headless Vulkan backend");
+    }
+    s_runtimeAssetPath = assetPath;
+  } else {
+    // Every renderer shares the one process-wide Vulkan device. Compare against
+    // the GPU that was actually selected, so auto-selection matches an explicit
+    // request for the same device.
+    if (assetPath != s_runtimeAssetPath) {
+      throw PythonRendererValueError("All Python renderers must use the same asset path");
+    }
+    const int runtimeGpu = renderlib::graphicsBackend()->selectedGpuIndex();
+    if (selectedGpu != gfxApi::kAutoSelectGpu && selectedGpu != runtimeGpu) {
+      throw PythonRendererValueError("All Python renderers share one Vulkan device; GPU " + std::to_string(runtimeGpu) +
+                                     " is in use, but GPU " + std::to_string(selectedGpu) + " was requested");
     }
   }
   ++s_runtimeUsers;
@@ -119,13 +136,9 @@ PythonRenderer::initialize(const std::string& mode, const std::string& assetPath
     m_scene = std::make_unique<Scene>();
     m_scene->initLights();
 
-    const auto rendererType = mode == "raymarch" ? renderlib::RendererType_Raymarch : renderlib::RendererType_Pathtrace;
-    m_renderer.reset(renderlib::createRenderer(rendererType, m_renderSettings.get()));
-    if (!m_renderer) {
-      throw std::runtime_error("Unable to create the Vulkan volume renderer");
-    }
-    m_renderer->initialize(m_width, m_height);
-    m_renderer->setScene(m_scene.get());
+    m_renderMode = renderMode;
+    applySliceViewMode(renderMode);
+    m_renderer = createVolumeRenderer(renderMode);
 
     auto* backend = renderlib::graphicsBackend();
     m_framebuffer = backend->createFramebuffer(
@@ -147,6 +160,7 @@ PythonRenderer::initialize(const std::string& mode, const std::string& assetPath
     m_renderSettings.reset();
     if (--s_runtimeUsers == 0) {
       renderlib::cleanup();
+      s_runtimeAssetPath.clear();
     }
     m_ownsRuntime = false;
     throw;
@@ -175,8 +189,142 @@ PythonRenderer::close()
   std::lock_guard<std::mutex> lock(s_runtimeMutex);
   if (m_ownsRuntime && --s_runtimeUsers == 0) {
     renderlib::cleanup();
+    s_runtimeAssetPath.clear();
   }
   m_ownsRuntime = false;
+}
+
+PythonRenderer::RenderMode
+PythonRenderer::parseRenderMode(const std::string& mode)
+{
+  if (mode == "pathtrace") {
+    return RenderMode::Pathtrace;
+  }
+  if (mode == "raymarch") {
+    return RenderMode::Raymarch;
+  }
+  if (mode == "slice_z") {
+    return RenderMode::SliceZ;
+  }
+  if (mode == "slice_y") {
+    return RenderMode::SliceY;
+  }
+  if (mode == "slice_x") {
+    return RenderMode::SliceX;
+  }
+  if (mode == "triple") {
+    return RenderMode::Triple;
+  }
+  throw PythonRendererValueError(
+    "Render mode must be one of 'pathtrace', 'raymarch', 'slice_z', 'slice_y', 'slice_x', or 'triple'; got '" + mode +
+    "'");
+}
+
+std::unique_ptr<gfxApi::IRenderWindow>
+PythonRenderer::createVolumeRenderer(RenderMode mode)
+{
+  gfxApi::RenderWindowKind kind = gfxApi::RenderWindowKind::PathTrace;
+  if (mode == RenderMode::Raymarch) {
+    kind = gfxApi::RenderWindowKind::RaymarchBlended;
+  } else if (isSliceMode(mode)) {
+    kind = gfxApi::RenderWindowKind::Slice;
+  }
+  auto renderer = renderlib::graphicsBackend()->createRenderWindow(kind, m_renderSettings.get());
+  if (!renderer) {
+    throw std::runtime_error("Unable to create the Vulkan volume renderer");
+  }
+  renderer->initialize(m_width, m_height);
+  renderer->setScene(m_scene.get());
+  return renderer;
+}
+
+void
+PythonRenderer::applySliceViewMode(RenderMode mode)
+{
+  SliceViewState& sliceView = m_renderSettings->m_SliceView;
+  switch (mode) {
+    case RenderMode::SliceZ:
+      sliceView.mode = SliceViewMode::Z;
+      break;
+    case RenderMode::SliceY:
+      sliceView.mode = SliceViewMode::Y;
+      break;
+    case RenderMode::SliceX:
+      sliceView.mode = SliceViewMode::X;
+      break;
+    case RenderMode::Triple:
+      sliceView.mode = SliceViewMode::Triple;
+      break;
+    default:
+      break;
+  }
+}
+
+void
+PythonRenderer::syncSliceDimensions()
+{
+  // Volumes arrive through load_array or the load commands; re-center the
+  // slices whenever the loaded volume's size changes, as the desktop app does.
+  if (!m_scene || !m_scene->m_volume) {
+    return;
+  }
+  const ImageXYZC& volume = *m_scene->m_volume;
+  const glm::ivec3 dimensions(
+    static_cast<int>(volume.sizeX()), static_cast<int>(volume.sizeY()), static_cast<int>(volume.sizeZ()));
+  SliceViewState& sliceView = m_renderSettings->m_SliceView;
+  if (sliceView.dimensions != dimensions) {
+    sliceView.setDimensions(dimensions, true);
+    m_renderSettings->m_DirtyFlags.SetFlag(RenderParamsDirty);
+  }
+}
+
+void
+PythonRenderer::setRenderMode(const std::string& mode)
+{
+  if (m_closed) {
+    throw std::runtime_error("Renderer is closed");
+  }
+  const RenderMode renderMode = parseRenderMode(mode);
+
+  // X/Y/Z/triple are modes of one slice renderer, so moving between them keeps
+  // its uploaded volume, as in the desktop app.
+  if (isSliceMode(m_renderMode) && isSliceMode(renderMode)) {
+    m_renderMode = renderMode;
+    applySliceViewMode(renderMode);
+    m_renderSettings->m_DirtyFlags.SetFlag(RenderParamsDirty);
+    return;
+  }
+
+  // Build the replacement first so a failure leaves the current renderer usable.
+  auto renderer = createVolumeRenderer(renderMode);
+  m_renderer->cleanUpResources();
+  m_renderer = std::move(renderer);
+  m_renderMode = renderMode;
+  applySliceViewMode(renderMode);
+
+  // The new renderer has no GPU copies of the scene yet; mark everything dirty
+  // so it uploads the volume and picks up the current settings on next redraw.
+  m_renderSettings->SetNoIterations(0);
+  m_renderSettings->m_DirtyFlags.SetFlag(CameraDirty);
+  m_renderSettings->m_DirtyFlags.SetFlag(VolumeDirty);
+  m_renderSettings->m_DirtyFlags.SetFlag(VolumeDataDirty);
+  m_renderSettings->m_DirtyFlags.SetFlag(TransferFunctionDirty);
+  m_renderSettings->m_DirtyFlags.SetFlag(RenderParamsDirty);
+  m_renderSettings->m_DirtyFlags.SetFlag(LightsDirty);
+  m_renderSettings->m_DirtyFlags.SetFlag(RoiDirty);
+}
+
+void
+PythonRenderer::setSliceIndices(int32_t x, int32_t y, int32_t z)
+{
+  if (m_closed) {
+    throw std::runtime_error("Renderer is closed");
+  }
+  syncSliceDimensions();
+  SliceViewState& sliceView = m_renderSettings->m_SliceView;
+  sliceView.indices = glm::ivec3(x, y, z);
+  sliceView.clampIndices();
+  m_renderSettings->m_DirtyFlags.SetFlag(RenderParamsDirty);
 }
 
 void
@@ -234,6 +382,7 @@ PythonRenderer::loadVolume(std::shared_ptr<ImageXYZC> image,
   m_renderSettings->m_DirtyFlags.SetFlag(VolumeDirty);
   m_renderSettings->m_DirtyFlags.SetFlag(VolumeDataDirty);
   m_renderSettings->m_DirtyFlags.SetFlag(TransferFunctionDirty);
+  syncSliceDimensions();
 
   return volumeInfoToJson(image, dimensions, name).dump();
 }
@@ -263,6 +412,7 @@ PythonRendererResult
 PythonRenderer::redraw()
 {
   m_camera->Update();
+  syncSliceDimensions();
 
   SceneView sceneView;
   sceneView.viewport.region = { { 0, 0 }, { m_width, m_height } };
@@ -275,12 +425,25 @@ PythonRenderer::redraw()
     const std::string fontPath = renderlib::assetPath() + "/fonts/Arial.ttf";
     m_gesture->graphics.font.load(fontPath.c_str());
   }
-  ScaleBarTool scaleBar;
-  scaleBar.draw(sceneView, *m_gesture);
-  BoundingBoxTool boundingBox;
-  boundingBox.draw(sceneView, *m_gesture);
-  TimeStampTool timeStamp;
-  timeStamp.draw(sceneView, *m_gesture);
+  if (isSliceMode(m_renderMode)) {
+    // Slice panes are drawn fitted to the viewport. The slice renderer only
+    // applies pan/zoom for an orthographic camera, and the 3D camera must not
+    // leak into the 2D view, so hand it a perspective copy.
+    sceneView.camera.m_Projection = PERSPECTIVE;
+    // Like the desktop app, slice views draw no 3D overlays; triple-slice
+    // shows its plane crosshairs.
+    if (m_renderMode == RenderMode::Triple) {
+      SliceCrosshairTool crosshair;
+      crosshair.draw(sceneView, *m_gesture);
+    }
+  } else {
+    ScaleBarTool scaleBar;
+    scaleBar.draw(sceneView, *m_gesture);
+    BoundingBoxTool boundingBox;
+    boundingBox.draw(sceneView, *m_gesture);
+    TimeStampTool timeStamp;
+    timeStamp.draw(sceneView, *m_gesture);
+  }
 
   gfxApi::renderToFramebuffer(*m_framebuffer, *m_renderer, *m_gestureRenderer, sceneView, m_gesture->graphics, 0.0f);
 

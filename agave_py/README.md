@@ -36,6 +36,33 @@ channel-major `uint16` storage. `uint8` values are widened without rescaling;
 each `float32` channel is independently min-max normalized to the full 16-bit
 range. A new call replaces the current volume and represents one time point.
 
+For a Python GUI, create one `AgaveCanvas` per displayed volume. Each canvas
+has its own scene, camera, renderer, and framebuffer; the Vulkan device is
+initialized once and shared until the last canvas closes. Canvases that omit
+`gpu` reuse whichever device is already in use; an explicit `gpu` must name that
+same device, otherwise the constructor raises `ValueError`. Canvases support
+every desktop AGAVE render mode: `"raymarch"`, `"pathtrace"`, `"slice_z"`,
+`"slice_y"`, `"slice_x"`, and `"triple"` (all three planes). Pass one as `mode`,
+or call `set_render_mode(...)` to swap a canvas's renderer while keeping its
+volume, camera, and channel settings. In slice modes, `set_slice_indices(x, y, z)`
+moves the planes (voxel indices, clamped; loading a volume centers them), and
+the slice fills the canvas as a fitted 2D view, ignoring the 3D camera. `render_frame()` returns a read-only BGRA
+NumPy view of the frame bytes for passing to a GUI image widget.
+
+```python
+from agave_py import AgaveCanvas
+
+with AgaveCanvas(volume_a, mode="raymarch", width=512, height=512) as left, \
+     AgaveCanvas(volume_b, mode="pathtrace", width=512, height=512) as right:
+    left_frame = left.render_frame()
+    right_frame = right.render_frame()
+    # Give each frame to the corresponding GUI canvas.
+```
+
+`load_array()` can replace a canvas volume later. C-contiguous `uint16` input
+crosses nanobind without a Python copy, then makes one native copy into AGAVE's
+owned volume storage. Other supported dtypes are converted into that storage.
+
 A Vulkan 1.3-capable driver and Vulkan SDK 1.4.363.0 or later are required to build. The
 remaining native dependencies are the same ones used by renderlib.
 On macOS, Apple Silicon is required. The wheel bundles the Vulkan loader,
