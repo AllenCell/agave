@@ -525,23 +525,60 @@ VolumeTextureVk::uploadRaw(const Scene& scene, bool linearFiltering)
   std::array<uint8_t, kTransferSize * kTransferLayers * 4> transfer = {};
   buildRawTransferBytes(scene, channels, transfer);
 
+  // Use the narrowest 16-bit format that holds every enabled channel. The
+  // shaders only read components below the active channel count, and a
+  // texture fetch fills missing components with 0 (and 1 for alpha), so a
+  // one- or two-channel volume renders identically from R16 / RG16 while
+  // costing a quarter or half of the memory traffic of RGBA16. Three channels
+  // still use RGBA16 because RGB16 is not a required sampled format.
+  uint32_t enabledCount = 0;
+  for (uint32_t c = 0; c < img->sizeC() && c < MAX_CPU_CHANNELS; ++c) {
+    if (scene.m_material.m_enabled[c]) {
+      ++enabledCount;
+    }
+  }
+  uint32_t components = 4;
+  VkFormat format = VK_FORMAT_R16G16B16A16_UNORM;
+  if (enabledCount <= 1) {
+    components = 1;
+    format = VK_FORMAT_R16_UNORM;
+  } else if (enabledCount == 2) {
+    components = 2;
+    format = VK_FORMAT_R16G16_UNORM;
+  }
+
   // Interleave directly into staging: one pass over the volume, no intermediate
   // vector and no copy from it into the staging buffer.
-  auto fill = [voxelCount, img, &channels](void* mapped) {
-    uint16_t* rgba16 = static_cast<uint16_t*>(mapped);
-    parallel_for(voxelCount, [rgba16, img, &channels](size_t s, size_t e) {
-      for (size_t i = s; i < e; ++i) {
-        rgba16[i * 4 + 0] = img->channel(channels[0])->m_ptr[i];
-        rgba16[i * 4 + 1] = img->channel(channels[1])->m_ptr[i];
-        rgba16[i * 4 + 2] = img->channel(channels[2])->m_ptr[i];
-        rgba16[i * 4 + 3] = img->channel(channels[3])->m_ptr[i];
-      }
-    });
+  auto fill = [voxelCount, img, &channels, components](void* mapped) {
+    uint16_t* out = static_cast<uint16_t*>(mapped);
+    if (components == 1) {
+      const uint16_t* src = img->channel(channels[0])->m_ptr;
+      parallel_for(voxelCount,
+                   [out, src](size_t s, size_t e) { std::memcpy(out + s, src + s, (e - s) * sizeof(uint16_t)); });
+    } else if (components == 2) {
+      const uint16_t* src0 = img->channel(channels[0])->m_ptr;
+      const uint16_t* src1 = img->channel(channels[1])->m_ptr;
+      parallel_for(voxelCount, [out, src0, src1](size_t s, size_t e) {
+        for (size_t i = s; i < e; ++i) {
+          out[i * 2 + 0] = src0[i];
+          out[i * 2 + 1] = src1[i];
+        }
+      });
+    } else {
+      parallel_for(voxelCount, [out, img, &channels](size_t s, size_t e) {
+        for (size_t i = s; i < e; ++i) {
+          out[i * 4 + 0] = img->channel(channels[0])->m_ptr[i];
+          out[i * 4 + 1] = img->channel(channels[1])->m_ptr[i];
+          out[i * 4 + 2] = img->channel(channels[2])->m_ptr[i];
+          out[i * 4 + 3] = img->channel(channels[3])->m_ptr[i];
+        }
+      });
+    }
   };
 
   return uploadVolumeFrom(fill,
-                          voxelCount * 4 * sizeof(uint16_t),
-                          VK_FORMAT_R16G16B16A16_UNORM,
+                          voxelCount * components * sizeof(uint16_t),
+                          format,
                           static_cast<uint32_t>(img->sizeX()),
                           static_cast<uint32_t>(img->sizeY()),
                           static_cast<uint32_t>(img->sizeZ()),
