@@ -1,3 +1,6 @@
 [submodule "renderlib/libCZI"]
 	path = renderlib/io/libCZI
 	url = https://github.com/ZEISS/libczi.git
+[submodule "agave_pyvk/nanobind"]
+	path = agave_pyvk/nanobind
+	url = https://github.com/wjakob/nanobind
