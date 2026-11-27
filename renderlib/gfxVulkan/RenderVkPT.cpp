@@ -771,4 +771,356 @@ RenderVkPT::updateAccumDescriptorSet()
   return true;
 }
 
+bool
+RenderVkPT::updateToneMapDescriptorSet()
+{
+  VkDescriptorBufferInfo bufferInfo = {};
+  bufferInfo.buffer = m_toneMapUniformBuffer.get();
+  bufferInfo.offset = 0;
+  bufferInfo.range = sizeof(ToneMapUniforms);
+
+  VkDescriptorImageInfo accumInfo = {};
+  accumInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  accumInfo.imageView = m_accumFramebuffer->colorImageView();
+  accumInfo.sampler = m_framebufferSampler.get();
+
+  std::array<VkWriteDescriptorSet, 2> writes = {};
+  writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  writes[0].dstSet = m_toneMapDescriptorSet;
+  writes[0].dstBinding = 0;
+  writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  writes[0].descriptorCount = 1;
+  writes[0].pBufferInfo = &bufferInfo;
+  writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  writes[1].dstSet = m_toneMapDescriptorSet;
+  writes[1].dstBinding = 1;
+  writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  writes[1].descriptorCount = 1;
+  writes[1].pImageInfo = &accumInfo;
+
+  vkUpdateDescriptorSets(m_backend.logicalDevice(), static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+  return true;
+}
+
+void
+RenderVkPT::renderToFramebufferPT(const CCamera& camera, Framebuffer& framebuffer)
+{
+  if (!m_scene || !m_scene->m_volume || !m_renderSettings) {
+    framebuffer.clear({});
+    return;
+  }
+
+  const auto frameStart = std::chrono::high_resolution_clock::now();
+
+  const uint32_t renderWidth = std::max<uint32_t>(1, m_w);
+  const uint32_t renderHeight = std::max<uint32_t>(1, m_h);
+  if (!ensureFramebuffers(renderWidth, renderHeight) || !ensureFullscreenResources(framebuffer.colorFormat()) ||
+      !ensurePtVolumeResources()) {
+    framebuffer.clear({});
+    return;
+  }
+
+  // Upload the volume if needed, reset the accumulation counter when the view
+  // changed, and clear the dirty flags. (Mirrors what the base per-sample render
+  // would have done; we drive the path-trace pass directly instead.)
+  //
+  // Recompute the derived light geometry (position, basis frame, area, sky
+  // radius, area pdf, ...) from the current scene bounding box before
+  // prepareToRender() clears LightsDirty. Mirrors RenderGLPT::doRender.
+  if (m_renderSettings->m_DirtyFlags.HasFlag(LightsDirty)) {
+    for (int i = 0; i < m_scene->m_lighting.m_NoLights; ++i) {
+      m_scene->m_lighting.m_Lights[i]->Update(m_scene->m_boundingBox);
+    }
+  }
+
+  if (!prepareToRender()) {
+    framebuffer.clear({});
+    return;
+  }
+
+  // Each iteration computes one Monte Carlo sample and blends it against the
+  // previous accumulation using the shader's in-shader cumulative moving
+  // average. m_accumFramebuffer holds the running estimate; we ping-pong with
+  // m_accumScratchFramebuffer so the freshly accumulated result becomes the new
+  // m_accumFramebuffer (no explicit copy needed).
+  const int exposureIterations = std::max(1, camera.m_Film.m_ExposureIterations);
+  const auto sampleStart = std::chrono::high_resolution_clock::now();
+  for (int i = 0; i < exposureIterations; ++i) {
+    const int sampleCounter = m_renderSettings->GetNoIterations();
+
+    transitionToShaderRead(*m_accumFramebuffer);
+    if (!updatePtVolumeUniforms(camera, sampleCounter) ||
+        !updatePtVolumeDescriptorSet(m_accumFramebuffer->colorImageView())) {
+      framebuffer.clear({});
+      return;
+    }
+    renderPtVolume(*m_accumScratchFramebuffer);
+    std::swap(m_accumFramebuffer, m_accumScratchFramebuffer);
+
+    m_renderSettings->SetNoIterations(sampleCounter + 1);
+  }
+  const auto sampleEnd = std::chrono::high_resolution_clock::now();
+
+  transitionToShaderRead(*m_accumFramebuffer);
+  updateToneMapUniformBuffer(camera);
+  updateToneMapDescriptorSet();
+  runToneMapPass(framebuffer);
+
+  const auto frameEnd = std::chrono::high_resolution_clock::now();
+  const double frameMs = std::chrono::duration<double, std::milli>(frameEnd - frameStart).count();
+  const double sampleMs = std::chrono::duration<double, std::milli>(sampleEnd - sampleStart).count();
+  const double toneMapMs = std::chrono::duration<double, std::milli>(frameEnd - sampleEnd).count();
+  m_status->SetStatisticChanged("Performance", "Render Image", std::to_string(frameMs), "ms.");
+  m_status->SetStatisticChanged("Performance", "Path Trace Samples", std::to_string(sampleMs), "ms.");
+  m_status->SetStatisticChanged("Performance", "Tone Map", std::to_string(toneMapMs), "ms.");
+  m_status->SetStatisticChanged("Performance", "No. Iterations", std::to_string(m_renderSettings->GetNoIterations()));
+}
+
+bool
+RenderVkPT::ensureDummyLutTexture()
+{
+  if (m_dummyLutTexture) {
+    return true;
+  }
+
+  auto image = m_backend.device().createImage(
+    1, 1, 1, 1, VK_FORMAT_R8_UNORM, VK_IMAGE_TYPE_2D, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+  if (!image) {
+    return false;
+  }
+  auto view = m_backend.device().createImageView(
+    image->get(), VK_FORMAT_R8_UNORM, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+  if (!view) {
+    return false;
+  }
+
+  VkSamplerCreateInfo samplerInfo = {};
+  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  samplerInfo.magFilter = VK_FILTER_NEAREST;
+  samplerInfo.minFilter = VK_FILTER_NEAREST;
+  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  auto sampler = m_backend.device().createSampler(samplerInfo);
+  if (!sampler) {
+    return false;
+  }
+
+  transitionImageLayout(m_backend,
+                        image->get(),
+                        VK_IMAGE_ASPECT_COLOR_BIT,
+                        VK_IMAGE_LAYOUT_UNDEFINED,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        1);
+  m_dummyLutTexture = resources::SampledImage(std::move(*image), std::move(*view), std::move(*sampler));
+  return true;
+}
+
+bool
+RenderVkPT::ensurePtVolumeResources()
+{
+  VkDevice device = m_backend.logicalDevice();
+
+  if (!ensureDummyLutTexture()) {
+    return false;
+  }
+
+  if (!m_ptVolumeUniformBuffer) {
+    auto buffer = createUniformBuffer(m_backend, sizeof(PtVolumeUniforms));
+    if (!buffer) {
+      return false;
+    }
+    m_ptVolumeUniformBuffer = std::move(*buffer);
+  }
+
+  if (!m_ptVolumeDescriptorSetLayout) {
+    std::array<VkDescriptorSetLayoutBinding, 5> bindings = {};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[1].binding = 1; // volumeTexture (sampler3D)
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[2].binding = 2; // g_lutTexture[4] (deprecated, dummy)
+    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[2].descriptorCount = 4;
+    bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[3].binding = 3; // g_colormapTexture (sampler2DArray)
+    bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[3].descriptorCount = 1;
+    bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[4].binding = 4; // tPreviousTexture (sampler2D)
+    bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[4].descriptorCount = 1;
+    bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings = bindings.data();
+    auto descriptorSetLayoutResource = m_backend.device().createDescriptorSetLayout(layoutInfo);
+    if (!descriptorSetLayoutResource) {
+      return false;
+    }
+    m_ptVolumeDescriptorSetLayout = std::move(*descriptorSetLayoutResource);
+
+    std::array<VkDescriptorPoolSize, 2> poolSizes = {};
+    poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSizes[0].descriptorCount = 1;
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[1].descriptorCount = 7; // volume(1) + lut(4) + colormap(1) + previous(1)
+
+    VkDescriptorPoolCreateInfo poolInfo = {};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.maxSets = 1;
+    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+    poolInfo.pPoolSizes = poolSizes.data();
+    auto descriptorPool = m_backend.device().createDescriptorPool(poolInfo);
+    if (!descriptorPool) {
+      return false;
+    }
+    m_ptVolumeDescriptorPool = std::move(*descriptorPool);
+
+    VkDescriptorSetAllocateInfo allocateInfo = {};
+    allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocateInfo.descriptorPool = m_ptVolumeDescriptorPool.get();
+    allocateInfo.descriptorSetCount = 1;
+    VkDescriptorSetLayout descriptorSetLayout = m_ptVolumeDescriptorSetLayout.get();
+    allocateInfo.pSetLayouts = &descriptorSetLayout;
+    if (vkAllocateDescriptorSets(device, &allocateInfo, &m_ptVolumeDescriptorSet) != VK_SUCCESS) {
+      LOG_ERROR << "vkAllocateDescriptorSets for pathtrace volume failed";
+      return false;
+    }
+  }
+
+  if (m_ptVolumePipeline) {
+    return true;
+  }
+
+  if (!m_ptVolumeRenderPass) {
+    auto renderPass = createColorRenderPass(m_backend, VK_FORMAT_R32G32B32A32_SFLOAT);
+    if (!renderPass) {
+      return false;
+    }
+    m_ptVolumeRenderPass = std::move(*renderPass);
+  }
+
+  if (!m_ptVolumePipelineLayout) {
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    VkDescriptorSetLayout descriptorSetLayout = m_ptVolumeDescriptorSetLayout.get();
+    pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+    auto pipelineLayout = m_backend.device().createPipelineLayout(pipelineLayoutInfo);
+    if (!pipelineLayout) {
+      return false;
+    }
+    m_ptVolumePipelineLayout = std::move(*pipelineLayout);
+  }
+
+  auto vertexShader =
+    m_backend.device().createShaderModule(pathTraceVolume_vert_spv, pathTraceVolume_vert_spv_word_count);
+  auto fragmentShader =
+    m_backend.device().createShaderModule(pathTraceVolume_frag_spv, pathTraceVolume_frag_spv_word_count);
+  if (!vertexShader || !fragmentShader) {
+    return false;
+  }
+
+  VkPipelineShaderStageCreateInfo vertexStage = {};
+  vertexStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  vertexStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
+  vertexStage.module = vertexShader->get();
+  vertexStage.pName = "main";
+  VkPipelineShaderStageCreateInfo fragmentStage = {};
+  fragmentStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  fragmentStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+  fragmentStage.module = fragmentShader->get();
+  fragmentStage.pName = "main";
+  std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages = { vertexStage, fragmentStage };
+
+  VkVertexInputBindingDescription bindingDescription = {};
+  bindingDescription.binding = 0;
+  bindingDescription.stride = sizeof(FullscreenVertex);
+  bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+  std::array<VkVertexInputAttributeDescription, 2> attributes = {};
+  attributes[0].binding = 0;
+  attributes[0].location = 0;
+  attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attributes[0].offset = offsetof(FullscreenVertex, position);
+  attributes[1].binding = 0;
+  attributes[1].location = 1;
+  attributes[1].format = VK_FORMAT_R32G32_SFLOAT;
+  attributes[1].offset = offsetof(FullscreenVertex, uv);
+
+  VkPipelineVertexInputStateCreateInfo vertexInput = {};
+  vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+  vertexInput.vertexBindingDescriptionCount = 1;
+  vertexInput.pVertexBindingDescriptions = &bindingDescription;
+  vertexInput.vertexAttributeDescriptionCount = 2;
+  vertexInput.pVertexAttributeDescriptions = attributes.data();
+
+  VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
+  inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+  inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+  VkPipelineViewportStateCreateInfo viewportState = {};
+  viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+  viewportState.viewportCount = 1;
+  viewportState.scissorCount = 1;
+
+  VkPipelineRasterizationStateCreateInfo rasterizer = {};
+  rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+  rasterizer.rasterizerDiscardEnable = VK_FALSE;
+  rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+  rasterizer.cullMode = VK_CULL_MODE_NONE;
+  rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+  rasterizer.lineWidth = 1.0f;
+
+  VkPipelineMultisampleStateCreateInfo multisampling = {};
+  multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+  multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+  VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
+  colorBlendAttachment.blendEnable = VK_FALSE;
+  colorBlendAttachment.colorWriteMask =
+    VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+  VkPipelineColorBlendStateCreateInfo colorBlending = {};
+  colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+  colorBlending.attachmentCount = 1;
+  colorBlending.pAttachments = &colorBlendAttachment;
+
+  std::array<VkDynamicState, 2> dynamicStates = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+  VkPipelineDynamicStateCreateInfo dynamicState = {};
+  dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+  dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+  dynamicState.pDynamicStates = dynamicStates.data();
+
+  VkGraphicsPipelineCreateInfo pipelineInfo = {};
+  pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+  pipelineInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
+  pipelineInfo.pStages = shaderStages.data();
+  pipelineInfo.pVertexInputState = &vertexInput;
+  pipelineInfo.pInputAssemblyState = &inputAssembly;
+  pipelineInfo.pViewportState = &viewportState;
+  pipelineInfo.pRasterizationState = &rasterizer;
+  pipelineInfo.pMultisampleState = &multisampling;
+  pipelineInfo.pColorBlendState = &colorBlending;
+  pipelineInfo.pDynamicState = &dynamicState;
+  pipelineInfo.layout = m_ptVolumePipelineLayout.get();
+  pipelineInfo.renderPass = m_ptVolumeRenderPass.get();
+  pipelineInfo.subpass = 0;
+
+  auto pipeline = m_backend.device().createPipeline(pipelineInfo);
+  if (!pipeline) {
+    return false;
+  }
+  m_ptVolumePipeline = std::move(*pipeline);
+  return true;
+}
+
 } // namespace gfxvulkan
