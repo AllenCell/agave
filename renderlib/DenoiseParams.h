@@ -57,6 +57,7 @@ struct PathTraceRenderSettings
   float m_GradientFactor;
   bool m_ShowLightsBackground;
   bool m_InterpolatedVolumeSampling;
+  bool m_UseWoodcockTracking;
 
   PathTraceRenderSettings()
     : m_DensityScale(8.5f)
@@ -67,6 +68,7 @@ struct PathTraceRenderSettings
     , m_GradientFactor(0.5f)
     , m_ShowLightsBackground(false)
     , m_InterpolatedVolumeSampling(true)
+    , m_UseWoodcockTracking(true)
   {
   }
 };
