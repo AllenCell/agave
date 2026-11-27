@@ -15,6 +15,7 @@
 #include "renderlib/CacheManager.h"
 #include "renderlib/gfxapi/Backend.h"
 #include "renderlib/io/FileReader.h"
+#include "renderlib/io/FileReaderTestVolume.h"
 #include "renderlib/renderlib.h"
 #include "renderlib/version.hpp"
 
@@ -864,7 +865,24 @@ agaveGui::open(const std::string& file, const Serialize::ViewerState* vs, bool i
 
   bool keepCurrentUISettings = true;
 
-  if (!vs) {
+  if (file == FileReaderTestVolume::PATH) {
+    dims = multiscaledims[0].getVolumeDimensions();
+    if (!vs) {
+      // Direct test-volume loads use the complete volume at scene 0, time 0,
+      // with all channels.
+      loadSpec.filepath = file;
+      loadSpec.isImageSequence = isImageSequence;
+      loadSpec.subpath = multiscaledims[0].path;
+      loadSpec.scene = sceneToLoad;
+      loadSpec.time = timeToLoad;
+      loadSpec.minx = 0;
+      loadSpec.maxx = dims.sizeX;
+      loadSpec.miny = 0;
+      loadSpec.maxy = dims.sizeY;
+      loadSpec.minz = 0;
+      loadSpec.maxz = dims.sizeZ;
+    }
+  } else if (!vs) {
     LoadDialog* loadDialog = new LoadDialog(file, multiscaledims, sceneToLoad, this);
     // Make sure loadDialog gets initialized from the loaded prefetch setting.
     loadDialog->setPrefetchTimeSeries(m_settings.data().timeSeries.prefetchEnabled);
