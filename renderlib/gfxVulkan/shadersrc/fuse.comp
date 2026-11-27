@@ -1,0 +1,70 @@
+#version 450
+
+// One invocation fuses one voxel. The raw buffer contains channel-major u16
+// intensities packed two per uint; this avoids a CPU color/opacity pass.
+layout(local_size_x = 256) in;
+layout(set = 0, binding = 0, std430) readonly buffer RawVolume { uint raw[]; };
+layout(set = 0, binding = 1, std430) readonly buffer FuseParams { uint params[]; };
+layout(set = 0, binding = 2, rgba8) writeonly uniform image3D fused;
+
+layout(push_constant) uniform Size {
+  uint width;
+  uint height;
+  uint depth;
+  uint channels;
+  uint firstVoxel;
+  uint chunkVoxels;
+} size;
+
+// Must match VolumeTextureVk.cpp: ten scalar words, 256 LUT values, then
+// 256 packed RGB colormap entries per channel.
+const uint scalarWords = 10u;
+const uint tableEntries = 256u;
+const uint colorMapOffset = scalarWords + tableEntries;
+const uint wordsPerChannel = colorMapOffset + tableEntries;
+
+float paramFloat(uint offset) { return uintBitsToFloat(params[offset]); }
+
+void main()
+{
+  uint localVoxel = (gl_WorkGroupID.y * 65535u + gl_WorkGroupID.x) * 256u + gl_LocalInvocationID.x;
+  if (localVoxel >= size.chunkVoxels) return;
+  uint voxel = size.firstVoxel + localVoxel;
+
+  vec4 result = vec4(0.0);
+  for (uint channel = 0u; channel < size.channels; ++channel) {
+    uint base = channel * wordsPerChannel;
+    if (params[base + 8u] == 0u) continue;
+    uint sourceIndex = channel * size.chunkVoxels + localVoxel;
+    uint pair = raw[sourceIndex / 2u];
+    uint intensity = (sourceIndex & 1u) == 0u ? pair & 65535u : pair >> 16u;
+
+    uint minValue = uint(paramFloat(base));
+    uint maxValue = uint(paramFloat(base + 1u));
+    uint range = max(maxValue - minValue, 1u);
+    // The CPU fuse truncates a float32-normalized lookup after adding 0.5;
+    // exact half steps typically round down after that normalization.
+    uint lutIndex = min(((intensity - minValue) * 255u + (range - 1u) / 2u) / range, 255u);
+    float value = paramFloat(base + scalarWords + lutIndex);
+    float alpha = clamp(value * paramFloat(base + 4u), 0.0, 1.0);
+
+    uint colorIndex;
+    if (params[base + 9u] != 0u) {
+      colorIndex = intensity & 255u;
+    } else {
+      float low = paramFloat(base + 2u);
+      float high = paramFloat(base + 3u);
+      colorIndex = uint(clamp(floor(clamp((float(intensity) - low) /
+                             max(high - low, 1.0), 0.0, 1.0) * 255.0), 0.0, 255.0));
+    }
+    uint packed = params[base + colorMapOffset + colorIndex];
+    vec3 color = vec3(float(packed & 255u), float((packed >> 8u) & 255u),
+                      float((packed >> 16u) & 255u)) / 255.0;
+    color *= vec3(paramFloat(base + 5u), paramFloat(base + 6u), paramFloat(base + 7u));
+    result = max(result, vec4(clamp(color * alpha, 0.0, 1.0), alpha));
+  }
+
+  uint xy = size.width * size.height;
+  ivec3 pos = ivec3(int(voxel % size.width), int((voxel / size.width) % size.height), int(voxel / xy));
+  imageStore(fused, pos, result);
+}

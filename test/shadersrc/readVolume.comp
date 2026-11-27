@@ -1,0 +1,26 @@
+#version 450
+
+// Test-only readback through the same sampled-image access used by raymarch.
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0) uniform sampler3D volumeTexture;
+layout(set = 0, binding = 1, std430) writeonly buffer Pixels { uint rgba[]; } pixels;
+
+layout(push_constant) uniform Dimensions {
+  uint width;
+  uint height;
+  uint depth;
+} dimensions;
+
+void main()
+{
+  uint index = gl_GlobalInvocationID.x;
+  uint count = dimensions.width * dimensions.height * dimensions.depth;
+  if (index >= count) return;
+  uint xy = dimensions.width * dimensions.height;
+  uvec3 voxel = uvec3(index % dimensions.width,
+                      (index / dimensions.width) % dimensions.height,
+                      index / xy);
+  vec3 coord = (vec3(voxel) + vec3(0.5)) /
+               vec3(dimensions.width, dimensions.height, dimensions.depth);
+  pixels.rgba[index] = packUnorm4x8(textureLod(volumeTexture, coord, 0.0));
+}

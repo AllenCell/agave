@@ -56,7 +56,6 @@ transferAlpha(vec4 color, float vmin, float vmax, float C)
   xi = clamp(xi, 0.0, 1.0);
   float y = pow(xi, C);
   y = clamp(y, 0.0, 1.0);
-  color.rgb = color.a > 0.0 ? color.rgb / color.a : vec3(0.0);
   color.a = y;
   return color;
 }

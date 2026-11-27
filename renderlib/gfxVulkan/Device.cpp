@@ -335,6 +335,20 @@ Device::createPipeline(const VkGraphicsPipelineCreateInfo& createInfo, VkPipelin
   return resources::UniquePipeline(m_resources, pipeline);
 }
 
+std::optional<resources::UniquePipeline>
+Device::createComputePipeline(const VkComputePipelineCreateInfo& createInfo)
+{
+  if (m_device == VK_NULL_HANDLE || !m_resources) {
+    return std::nullopt;
+  }
+  VkPipeline pipeline = VK_NULL_HANDLE;
+  if (vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &createInfo, nullptr, &pipeline) != VK_SUCCESS) {
+    LOG_ERROR << "vkCreateComputePipelines failed";
+    return std::nullopt;
+  }
+  return resources::UniquePipeline(m_resources, pipeline);
+}
+
 std::optional<resources::UniqueFramebuffer>
 Device::createFramebuffer(const VkFramebufferCreateInfo& createInfo)
 {

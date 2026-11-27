@@ -51,6 +51,7 @@ public:
   std::optional<resources::UniqueRenderPass> createRenderPass(const VkRenderPassCreateInfo& createInfo);
   std::optional<resources::UniquePipeline> createPipeline(const VkGraphicsPipelineCreateInfo& createInfo,
                                                           VkPipelineCache cache = VK_NULL_HANDLE);
+  std::optional<resources::UniquePipeline> createComputePipeline(const VkComputePipelineCreateInfo& createInfo);
   std::optional<resources::UniqueFramebuffer> createFramebuffer(const VkFramebufferCreateInfo& createInfo);
   std::optional<resources::UniqueFence> createFence(const VkFenceCreateInfo& createInfo);
   std::optional<resources::UniqueCommandPool> createCommandPool(const VkCommandPoolCreateInfo& createInfo);

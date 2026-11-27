@@ -7,6 +7,7 @@
 #include "gfxVulkan/Backend.h"
 #include "gfxVulkan/Device.h"
 #include "threading.h"
+#include "shadersrc/fuse_comp_spv.hpp"
 
 #include <algorithm>
 #include <array>
@@ -19,6 +20,20 @@ namespace gfxvulkan {
 namespace {
 
 constexpr float kInvUint16Max = 1.0f / 65535.0f;
+// Each channel occupies ten scalar parameter words, a 256-entry float LUT,
+// and a 256-entry packed RGB colormap. Keep this layout in sync with fuse.comp.
+constexpr size_t kFuseScalarWords = 10;
+constexpr size_t kFuseTableEntries = 256;
+constexpr size_t kFuseColorMapOffset = kFuseScalarWords + kFuseTableEntries;
+constexpr size_t kFuseWordsPerChannel = kFuseColorMapOffset + kFuseTableEntries;
+
+uint32_t
+floatBits(float value)
+{
+  uint32_t bits;
+  std::memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
 
 } // namespace
 
@@ -64,6 +79,21 @@ VolumeTextureVk::release()
 {
   m_transferTexture.reset();
   m_volumeTexture.reset();
+  m_fusePipeline.reset();
+  m_fusePipelineLayout.reset();
+  m_fusePool.reset();
+  m_fuseSetLayout.reset();
+  m_fuseSets.clear();
+  if (m_fuseParams && m_fuseParamsMapped)
+    vkUnmapMemory(m_backend.logicalDevice(), m_fuseParams->memory());
+  m_fuseParamsMapped = nullptr;
+  m_fuseParams.reset();
+  m_fuseLimitsCached = false;
+  m_fuseRaw.reset();
+  m_fuseRawCapacity = 0;
+  m_fuseChunkStride = 0;
+  m_fuseChunkCount = 0;
+  m_fuseImage.reset();
   m_majorantTexture.reset();
   m_majorantExtent = glm::ivec3(0);
   m_cellBounds = VolumeCellBounds();
@@ -77,6 +107,9 @@ VolumeTextureVk::release()
 
   m_volumeFormat = VK_FORMAT_UNDEFINED;
   m_volumeExtent = glm::ivec3(0);
+  m_volumeStorage = false;
+  m_lastFuseWasGpu = false;
+  m_fuseRawUploads = 0;
 
   m_dimensions = glm::ivec3(0);
   m_lutMin = glm::vec4(0.0f);
@@ -154,7 +187,9 @@ VolumeTextureVk::ensureVolumeImage(VkFormat format,
                                    bool linearFiltering)
 {
   const glm::ivec3 extent(static_cast<int>(width), static_cast<int>(height), static_cast<int>(depth));
-  if (m_volumeTexture.valid() && m_volumeFormat == format && m_volumeExtent == extent) {
+  const bool wantStorage = m_mode == VolumeTextureMode::FusedRgba8 && m_fuseUseStorage;
+  if (m_volumeTexture.valid() && m_volumeFormat == format && m_volumeExtent == extent &&
+      (!wantStorage || m_volumeStorage)) {
     // Same shape as last time, which is the normal case when stepping through a
     // time series. Only the sampler might need to change.
     if (m_linearFiltering != linearFiltering) {
@@ -165,8 +200,14 @@ VolumeTextureVk::ensureVolumeImage(VkFormat format,
     return true;
   }
 
-  auto image = m_backend.device().createImage(
-    width, height, depth, 1, format, VK_IMAGE_TYPE_3D, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+  auto image = m_backend.device().createImage(width,
+                                              height,
+                                              depth,
+                                              1,
+                                              format,
+                                              VK_IMAGE_TYPE_3D,
+                                              VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                                                (wantStorage ? VK_IMAGE_USAGE_STORAGE_BIT : 0));
   if (!image) {
     return false;
   }
@@ -187,6 +228,7 @@ VolumeTextureVk::ensureVolumeImage(VkFormat format,
   m_volumeTexture = resources::SampledImage(std::move(*image), std::move(*view), std::move(*sampler));
   m_volumeFormat = format;
   m_volumeExtent = extent;
+  m_volumeStorage = wantStorage;
   m_linearFiltering = linearFiltering;
   return true;
 }
@@ -461,52 +503,348 @@ VolumeTextureVk::activeChannels(const Scene& scene) const
 }
 
 bool
+VolumeTextureVk::ensureFusePipeline()
+{
+  if (m_fusePipeline) {
+    return true;
+  }
+
+  std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
+  for (uint32_t i = 0; i < bindings.size(); ++i) {
+    bindings[i].binding = i;
+    bindings[i].descriptorType = i == 2 ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[i].descriptorCount = 1;
+    bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  }
+  VkDescriptorSetLayoutCreateInfo setInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+  setInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+  setInfo.pBindings = bindings.data();
+  auto setLayout = m_backend.device().createDescriptorSetLayout(setInfo);
+  if (!setLayout)
+    return false;
+  m_fuseSetLayout = std::move(*setLayout);
+
+  VkDescriptorSetLayout layout = m_fuseSetLayout.get();
+
+  VkPushConstantRange pushRange{};
+  pushRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  pushRange.size = sizeof(uint32_t) * 6;
+  VkPipelineLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+  layoutInfo.setLayoutCount = 1;
+  layoutInfo.pSetLayouts = &layout;
+  layoutInfo.pushConstantRangeCount = 1;
+  layoutInfo.pPushConstantRanges = &pushRange;
+  auto pipelineLayout = m_backend.device().createPipelineLayout(layoutInfo);
+  if (!pipelineLayout)
+    return false;
+  m_fusePipelineLayout = std::move(*pipelineLayout);
+
+  auto shader = m_backend.device().createShaderModule(fuse_comp_spv, fuse_comp_spv_word_count);
+  if (!shader)
+    return false;
+  VkPipelineShaderStageCreateInfo stage{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+  stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+  stage.module = shader->get();
+  stage.pName = "main";
+  VkComputePipelineCreateInfo pipelineInfo{ VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
+  pipelineInfo.stage = stage;
+  pipelineInfo.layout = m_fusePipelineLayout.get();
+  auto pipeline = m_backend.device().createComputePipeline(pipelineInfo);
+  if (!pipeline)
+    return false;
+  m_fusePipeline = std::move(*pipeline);
+  return static_cast<bool>(m_fusePipeline);
+}
+
+bool
+VolumeTextureVk::ensureFuseDescriptorSets(size_t count)
+{
+  if (m_fuseSets.size() >= count)
+    return true;
+  if (count == 0 || count > UINT32_MAX / 2)
+    return false;
+  m_fuseSets.clear();
+  m_fusePool.reset();
+  std::array<VkDescriptorPoolSize, 2> poolSizes{
+    VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, static_cast<uint32_t>(count * 2) },
+    VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, static_cast<uint32_t>(count) }
+  };
+  VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+  poolInfo.maxSets = static_cast<uint32_t>(count);
+  poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+  poolInfo.pPoolSizes = poolSizes.data();
+  auto pool = m_backend.device().createDescriptorPool(poolInfo);
+  if (!pool)
+    return false;
+  m_fusePool = std::move(*pool);
+  std::vector<VkDescriptorSetLayout> layouts(count, m_fuseSetLayout.get());
+  m_fuseSets.resize(count);
+  VkDescriptorSetAllocateInfo alloc{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+  alloc.descriptorPool = m_fusePool.get();
+  alloc.descriptorSetCount = static_cast<uint32_t>(count);
+  alloc.pSetLayouts = layouts.data();
+  if (vkAllocateDescriptorSets(m_backend.logicalDevice(), &alloc, m_fuseSets.data()) != VK_SUCCESS) {
+    m_fuseSets.clear();
+    return false;
+  }
+  return true;
+}
+
+bool
 VolumeTextureVk::uploadFused(const Scene& scene, bool linearFiltering)
 {
+  m_fuseUseStorage = true;
   ImageXYZC* img = scene.m_volume.get();
   const size_t voxelCount = img->sizeX() * img->sizeY() * img->sizeZ();
+  const uint32_t channelCount = static_cast<uint32_t>(std::min(img->sizeC(), static_cast<size_t>(MAX_CPU_CHANNELS)));
+  // No channel data can be fused. Check before using channelCount as the
+  // descriptor-range divisor; the CPU fuse path also requires a channel.
+  if (channelCount == 0)
+    return false;
+  // The physical device and its format support are fixed for this backend.
+  // Query once, after headless/windowed device selection has completed.
+  if (!m_fuseLimitsCached) {
+    VkPhysicalDeviceProperties properties{};
+    vkGetPhysicalDeviceProperties(m_backend.physicalDevice(), &properties);
+    VkFormatProperties formatProperties{};
+    vkGetPhysicalDeviceFormatProperties(m_backend.physicalDevice(), VK_FORMAT_R8G8B8A8_UNORM, &formatProperties);
+    m_fuseMaxGroups = static_cast<size_t>(std::min(properties.limits.maxComputeWorkGroupCount[0], 65535u)) *
+                      properties.limits.maxComputeWorkGroupCount[1];
+    m_fuseAlignment = std::max<size_t>(4, properties.limits.minStorageBufferOffsetAlignment);
+    m_fuseDescriptorLimit = properties.limits.maxStorageBufferRange;
+    m_fuseStorageSupported = (formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) != 0;
+    m_fuseLimitsCached = true;
+  }
+  const size_t maxChunkVoxels =
+    std::min({ voxelCount,
+               m_fuseChunkVoxelLimit,
+               m_fuseDescriptorLimit > m_fuseAlignment
+                 ? (m_fuseDescriptorLimit - m_fuseAlignment) / (channelCount * sizeof(uint16_t))
+                 : 0,
+               m_fuseMaxGroups * 256 });
+  if (!m_fuseStorageSupported || maxChunkVoxels == 0 || voxelCount > UINT32_MAX || !ensureFusePipeline()) {
+    return uploadFusedCpu(scene, linearFiltering);
+  }
+  const size_t chunkStride =
+    ((maxChunkVoxels * channelCount * sizeof(uint16_t) + m_fuseAlignment - 1) / m_fuseAlignment) * m_fuseAlignment;
+  const size_t chunkCount = (voxelCount + maxChunkVoxels - 1) / maxChunkVoxels;
+  const size_t rawBufferBytes = chunkCount * chunkStride;
+  // Current loaders create a new ImageXYZC for each time step, and no current
+  // code edits its pixels in place after loading. If that changes, image
+  // identity alone will no longer be enough to detect stale GPU raw data.
+  const bool rawChanged = !m_fuseRaw || m_fuseRawCapacity < rawBufferBytes || m_fuseChunkStride != chunkStride ||
+                          m_fuseChunkCount != chunkCount || m_fuseImage.lock() != scene.m_volume;
+  if (!ensureFuseDescriptorSets(chunkCount) || (rawChanged && !ensureStagingBuffer(rawBufferBytes)))
+    return uploadFusedCpu(scene, linearFiltering);
+  if (!m_fuseRaw || m_fuseRawCapacity < rawBufferBytes) {
+    auto buffer = m_backend.device().createBuffer(static_cast<VkDeviceSize>(rawBufferBytes),
+                                                  VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (!buffer)
+      return uploadFusedCpu(scene, linearFiltering);
+    m_fuseRaw = std::move(*buffer);
+    m_fuseRawCapacity = rawBufferBytes;
+  }
 
-  std::vector<glm::vec3> colors;
-  colors.reserve(MAX_CPU_CHANNELS);
-  for (int i = 0; i < static_cast<int>(MAX_CPU_CHANNELS); ++i) {
-    if (scene.m_material.m_enabled[i]) {
-      colors.push_back(glm::vec3(scene.m_material.m_diffuse[i * 3],
-                                 scene.m_material.m_diffuse[i * 3 + 1],
-                                 scene.m_material.m_diffuse[i * 3 + 2]));
-    } else {
-      colors.push_back(glm::vec3(0.0f));
+  std::array<uint32_t, MAX_CPU_CHANNELS * kFuseWordsPerChannel> params{};
+  for (uint32_t channel = 0; channel < channelCount; ++channel) {
+    const size_t base = channel * kFuseWordsPerChannel;
+    Channelu16* ch = img->channel(channel);
+    const auto& material = scene.m_material;
+    const float chmin = static_cast<float>(ch->m_histogram.getDataMin());
+    const float chmax = static_cast<float>(ch->m_histogram.getDataMax());
+    uint16_t gradientMin = 0;
+    uint16_t gradientMax = 0;
+    const bool hasMinMax = material.m_gradientData[channel].getMinMax(ch->m_histogram, &gradientMin, &gradientMax);
+    params[base + 0] = floatBits(chmin);
+    params[base + 1] = floatBits(chmax);
+    params[base + 2] = floatBits(hasMinMax ? static_cast<float>(gradientMin) : chmin);
+    params[base + 3] = floatBits(hasMinMax ? static_cast<float>(gradientMax) : chmax);
+    params[base + 4] = floatBits(material.m_opacity[channel]);
+    for (size_t component = 0; component < 3; ++component) {
+      params[base + 5 + component] = floatBits(material.m_diffuse[channel * 3 + component]);
+    }
+    params[base + 8] = material.m_enabled[channel] ? 1u : 0u;
+    params[base + 9] = material.m_labels[channel] > 0 ? 1u : 0u;
+    const uint8_t* colormap = material.m_colormap[channel].m_colormap.data();
+    for (size_t i = 0; i < kFuseTableEntries; ++i) {
+      params[base + kFuseScalarWords + i] = floatBits(ch->m_lut[i]);
+      params[base + kFuseColorMapOffset + i] = colormap ? static_cast<uint32_t>(colormap[i * 4]) |
+                                                            (static_cast<uint32_t>(colormap[i * 4 + 1]) << 8u) |
+                                                            (static_cast<uint32_t>(colormap[i * 4 + 2]) << 16u)
+                                                        : 0x00ffffffu;
+    }
+  }
+  if (!m_fuseParams) {
+    auto buffer =
+      m_backend.device().createBuffer(sizeof(params),
+                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (!buffer)
+      return uploadFusedCpu(scene, linearFiltering);
+    m_fuseParams = std::move(*buffer);
+    if (vkMapMemory(m_backend.logicalDevice(), m_fuseParams->memory(), 0, sizeof(params), 0, &m_fuseParamsMapped) !=
+        VK_SUCCESS) {
+      m_fuseParams.reset();
+      return uploadFusedCpu(scene, linearFiltering);
+    }
+  }
+  // HOST_COHERENT and the synchronous fuse submission allow this mapping to
+  // remain live across appearance updates, just like the raw staging buffer.
+  std::memcpy(m_fuseParamsMapped, params.data(), sizeof(params));
+
+  const uint32_t width = static_cast<uint32_t>(img->sizeX());
+  const uint32_t height = static_cast<uint32_t>(img->sizeY());
+  const uint32_t depth = static_cast<uint32_t>(img->sizeZ());
+  const bool imageExisted = m_volumeTexture.valid() && m_volumeStorage && m_volumeFormat == VK_FORMAT_R8G8B8A8_UNORM &&
+                            m_volumeExtent == glm::ivec3(width, height, depth);
+  if (!ensureVolumeImage(VK_FORMAT_R8G8B8A8_UNORM, width, height, depth, linearFiltering))
+    return uploadFusedCpu(scene, linearFiltering);
+
+  // Pack channel-major chunks into one persistent GPU buffer. Each descriptor
+  // exposes only one aligned window, satisfying maxStorageBufferRange without
+  // splitting the upload or submitting once per chunk.
+  if (rawChanged) {
+    auto* staging = static_cast<uint8_t*>(m_stagingMapped);
+    for (size_t chunk = 0; chunk < chunkCount; ++chunk) {
+      const size_t first = chunk * maxChunkVoxels;
+      const size_t count = std::min(maxChunkVoxels, voxelCount - first);
+      auto* destination = staging + chunk * chunkStride;
+      for (uint32_t channel = 0; channel < channelCount; ++channel) {
+        std::memcpy(destination + channel * count * sizeof(uint16_t),
+                    img->ptr(channel) + first * sizeof(uint16_t),
+                    count * sizeof(uint16_t));
+      }
+      std::memset(destination + count * channelCount * sizeof(uint16_t),
+                  0,
+                  chunkStride - count * channelCount * sizeof(uint16_t));
     }
   }
 
+  VkDescriptorBufferInfo paramsInfo{ m_fuseParams->get(), 0, sizeof(params) };
+  VkDescriptorImageInfo imageInfo{};
+  imageInfo.imageView = m_volumeTexture.view();
+  imageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  for (size_t chunk = 0; chunk < chunkCount; ++chunk) {
+    VkDescriptorBufferInfo rawInfo{ m_fuseRaw->get(),
+                                    static_cast<VkDeviceSize>(chunk * chunkStride),
+                                    static_cast<VkDeviceSize>(chunkStride) };
+    std::array<VkWriteDescriptorSet, 3> writes{};
+    for (uint32_t i = 0; i < writes.size(); ++i) {
+      writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      writes[i].dstSet = m_fuseSets[chunk];
+      writes[i].dstBinding = i;
+      writes[i].descriptorCount = 1;
+      writes[i].descriptorType = i == 2 ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    }
+    writes[0].pBufferInfo = &rawInfo;
+    writes[1].pBufferInfo = &paramsInfo;
+    writes[2].pImageInfo = &imageInfo;
+    vkUpdateDescriptorSets(m_backend.logicalDevice(), static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+  }
+
+  VkCommandBuffer command = m_backend.beginSingleTimeCommands();
+  if (rawChanged) {
+    VkBufferCopy region{ 0, 0, static_cast<VkDeviceSize>(rawBufferBytes) };
+    vkCmdCopyBuffer(command, m_staging->get(), m_fuseRaw->get(), 1, &region);
+    VkBufferMemoryBarrier barrier{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.buffer = m_fuseRaw->get();
+    barrier.size = VK_WHOLE_SIZE;
+    vkCmdPipelineBarrier(command,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         0,
+                         0,
+                         nullptr,
+                         1,
+                         &barrier,
+                         0,
+                         nullptr);
+  }
+  transitionImageLayout(command,
+                        m_volumeTexture.image(),
+                        VK_IMAGE_ASPECT_COLOR_BIT,
+                        imageExisted ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
+                        VK_IMAGE_LAYOUT_GENERAL);
+  vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, m_fusePipeline.get());
+  for (size_t chunk = 0; chunk < chunkCount; ++chunk) {
+    const size_t first = chunk * maxChunkVoxels;
+    const size_t count = std::min(maxChunkVoxels, voxelCount - first);
+    vkCmdBindDescriptorSets(
+      command, VK_PIPELINE_BIND_POINT_COMPUTE, m_fusePipelineLayout.get(), 0, 1, &m_fuseSets[chunk], 0, nullptr);
+    const std::array<uint32_t, 6> size{
+      width, height, depth, channelCount, static_cast<uint32_t>(first), static_cast<uint32_t>(count)
+    };
+    vkCmdPushConstants(command, m_fusePipelineLayout.get(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(size), size.data());
+    const size_t groups = (count + 255) / 256;
+    vkCmdDispatch(command,
+                  static_cast<uint32_t>(std::min(groups, size_t(65535))),
+                  static_cast<uint32_t>((groups + 65534) / 65535),
+                  1);
+  }
+  transitionImageLayout(command,
+                        m_volumeTexture.image(),
+                        VK_IMAGE_ASPECT_COLOR_BIT,
+                        VK_IMAGE_LAYOUT_GENERAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  m_backend.endSingleTimeCommands(command);
+  if (rawChanged)
+    ++m_fuseRawUploads;
+
+  m_dimensions = glm::ivec3(width, height, depth);
+  m_fuseImage = scene.m_volume;
+  m_fuseChunkStride = chunkStride;
+  m_fuseChunkCount = chunkCount;
+  m_lastFuseWasGpu = true;
+  m_cellBounds = VolumeCellBounds();
+  m_gpuBytes += rawBufferBytes + voxelCount * 4;
+  ++m_volumeGeneration;
+
+  // The raymarch descriptor layout still binds a transfer image, although
+  // fused mode does not sample it.
+  if (!m_transferTexture.valid()) {
+    std::array<uint8_t, kTransferSize * kTransferLayers * 4> identity{};
+    return uploadTransferBytes(identity.data(), identity.size());
+  }
+  return true;
+}
+
+bool
+VolumeTextureVk::uploadFusedCpu(const Scene& scene, bool linearFiltering)
+{
+  m_fuseUseStorage = false;
+  m_lastFuseWasGpu = false;
+  m_fuseImage.reset();
+  ImageXYZC* img = scene.m_volume.get();
+  const size_t voxelCount = img->sizeX() * img->sizeY() * img->sizeZ();
+  std::vector<glm::vec3> colors;
+  colors.reserve(MAX_CPU_CHANNELS);
+  for (int i = 0; i < MAX_CPU_CHANNELS; ++i) {
+    colors.push_back(glm::vec3(
+      scene.m_material.m_diffuse[i * 3], scene.m_material.m_diffuse[i * 3 + 1], scene.m_material.m_diffuse[i * 3 + 2]));
+  }
   std::vector<uint8_t> rgba(voxelCount * 4);
   uint8_t* rgbaPtr = rgba.data();
   Fuse::fuse(img, colors, scene.m_material, &rgbaPtr, nullptr);
-
-  std::array<uint8_t, kTransferSize * kTransferLayers * 4> transfer = {};
-  for (uint32_t layer = 0; layer < kTransferLayers; ++layer) {
-    for (uint32_t i = 0; i < kTransferSize; ++i) {
-      const size_t offset = (layer * kTransferSize + i) * 4;
-      transfer[offset + 0] = static_cast<uint8_t>(i);
-      transfer[offset + 1] = static_cast<uint8_t>(i);
-      transfer[offset + 2] = static_cast<uint8_t>(i);
-      transfer[offset + 3] = static_cast<uint8_t>(i);
-    }
-  }
-
-  auto fill = [&rgba](void* mapped) {
-    std::memcpy(mapped, rgba.data(), rgba.size());
-  };
-
+  auto fill = [&rgba](void* mapped) { std::memcpy(mapped, rgba.data(), rgba.size()); };
   m_cellBounds = VolumeCellBounds();
-
-  return uploadVolumeFrom(fill,
-                          voxelCount * 4,
-                          VK_FORMAT_R8G8B8A8_UNORM,
-                          static_cast<uint32_t>(img->sizeX()),
-                          static_cast<uint32_t>(img->sizeY()),
-                          static_cast<uint32_t>(img->sizeZ()),
-                          linearFiltering) &&
-         uploadTransferBytes(transfer.data(), transfer.size());
+  if (!uploadVolumeFrom(fill,
+                        rgba.size(),
+                        VK_FORMAT_R8G8B8A8_UNORM,
+                        static_cast<uint32_t>(img->sizeX()),
+                        static_cast<uint32_t>(img->sizeY()),
+                        static_cast<uint32_t>(img->sizeZ()),
+                        linearFiltering))
+    return false;
+  if (!m_transferTexture.valid()) {
+    std::array<uint8_t, kTransferSize * kTransferLayers * 4> identity{};
+    return uploadTransferBytes(identity.data(), identity.size());
+  }
+  return true;
 }
 
 bool

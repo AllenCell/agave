@@ -41,9 +41,9 @@ volumeCoord(vec3 pos)
 }
 
 vec4
-lumaToAlpha(vec4 color)
+applyGamma(vec4 color)
 {
-  float x = max(color.r, max(color.g, color.b));
+  float x = color.a;
   float denom = max(u.colorParams.z - u.colorParams.y, 0.00001);
   float xi = clamp((x - u.colorParams.y) / denom, 0.0, 1.0);
   color.a = clamp(pow(xi, u.colorParams.w), 0.0, 1.0);
@@ -70,7 +70,7 @@ sampleVolume(vec3 pos)
   vec4 texel = textureLod(volumeTexture, coord, 0.0);
   int mode = int(u.aabbMinMode.w + 0.5);
   if (mode == 0) {
-    return lumaToAlpha(vec4(texel.rgb, 1.0));
+    return applyGamma(texel);
   }
 
   vec4 c0 = sampleTransfer(texel.r, 0);
