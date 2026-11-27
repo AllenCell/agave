@@ -538,7 +538,9 @@ VolumeTextureVk::uploadRaw(const Scene& scene, bool linearFiltering)
   // costing a quarter or half of the memory traffic of RGBA16. Three channels
   // still use RGBA16 because RGB16 is not a required sampled format.
   uint32_t enabledCount = 0;
-  for (uint32_t c = 0; c < img->sizeC() && c < MAX_CPU_CHANNELS; ++c) {
+  // activeChannels() and the path-trace shader expose at most four slots.
+  // Keep this count within that array before passing it to computeCellBounds().
+  for (uint32_t c = 0; c < img->sizeC() && c < MAX_CPU_CHANNELS && enabledCount < channels.size(); ++c) {
     if (scene.m_material.m_enabled[c]) {
       ++enabledCount;
     }
@@ -614,43 +616,43 @@ VolumeTextureVk::computeCellBounds(const Scene& scene, const std::array<uint32_t
 
   const int gx = bounds.gridDim.x;
   const int gy = bounds.gridDim.y;
-  const int gz = bounds.gridDim.z;
   const size_t sliceStride = static_cast<size_t>(nx) * static_cast<size_t>(ny);
 
-  // One task per grid z-slab. Each cell scans its voxel block dilated by one
-  // voxel on every side; indices wrap around the volume to match the REPEAT
-  // sampler, which blends the first and last voxel rows together.
-  parallel_for(static_cast<size_t>(gz), [&](size_t s, size_t e) {
-    for (size_t cz = s; cz < e; ++cz) {
+  // Distribute independent cells across threads. Wide, shallow volumes may
+  // have only a few z-slabs, so parallelizing over z alone leaves cores idle.
+  // Each cell scans its voxel block dilated by one voxel on every side;
+  // indices wrap to match the REPEAT sampler at volume boundaries.
+  const size_t gridSliceStride = static_cast<size_t>(gx) * static_cast<size_t>(gy);
+  parallel_for(cellCount, [&](size_t s, size_t e) {
+    for (size_t cellIndex = s; cellIndex < e; ++cellIndex) {
+      const size_t cz = cellIndex / gridSliceStride;
+      const size_t remainder = cellIndex % gridSliceStride;
+      const int cy = static_cast<int>(remainder / static_cast<size_t>(gx));
+      const int cx = static_cast<int>(remainder % static_cast<size_t>(gx));
       const int z0 = static_cast<int>(cz) * cell - 1;
       const int z1 = std::min(nz - 1, static_cast<int>(cz + 1) * cell); // inclusive, before wrap
-      for (int cy = 0; cy < gy; ++cy) {
-        const int y0 = cy * cell - 1;
-        const int y1 = std::min(ny - 1, (cy + 1) * cell);
-        for (int cx = 0; cx < gx; ++cx) {
-          const int x0 = cx * cell - 1;
-          const int x1 = std::min(nx - 1, (cx + 1) * cell);
-          const size_t cellIndex = (cz * gy + cy) * gx + cx;
-          for (uint32_t slot = 0; slot < slots; ++slot) {
-            const uint16_t* src = img->channel(channels[slot])->m_ptr;
-            uint16_t lo = 0xffff;
-            uint16_t hi = 0;
-            for (int z = z0; z <= z1; ++z) {
-              const int zz = (z + nz) % nz;
-              for (int y = y0; y <= y1; ++y) {
-                const int yy = (y + ny) % ny;
-                const uint16_t* row = src + zz * sliceStride + static_cast<size_t>(yy) * nx;
-                for (int x = x0; x <= x1; ++x) {
-                  const uint16_t v = row[(x + nx) % nx];
-                  lo = std::min(lo, v);
-                  hi = std::max(hi, v);
-                }
-              }
+      const int y0 = cy * cell - 1;
+      const int y1 = std::min(ny - 1, (cy + 1) * cell);
+      const int x0 = cx * cell - 1;
+      const int x1 = std::min(nx - 1, (cx + 1) * cell);
+      for (uint32_t slot = 0; slot < slots; ++slot) {
+        const uint16_t* src = img->channel(channels[slot])->m_ptr;
+        uint16_t lo = 0xffff;
+        uint16_t hi = 0;
+        for (int z = z0; z <= z1; ++z) {
+          const int zz = (z + nz) % nz;
+          for (int y = y0; y <= y1; ++y) {
+            const int yy = (y + ny) % ny;
+            const uint16_t* row = src + zz * sliceStride + static_cast<size_t>(yy) * nx;
+            for (int x = x0; x <= x1; ++x) {
+              const uint16_t v = row[(x + nx) % nx];
+              lo = std::min(lo, v);
+              hi = std::max(hi, v);
             }
-            bounds.minValue[slot * cellCount + cellIndex] = lo;
-            bounds.maxValue[slot * cellCount + cellIndex] = hi;
           }
         }
+        bounds.minValue[slot * cellCount + cellIndex] = lo;
+        bounds.maxValue[slot * cellCount + cellIndex] = hi;
       }
     }
   });

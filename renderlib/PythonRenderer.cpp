@@ -131,12 +131,14 @@ PythonRenderer::initialize(const std::string& mode, const std::string& assetPath
     m_framebuffer = backend->createFramebuffer(
       { static_cast<uint32_t>(m_width), static_cast<uint32_t>(m_height), gfxApi::FramebufferColorFormat::Rgba8, true });
     m_gestureRenderer = backend->createGestureRenderer();
+    m_gesture = std::make_unique<Gesture>();
 
     m_executionContext.m_renderer = this;
     m_executionContext.m_renderSettings = m_renderSettings.get();
     m_executionContext.m_appScene = m_scene.get();
     m_executionContext.m_camera = m_camera.get();
   } catch (...) {
+    m_gesture.reset();
     m_gestureRenderer.reset();
     m_framebuffer.reset();
     m_renderer.reset();
@@ -162,6 +164,7 @@ PythonRenderer::close()
   if (m_renderer) {
     m_renderer->cleanUpResources();
   }
+  m_gesture.reset();
   m_gestureRenderer.reset();
   m_framebuffer.reset();
   m_renderer.reset();
@@ -267,19 +270,19 @@ PythonRenderer::redraw()
   sceneView.scene = m_scene.get();
   sceneView.renderSettings = m_renderSettings.get();
 
-  Gesture gesture;
-  if (!gesture.graphics.font.isLoaded()) {
+  m_gesture->graphics.clearCommands();
+  if (!m_gesture->graphics.font.isLoaded()) {
     const std::string fontPath = renderlib::assetPath() + "/fonts/Arial.ttf";
-    gesture.graphics.font.load(fontPath.c_str());
+    m_gesture->graphics.font.load(fontPath.c_str());
   }
   ScaleBarTool scaleBar;
-  scaleBar.draw(sceneView, gesture);
+  scaleBar.draw(sceneView, *m_gesture);
   BoundingBoxTool boundingBox;
-  boundingBox.draw(sceneView, gesture);
+  boundingBox.draw(sceneView, *m_gesture);
   TimeStampTool timeStamp;
-  timeStamp.draw(sceneView, gesture);
+  timeStamp.draw(sceneView, *m_gesture);
 
-  gfxApi::renderToFramebuffer(*m_framebuffer, *m_renderer, *m_gestureRenderer, sceneView, gesture.graphics, 0.0f);
+  gfxApi::renderToFramebuffer(*m_framebuffer, *m_renderer, *m_gestureRenderer, sceneView, m_gesture->graphics, 0.0f);
 
   PythonRendererImage image{ m_width,
                              m_height,

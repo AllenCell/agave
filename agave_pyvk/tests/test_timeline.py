@@ -32,6 +32,12 @@ from agave_pyvk.animation import (
 )
 
 
+def assert_state_approx(actual, expected):
+    assert actual.keys() == expected.keys()
+    for channel, values in expected.items():
+        assert actual[channel] == pytest.approx(values)
+
+
 class Recorder:
     """Stands in for AgaveRenderer, recording (method, args) for every call."""
 
@@ -653,7 +659,7 @@ class TestExampleAnimation:
 
     def test_ends_on_the_state_it_started_from(self):
         _, tl = self.timeline()
-        assert tl.sample(384) == pytest.approx(tl.sample(0))
+        assert_state_approx(tl.sample(384), tl.sample(0))
 
 
 class TestWeightedBlending:
@@ -681,7 +687,7 @@ class TestWeightedBlending:
         tl = Timeline(fps=24, initial={"camera.exposure": (0.0,)})
         tl.add(self.flat("camera.exposure", 0.0, 0, 10, weight=3.0))
         tl.add(self.flat("camera.exposure", 1.0, 0, 10, weight=1.0))
-        assert tl.sample(5) == pytest.approx({"camera.exposure": (0.25,)})
+        assert tl.sample(5)["camera.exposure"] == pytest.approx((0.25,))
 
     def test_a_zero_weight_driver_does_not_contribute(self):
         tl = Timeline(fps=24, initial={"camera.exposure": (0.0,)})
@@ -693,9 +699,9 @@ class TestWeightedBlending:
         tl = Timeline(fps=24, initial={"camera.exposure": (0.0,)})
         tl.add(self.flat("camera.exposure", 0.0, 0, 10, weight=lambda f: 1.0 - f / 10))
         tl.add(self.flat("camera.exposure", 1.0, 0, 10, weight=lambda f: f / 10))
-        assert tl.sample(0) == pytest.approx({"camera.exposure": (0.0,)})
-        assert tl.sample(5) == pytest.approx({"camera.exposure": (0.5,)})
-        assert tl.sample(10) == pytest.approx({"camera.exposure": (1.0,)})
+        assert tl.sample(0)["camera.exposure"] == pytest.approx((0.0,))
+        assert tl.sample(5)["camera.exposure"] == pytest.approx((0.5,))
+        assert tl.sample(10)["camera.exposure"] == pytest.approx((1.0,))
 
     def test_blends_each_component_of_a_vector_channel(self):
         tl = Timeline(fps=24, initial={"camera.eye": (0.0, 0.0, 0.0)})
@@ -742,7 +748,7 @@ class TestWeightedBlending:
             kf_segment("camera.exposure", 0.0, 45.0, frames=48),
             kf_segment("camera.exposure", 45.0, 0.0, frames=48),
         )
-        assert tl.sample(48) == pytest.approx({"camera.exposure": (45.0,)})
+        assert tl.sample(48)["camera.exposure"] == pytest.approx((45.0,))
 
     def test_segment_helpers_accept_a_weight(self):
         tl = Timeline(fps=24, initial={"camera.exposure": (0.0,)})
@@ -750,7 +756,7 @@ class TestWeightedBlending:
             ramp("camera.exposure", 0.0, 0.0, frames=10, weight=3.0),
             ramp("camera.exposure", 1.0, 1.0, frames=10, weight=1.0),
         )
-        assert tl.sample(5) == pytest.approx({"camera.exposure": (0.25,)})
+        assert tl.sample(5)["camera.exposure"] == pytest.approx((0.25,))
 
     def test_a_zero_weight_driver_does_not_shadow_the_held_value(self):
         """Skipped entirely means it cannot win the hold lookup either."""
