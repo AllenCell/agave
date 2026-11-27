@@ -22,7 +22,7 @@ copyright = "2020-26, Allen Institute"
 author = "Allen Institute"
 
 # The full version, including alpha/beta/rc tags
-release = "@PROJECT_VERSION@"
+release = "@AGAVE_FULL_VERSION@"
 
 
 # -- General configuration ---------------------------------------------------

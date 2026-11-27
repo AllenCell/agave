@@ -1,17 +1,17 @@
 [build-system]
 requires = [
-    "setuptools>=69",
+    "setuptools>=77",
     "wheel>=0.43",
 ]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agave_pyvk"
-version = "1.9.0"
-description = "Headless in-process Vulkan Python bindings for AGAVE"
+name = "agave_py"
+version = "2.0.0-dev.2"
+description = "The AGAVE 3D volume renderer as a self-contained Python package - renders in-process, no separate AGAVE installation required"
 readme = "README.md"
-license = { text = "Allen Institute Software License" }
-requires-python = ">=3.10"
+license = "BSD-3-Clause"
+requires-python = ">=3.11"
 authors = [{ name = "Daniel Toloudis", email = "danielt@alleninstitute.org" }]
 dependencies = ["numpy", "Pillow==12.3.0"]
 
@@ -19,15 +19,15 @@ dependencies = ["numpy", "Pillow==12.3.0"]
 test = ["pytest>=5.4.3", "ruff>=0.4"]
 
 [tool.setuptools]
-packages = ["agave_pyvk"]
+packages = ["agave_py"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-agave_pyvk = ["*.pyd", "*.dll", "*.so", "*.so.*", "*.dylib", "share/vulkan/icd.d/*.json", "assets/**/*"]
+agave_py = ["*.pyd", "*.dll", "*.so", "*.so.*", "*.dylib", "share/vulkan/icd.d/*.json", "assets/**/*"]
 
 [tool.cibuildwheel]
-build = "cp3{11,12,13,14}-*"
-skip =  "cp38-* cp39-* cp310-* cp314t-win* cp315-* cp315t-* *_i686 *-win32 *-musllinux*"
+build = "cp3{11,12,13,14,15}-*"
+skip =  "cp39-* cp310-* cp314t-win* cp315t-* *_i686 *-win32 *-musllinux*"
 archs = ["auto64"]
 
 [tool.cibuildwheel.linux]
@@ -38,6 +38,7 @@ before-all = [
     "dnf install -y epel-release",
     "dnf install -y cmake curl git libcurl-devel openssl-devel mesa-libEGL-devel mesa-libGL-devel xz-devel libtiff-devel libX11-devel libxcb-devel libzstd-devel nasm ninja-build patch pkgconfig spdlog-devel xz zlib-devel",
     "python3 -m pip install ninja",
+    "pipx install sccache==0.16.0",
     
     "git clone --branch v1.5.7 --depth 1 https://github.com/facebook/zstd.git /tmp/zstd-1.5.7",
     "cmake -S /tmp/zstd-1.5.7/build/cmake -B /tmp/zstd-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/zstd -DCMAKE_INSTALL_LIBDIR=lib -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_SHARED=OFF -DZSTD_BUILD_STATIC=ON -DZSTD_BUILD_TESTS=OFF",
@@ -58,15 +59,21 @@ before-all = [
     
     "/opt/curl/bin/curl-config --version",
 ]
-before-build = """cmake -G Ninja -S {package}/.. -B {package}/../build-cibw-linux -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DCMAKE_PREFIX_PATH="/opt/curl;/opt/zstd" -DZstd_ROOT=/opt/zstd -DLIBCZI_BUILD_PREFER_EXTERNALPACKAGE_ZSTD=ON -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DCURL_DIR=/opt/curl/lib/cmake/CURL -DTENSORSTORE_USE_SYSTEM_OPENSSL=ON -DTENSORSTORE_USE_SYSTEM_ZSTD=ON -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build-cibw-linux --target stage_agave_pyvk --config Release --parallel"""
+before-build = """cmake -G Ninja -S {package}/.. -B {package}/../build-cibw-linux -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DCMAKE_PREFIX_PATH="/opt/curl;/opt/zstd" -DZstd_ROOT=/opt/zstd -DLIBCZI_BUILD_PREFER_EXTERNALPACKAGE_ZSTD=ON -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DCURL_DIR=/opt/curl/lib/cmake/CURL -DTENSORSTORE_USE_SYSTEM_OPENSSL=ON -DTENSORSTORE_USE_SYSTEM_ZSTD=ON -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build-cibw-linux --target stage_agave_py --config Release --parallel && sccache --show-stats"""
 
 [tool.cibuildwheel.macos]
 archs = ["arm64"]
 environment = { MACOSX_DEPLOYMENT_TARGET = "26.0" }
-before-build = """cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel 4"""
+before-build = """cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_py --config Release --parallel 4"""
 
 [tool.cibuildwheel.windows]
-before-build = '''for /f "delims=" %P in ('python -c "import sys; print(sys.executable)"') do (cmake -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="%P" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build {package}/../build --target stage_agave_pyvk --config Release --parallel)'''
+# Let delvewheel (cibuildwheel 4.x default) repair the wheel. DLLs already
+# staged into the package by CMake are detected and left alone; delvewheel
+# only vendors missing non-system dependencies (e.g. the MSVC runtime).
+# vulkan-1.dll must come from the user's GPU driver, never the wheel --
+# mirroring the system32 exclusion in the CMake staging step.
+repair-wheel-command = "delvewheel repair --ignore-existing --exclude vulkan-1.dll -w {dest_dir} {wheel}"
+before-build = '''for /f "delims=" %P in ('python -c "import sys; print(sys.executable)"') do (cmake -E echo "Configuring agave_py for %P" && cmake -E time cmake -G Ninja -S {package}/.. -B {package}/../build -USKBUILD_* -U_Python* -UPython_* -UNB_SUFFIX* -DPython_EXECUTABLE="%P" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DAGAVE_BUILD_APP=OFF -DAGAVE_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release && cmake -E echo "Building agave_py for %P" && cmake -E time cmake --build {package}/../build --target stage_agave_py --config Release --parallel)'''
 
 [tool.ruff]
 line-length = 88

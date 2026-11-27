@@ -98,7 +98,7 @@ TEST_CASE("macOS Vulkan manifest discovery", "[vulkan]")
 
   SECTION("a Python extension uses its package, independently of the host executable")
   {
-    const auto packageDir = fixture.root / "site-packages/agave_pyvk";
+    const auto packageDir = fixture.root / "site-packages/agave_py";
     const auto bundled = packageDir / "share/vulkan/icd.d/libkosmickrisp_icd.json";
     ManifestFixture::Write(bundled);
     REQUIRE((gfxvulkan::FindMacOSVulkanManifest(packageDir, sdkManifest) == bundled));

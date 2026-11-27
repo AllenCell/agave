@@ -36,9 +36,17 @@ endif()
 
 project(
   agave
-  VERSION 1.10.0
+  VERSION 2.0.0
   LANGUAGES C CXX
 )
+
+# Full semver version string, including any prerelease suffix (e.g. "2.0.0-dev.1").
+# CMake's project(VERSION) only accepts numeric components, so the full string is
+# kept here. Managed by tbump; do not hand-edit.
+set(AGAVE_FULL_VERSION "2.0.0-dev.2")
+if(NOT AGAVE_FULL_VERSION MATCHES "^${PROJECT_VERSION}(-|$)")
+  message(FATAL_ERROR "AGAVE_FULL_VERSION (${AGAVE_FULL_VERSION}) must start with project VERSION (${PROJECT_VERSION})")
+endif()
 
 option(AGAVE_BUILD_APP "Build the Qt desktop application and installers" ON)
 option(AGAVE_BUILD_TESTS "Build the C++ test suite" ON)
@@ -113,7 +121,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 # #####################
 add_subdirectory(renderlib)
 
-add_subdirectory(agave_pyvk)
+add_subdirectory(agave_py)
 
 set(INSTALLDIR "${CMAKE_PROJECT_NAME}-install")
 

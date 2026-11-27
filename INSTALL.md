@@ -1,10 +1,10 @@
 # Installation Instructions
 
-You can access the [latest installer release here](https://github.com/allen-cell-animated/agave/tags).
+You can access the [latest installer release here](https://github.com/AllenCell/agave/tags).
 
 ## Windows
 
-Download the installer `agave-1.10.0-win64.exe` and run it.
+Download the installer `agave-2.0.0-dev.2-win64.exe` and run it.
 
 It will take you through the installation process. In most cases you can accept all the default settings.
 
@@ -17,7 +17,7 @@ AGAVE supports Apple Silicon Macs. The macOS package includes the Vulkan loader
 and KosmicKrisp driver. KosmicKrisp rendering requires macOS 26 or later; on older
 macOS versions, launch the app with `--graphics_backend opengl`.
 
-Download the installer `agave-1.10.0-macos-arm64.dmg` and open it.
+Download the installer `agave-2.0.0-dev.2-macos-arm64.dmg` and open it.
 
 Drag the agave icon to the Applications folder.
 

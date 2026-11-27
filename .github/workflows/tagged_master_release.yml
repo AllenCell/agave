@@ -11,8 +11,47 @@ permissions:
   contents: read
 
 jobs:
-  linux-build:
+  # Versioning rules: semver X.Y.Z with prerelease identifiers restricted to
+  # dev, rc, alpha, and beta (X.Y.Z-{dev|rc|alpha|beta}.N).
+  # rc, alpha, beta, and full releases may only be built from tags on main;
+  # dev tags may trigger a build from any branch.
+  validate-release:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Validate tag version and source branch
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(dev|rc|alpha|beta)\.[0-9]+)?$ ]]; then
+            echo "Tag ${GITHUB_REF_NAME} is not a valid version."
+            echo "Allowed formats: vX.Y.Z or vX.Y.Z-{dev|rc|alpha|beta}.N"
+            exit 1
+          fi
+          if [[ "$VERSION" =~ -dev\.[0-9]+$ ]]; then
+            echo "dev prerelease $VERSION: release may be built from any branch"
+          else
+            git fetch origin main
+            TAG_COMMIT="$(git rev-parse HEAD)"
+            if git merge-base --is-ancestor "$TAG_COMMIT" origin/main; then
+              echo "Tag commit $TAG_COMMIT is on main"
+            else
+              echo "Tag ${GITHUB_REF_NAME} does not point to a commit on main."
+              echo "rc, alpha, beta, and full releases must be tagged on main;"
+              echo "only -dev.N prerelease tags (e.g. v2.0.0-dev.1) may be released from other branches."
+              exit 1
+            fi
+          fi
+
+  linux-build:
+    needs: [validate-release]
+    runs-on: ubuntu-latest
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      CMAKE_C_COMPILER_LAUNCHER: sccache
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
     steps:
       - uses: actions/checkout@v6
         with:
@@ -20,6 +59,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba #v0.0.11
       - uses: jurplel/install-qt-action@v4
         with:
           version: 6.9.3
@@ -44,17 +84,23 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build --target agave_test --config Release
           cmake --build build --target install --config Release
+      - name: sccache stats
+        run: sccache --show-stats
       - uses: actions/upload-artifact@v6
         with:
           name: agave-linux
           path: ./build/install/Release/agave-install
 
   macos-build:
+    needs: [validate-release]
     runs-on: macos-26
     env:
       CC: clang
       CXX: clang++
       MACOSX_DEPLOYMENT_TARGET: "11.0"
+      SCCACHE_GHA_ENABLED: "true"
+      CMAKE_C_COMPILER_LAUNCHER: sccache
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
     steps:
       - uses: actions/checkout@v6
         with:
@@ -62,6 +108,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba #v0.0.11
       - uses: jurplel/install-qt-action@v4
         with:
           version: 6.9.3
@@ -91,13 +138,20 @@ jobs:
           cmake --build build --config Release
           cpack --config build/CPackConfig.cmake -B build -D CPACK_PACKAGE_FILE_NAME=agave-macos-arm64
           python3 test/verify_macos_vulkan.py --app build/_CPack_Packages
+      - name: sccache stats
+        run: sccache --show-stats
       - uses: actions/upload-artifact@v6
         with:
           name: agave-macos-arm64
           path: ./build/agave-macos-arm64.dmg
 
   windows-build:
+    needs: [validate-release]
     runs-on: windows-latest
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      CMAKE_C_COMPILER_LAUNCHER: sccache
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
     steps:
       - uses: actions/checkout@v6
         with:
@@ -105,6 +159,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba #v0.0.11
       - uses: jurplel/install-qt-action@v4
         with:
           version: 6.9.3
@@ -133,20 +188,32 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          cmake -S . -B build -G "Ninja" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_BUILD_TYPE=Release
+          cmake -E time cmake -S . -B build -G "Ninja" -DCMAKE_TOOLCHAIN_FILE="%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_BUILD_TYPE=Release
           if errorlevel 1 exit /b %errorlevel%
-          cmake --build build --parallel --target agave_test --config Release
+          cmake -E time cmake --build build --parallel --target agave_test --config Release
           if errorlevel 1 exit /b %errorlevel%
-          cmake --build build --parallel --config Release
+          cmake -E time cmake --build build --parallel --config Release
           if errorlevel 1 exit /b %errorlevel%
           cpack --config build\CPackConfig.cmake -B build -D CPACK_PACKAGE_FILE_NAME=agave-win
+      - name: sccache stats
+        run: sccache --show-stats
       - uses: actions/upload-artifact@v6
         with:
           name: agave-win
           path: ./build/agave-win.exe
 
-  linux-pyvk-build:
+  linux-agave-py-build:
+    needs: [validate-release]
     runs-on: ubuntu-latest
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      CMAKE_C_COMPILER_LAUNCHER: sccache
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
+      # Forward sccache config and GHA cache credentials into the manylinux
+      # container; cibuildwheel passes only the variable names to docker.
+      CIBW_ENVIRONMENT_PASS_LINUX: >-
+        SCCACHE_GHA_ENABLED ACTIONS_RESULTS_URL ACTIONS_RUNTIME_TOKEN
+        CMAKE_C_COMPILER_LAUNCHER CMAKE_CXX_COMPILER_LAUNCHER
     steps:
       - uses: actions/checkout@v6
         with:
@@ -154,21 +221,28 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: python -m pip install cibuildwheel==3.3.0
-      - name: Build agave_pyvk wheels
-        run: python -m cibuildwheel agave_pyvk --output-dir wheelhouse
+      # Needed to export ACTIONS_RESULTS_URL / ACTIONS_RUNTIME_TOKEN for the
+      # sccache running inside the cibuildwheel container.
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba #v0.0.11
+      - run: python -m pip install cibuildwheel==4.3.5
+      - name: Build agave_py wheels
+        run: python -m cibuildwheel agave_py --output-dir wheelhouse
       - uses: actions/upload-artifact@v6
         with:
-          name: agave-pyvk-agave-linux
+          name: agave-py-agave-linux
           path: wheelhouse/*.whl
           if-no-files-found: error
 
-  macos-pyvk-build:
+  macos-agave-py-build:
+    needs: [validate-release]
     runs-on: macos-26
     env:
       CC: clang
       CXX: clang++
       MACOSX_DEPLOYMENT_TARGET: "15.0"
+      SCCACHE_GHA_ENABLED: "true"
+      CMAKE_C_COMPILER_LAUNCHER: sccache
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
     steps:
       - uses: actions/checkout@v6
         with:
@@ -176,6 +250,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba #v0.0.11
       - uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
         with:
           vulkan_version: 1.4.363.0
@@ -186,21 +261,28 @@ jobs:
           if [ -d /usr/local/include/openssl ]; then
             mv /usr/local/include/openssl /usr/local/include/openssl.bak
           fi
-      - run: python -m pip install cibuildwheel==3.3.0
-      - name: Build agave_pyvk wheels
-        run: python -m cibuildwheel agave_pyvk --output-dir wheelhouse
+      - run: python -m pip install cibuildwheel==4.3.5
+      - name: Build agave_py wheels
+        run: python -m cibuildwheel agave_py --output-dir wheelhouse
+      - name: sccache stats
+        run: sccache --show-stats
       - name: Verify the Python 3.12 wheel's Vulkan bundle
         run: |
           python -m pip install wheelhouse/*cp312*.whl
           python test/verify_macos_vulkan.py --python-package
       - uses: actions/upload-artifact@v6
         with:
-          name: agave-pyvk-agave-macos-arm64
+          name: agave-py-agave-macos-arm64
           path: wheelhouse/*.whl
           if-no-files-found: error
 
-  windows-pyvk-build:
+  windows-agave-py-build:
+    needs: [validate-release]
     runs-on: windows-latest
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      CMAKE_C_COMPILER_LAUNCHER: sccache
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
     steps:
       - uses: actions/checkout@v6
         with:
@@ -208,6 +290,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba #v0.0.11
       - uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa
         with:
           vulkan_version: 1.4.363.0
@@ -220,15 +303,17 @@ jobs:
           vcpkg install --triplet x64-windows tiff glm zlib libjpeg-turbo liblzma spdlog zstd curl
       - name: Remove bad Strawberry Perl patch binary in search path
         run: echo "C:\Program Files\git\usr\bin" >> $env:GITHUB_PATH
-      - run: python -m pip install cibuildwheel==3.3.0
-      - name: Build agave_pyvk wheels with MSVC 18
+      - run: python -m pip install cibuildwheel==4.3.5
+      - name: Build agave_py wheels with MSVC 18
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          python -m cibuildwheel agave_pyvk --output-dir wheelhouse
+          python -m cibuildwheel agave_py --output-dir wheelhouse
+      - name: sccache stats
+        run: sccache --show-stats
       - uses: actions/upload-artifact@v6
         with:
-          name: agave-pyvk-agave-win
+          name: agave-py-agave-win
           path: wheelhouse/*.whl
           if-no-files-found: error
 
@@ -303,30 +388,34 @@ jobs:
           packages-dir: agave_pyclient/dist/
           verbose: true
 
-  publish_agave_pyvk:
+  publish_agave_py:
+    # Temporarily disabled: agave_py wheels are distributed only as workflow
+    # artifacts and GitHub release assets for now. Remove the `if: false` (and
+    # re-add this job to make-release's needs) to resume PyPI publishing.
+    if: false
     needs:
       [
         linux-build,
         macos-build,
         windows-build,
-        linux-pyvk-build,
-        macos-pyvk-build,
-        windows-pyvk-build,
+        linux-agave-py-build,
+        macos-agave-py-build,
+        windows-agave-py-build,
       ]
     runs-on: ubuntu-latest
     steps:
-      - name: Download agave_pyvk wheel artifacts
+      - name: Download agave_py wheel artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: agave-pyvk-*
-          path: agave_pyvk_wheelhouse
+          pattern: agave-py-*
+          path: agave_py_wheelhouse
           merge-multiple: true
-      - name: Publish agave_pyvk wheels to PyPI
+      - name: Publish agave_py wheels to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           user: __token__
           password: ${{ secrets.PYPI_TOKEN }}
-          packages-dir: agave_pyvk_wheelhouse/
+          packages-dir: agave_py_wheelhouse/
           verbose: true
   docs:
     needs: [linux-build, macos-build, windows-build]
@@ -431,7 +520,11 @@ jobs:
         windows-build,
         docs,
         docs_pythonclient,
-        publish_agave_pyvk,
+        # publish_agave_py is temporarily disabled; depend on the wheel build
+        # jobs directly so the agave-py-* artifacts exist for this job.
+        linux-agave-py-build,
+        macos-agave-py-build,
+        windows-agave-py-build,
         publish_pythonclient,
         publish_webclient,
       ]
@@ -462,11 +555,11 @@ jobs:
         with:
           name: DocumentationPDF
           path: DocumentationPDF
-      - name: Get agave_pyvk wheel artifacts
+      - name: Get agave_py wheel artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: agave-pyvk-*
-          path: agave-pyvk-wheels
+          pattern: agave-py-*
+          path: agave-py-wheels
           merge-multiple: true
       - name: Version the artifacts
         run: |
@@ -485,4 +578,4 @@ jobs:
             ${{ github.workspace }}/agave-macos-arm64/agave-${{ steps.get_version.outputs.VERSION }}-macos-arm64.dmg
             ${{ github.workspace }}/agave-win/agave-${{ steps.get_version.outputs.VERSION }}-win.exe
             ${{ github.workspace }}/DocumentationPDF/agave.pdf
-            ${{ github.workspace }}/agave-pyvk-wheels/*.whl
+            ${{ github.workspace }}/agave-py-wheels/*.whl

@@ -50,7 +50,7 @@ r.redraw()
 
 ## Documentation
 
-For full package documentation please visit [allen-cell-animated.github.io/agave](https://allen-cell-animated.github.io/agave).
+For full package documentation please visit [allencell.github.io/agave](https://allencell.github.io/agave).
 
 ## Development
 
@@ -78,4 +78,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for information related to developing the
    This will generate and launch a web browser to view the most up-to-date
    documentation for your Python package.
 
-**Allen Institute Software License**
+**BSD 3-Clause License** — see the `LICENSE` file for details.

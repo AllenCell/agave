@@ -39,11 +39,11 @@ class FakePythonRenderer:
 
 
 def load_api(monkeypatch):
-    fake_native = types.ModuleType("agave_pyvk._native")
+    fake_native = types.ModuleType("agave_py._native")
     fake_native.__file__ = str(Path(__file__).parent / "_native.pyd")
     fake_native.PythonRenderer = FakePythonRenderer
-    monkeypatch.setitem(sys.modules, "agave_pyvk._native", fake_native)
-    module = importlib.import_module("agave_pyvk.agave")
+    monkeypatch.setitem(sys.modules, "agave_py._native", fake_native)
+    module = importlib.import_module("agave_py.agave")
     monkeypatch.setattr(module, "_native", fake_native)
     return module
 
@@ -65,11 +65,11 @@ def public_methods(path):
 def test_public_api_matches_pyclient():
     repository = Path(__file__).resolve().parents[2]
     client = repository / "agave_pyclient" / "agave_pyclient" / "agave.py"
-    pyvk = repository / "agave_pyvk" / "agave_pyvk" / "agave.py"
+    native = repository / "agave_py" / "agave_py" / "agave.py"
     pyclient_methods = public_methods(client)
-    pyvk_methods = public_methods(pyvk)
-    assert pyclient_methods.issubset(pyvk_methods)
-    assert pyvk_methods - pyclient_methods == {"load_array"}
+    native_methods = public_methods(native)
+    assert pyclient_methods.issubset(native_methods)
+    assert native_methods - pyclient_methods == {"load_array"}
 
 
 def test_commands_are_forwarded_directly(monkeypatch):

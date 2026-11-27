@@ -2,9 +2,10 @@
 # github_url = "https://github.com/<user or organization>/<project>/"
 
 [version]
-current = "1.10.0"
+current = "2.0.0-dev.2"
 
-# Example of a semver regexp.
+# Semver with a restricted set of prerelease identifiers.
+# Allowed versions: X.Y.Z or X.Y.Z-{dev|rc|alpha|beta}.N
 # Make sure this matches current_version before
 # using tbump
 regex = '''
@@ -14,7 +15,7 @@ regex = '''
   \.
   (?P<patch>\d+)
   (?P<suffix>\-
-    (?P<extra>.+)\.(?P<extraver>\d+)
+    (?P<extra>dev|rc|alpha|beta)\.(?P<extraver>\d+)
   )?
   '''
 
@@ -35,14 +36,32 @@ tag_template = "v{new_version}"
 # For each file to patch, add a [[file]] config
 # section containing the path of the file, relative to the
 # tbump.toml location.
+# The project() call only accepts numeric versions, so the prerelease
+# suffix is stripped here. The search regex anchors to the project() line.
 [[file]]
 src = "CMakeLists.txt"
 version_template = "{major}.{minor}.{patch}"
+search = 'VERSION {current_version}'
+# Full semver version (including prerelease suffix) used for display strings.
+[[file]]
+src = "CMakeLists.txt"
+search = 'AGAVE_FULL_VERSION "{current_version}"'
 [[file]]
 src = "agave_pyclient/pyproject.toml"
 search = 'version = "{current_version}"'
 [[file]]
 src = "agave_pyclient/agave_pyclient/__init__.py"
+[[file]]
+src = "agave_py/pyproject.toml"
+search = 'version = "{current_version}"'
+[[file]]
+src = "agave_py/agave_py/__init__.py"
+search = '__version__ = "{current_version}"'
+# The project() call only accepts numeric versions (see CMakeLists.txt above).
+[[file]]
+src = "agave_py/CMakeLists.txt"
+version_template = "{major}.{minor}.{patch}"
+search = 'VERSION {current_version}'
 [[file]]
 src = "agave_pyclient/docs/conf.py"
 [[file]]
