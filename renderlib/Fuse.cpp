@@ -6,6 +6,9 @@
 
 #include "threading.h"
 
+#include <algorithm>
+#include <cstring>
+
 // fuse: fill volume of color data, plus volume of gradients
 // n channels with n colors: use "max" or "avg"
 // n channels with gradients: use "max" or "avg"
@@ -13,21 +16,21 @@ void
 Fuse::fuse(const ImageXYZC* img,
            const std::vector<glm::vec3>& colorsPerChannel,
            const VolumeDisplay& volumeDisplay,
-           uint8_t** outRGBVolume,
+           uint8_t** outRGBAVolume,
            uint16_t** outGradientVolume)
 {
   // todo: this can easily be a cuda kernel that loops over channels and does a max operation, if it has the full volume
   // data in gpu mem.
 
   // create and zero
-  uint8_t* rgbVolume = *outRGBVolume;
-  memset(*outRGBVolume, 0, 3 * img->sizeX() * img->sizeY() * img->sizeZ() * sizeof(uint8_t));
+  uint8_t* rgbaVolume = *outRGBAVolume;
+  memset(rgbaVolume, 0, 4 * img->sizeX() * img->sizeY() * img->sizeZ() * sizeof(uint8_t));
 
   const bool FUSE_THREADED = true;
 
   parallel_for(
     img->sizeX() * img->sizeY() * img->sizeZ(),
-    [&img, &colorsPerChannel, &volumeDisplay, &rgbVolume](size_t s, size_t e) {
+    [&img, &colorsPerChannel, &volumeDisplay, &rgbaVolume](size_t s, size_t e) {
       float value = 0;
       uint16_t rawvalue = 0;
       float normalizedvalue = 0;
@@ -42,7 +45,7 @@ Fuse::fuse(const ImageXYZC* img,
 
       for (uint32_t i = 0; i < nch; ++i) {
         glm::vec3 c = colorsPerChannel[i];
-        if (c == glm::vec3(0, 0, 0)) {
+        if (!volumeDisplay.m_enabled[i]) {
           continue;
         }
         r = c.x; // 0..1
@@ -66,11 +69,11 @@ Fuse::fuse(const ImageXYZC* img,
         uint16_t lutmax = hasMinMax ? imax16 : chmax;
 
         // channel data cx is scalar so loop from s to e
-        // fused data is RGB so offset in multiples of 3
-        for (size_t cx = s, fx = s * 3; cx < e; cx++, fx += 3) {
+        // Fused data is premultiplied RGBA. Opacity is independent of color.
+        for (size_t cx = s, fx = s * 4; cx < e; cx++, fx += 4) {
           rawvalue = channeldata[cx];
           normalizedvalue = (float)(rawvalue - chmin) / (float)(chmax - chmin);
-          value = lut[(int)(normalizedvalue * 255.0 + 0.5)]; // 0..255
+          value = lut[(int)(normalizedvalue * 255.0 + 0.5)]; // 0..1
 
           // apply colormap
           // if not labels then do lookup with normalized value
@@ -91,12 +94,14 @@ Fuse::fuse(const ImageXYZC* img,
             cb = colormap ? b * (float)colormap[(int)(lutnormalizedvalue * 255.0) * 4 + 2] / 255.0f : b;
           }
           //  what if rgb*value > 1?
-          ar = rgbVolume[fx + 0];
-          rgbVolume[fx + 0] = std::max(ar, static_cast<uint8_t>(cr * value * 255));
-          ag = rgbVolume[fx + 1];
-          rgbVolume[fx + 1] = std::max(ag, static_cast<uint8_t>(cg * value * 255));
-          ab = rgbVolume[fx + 2];
-          rgbVolume[fx + 2] = std::max(ab, static_cast<uint8_t>(cb * value * 255));
+          const float alpha = std::clamp(value * volumeDisplay.m_opacity[i], 0.0f, 1.0f);
+          ar = rgbaVolume[fx + 0];
+          rgbaVolume[fx + 0] = std::max(ar, static_cast<uint8_t>(std::clamp(cr * alpha, 0.0f, 1.0f) * 255));
+          ag = rgbaVolume[fx + 1];
+          rgbaVolume[fx + 1] = std::max(ag, static_cast<uint8_t>(std::clamp(cg * alpha, 0.0f, 1.0f) * 255));
+          ab = rgbaVolume[fx + 2];
+          rgbaVolume[fx + 2] = std::max(ab, static_cast<uint8_t>(std::clamp(cb * alpha, 0.0f, 1.0f) * 255));
+          rgbaVolume[fx + 3] = std::max(rgbaVolume[fx + 3], static_cast<uint8_t>(alpha * 255));
         }
       }
     },

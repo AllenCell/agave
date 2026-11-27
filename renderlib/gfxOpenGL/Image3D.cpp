@@ -34,7 +34,7 @@ Image3D::~Image3D()
 void
 Image3D::create(std::shared_ptr<ImageXYZC> img)
 {
-  m_fusedrgbvolume = new uint8_t[3 * img->sizeX() * img->sizeY() * img->sizeZ()];
+  m_fusedrgbvolume = new uint8_t[4 * img->sizeX() * img->sizeY() * img->sizeZ()];
   // destroy old
   glDeleteTextures(1, &m_textureid);
   // Create image texture.
@@ -240,8 +240,7 @@ Image3D::prepareTexture(Scene& s, bool useLinearInterpolation)
   for (int i = 0; i < MAX_CPU_CHANNELS; ++i) {
     if (s.m_material.m_enabled[i]) {
       colors.push_back(
-        glm::vec3(s.m_material.m_diffuse[i * 3], s.m_material.m_diffuse[i * 3 + 1], s.m_material.m_diffuse[i * 3 + 2]) *
-        s.m_material.m_opacity[i]);
+        glm::vec3(s.m_material.m_diffuse[i * 3], s.m_material.m_diffuse[i * 3 + 1], s.m_material.m_diffuse[i * 3 + 2]));
     } else {
       colors.push_back(glm::vec3(0, 0, 0));
     }
@@ -274,7 +273,7 @@ Image3D::prepareTexture(Scene& s, bool useLinearInterpolation)
 
   GLenum internal_format = GL_RGBA8;
   GLenum external_type = GL_UNSIGNED_BYTE;
-  GLenum external_format = GL_RGB;
+  GLenum external_format = GL_RGBA;
 
   // pixel data is tightly packed
   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);

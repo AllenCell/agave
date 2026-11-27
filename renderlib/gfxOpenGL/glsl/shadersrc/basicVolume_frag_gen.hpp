@@ -55,15 +55,15 @@ rand(vec2 co)
 }
 
 vec4
-luma2Alpha(vec4 color, float vmin, float vmax, float C)
+transferAlpha(vec4 color, float vmin, float vmax, float C)
 {
-  float x = max(color[2], max(color[0], color[1]));
-  float xi = (x - vmin) / (vmax - vmin);
+  float xi = (color.a - vmin) / max(vmax - vmin, 0.000001);
   xi = clamp(xi, 0.0, 1.0);
   float y = pow(xi, C);
   y = clamp(y, 0.0, 1.0);
-  color[3] = y;
-  return (color);
+  color.rgb = color.a > 0.0 ? color.rgb / color.a : vec3(0.0);
+  color.a = y;
+  return color;
 }
 
 vec4
@@ -73,7 +73,7 @@ sampleAs3DTexture(sampler3D tex, vec4 pos)
     float(pos[0] > 0.001 && pos[0] < 0.999 && pos[1] > 0.001 && pos[1] < 0.999 && pos[2] > 0.001 && pos[2] < 0.999);
 
   vec4 texval = textureLod(tex, pos.xyz * flipVolumeAxes, 0).rgba;
-  vec4 retval = vec4(texval.rgb, 1.0);
+  vec4 retval = texval;
 
   //    float texval = textureLod(tex, pos.xyz, 0).r;
   //	texval = (texval - dataRangeMin) / (dataRangeMax - dataRangeMin);
@@ -85,7 +85,7 @@ vec4
 sampleStack(sampler3D tex, vec4 pos)
 {
   vec4 col = sampleAs3DTexture(tex, pos);
-  col = luma2Alpha(col, GAMMA_MIN, GAMMA_MAX, GAMMA_SCALE);
+  col = transferAlpha(col, GAMMA_MIN, GAMMA_MAX, GAMMA_SCALE);
   return col;
 }
 
@@ -209,5 +209,5 @@ main()
 
 )";
 
-const std::string basicVolume_frag_src = 
+const std::string basicVolume_frag_src =
     basicVolume_frag_chunk_0;
