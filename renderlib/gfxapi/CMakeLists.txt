@@ -10,4 +10,6 @@ target_sources(renderlib PRIVATE
 	"${CMAKE_CURRENT_SOURCE_DIR}/IGestureRenderer.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/IRenderWindow.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/IRenderWindow.h"
+	"${CMAKE_CURRENT_SOURCE_DIR}/RenderToFramebuffer.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/RenderToFramebuffer.h"
 )

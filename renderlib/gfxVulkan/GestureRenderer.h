@@ -50,7 +50,7 @@ public:
 
   // The framebuffer that the overlay is composited onto. Set each frame by the
   // Vulkan render path before draw()/drawUnderlay(); ignored by other backends.
-  void setTargetFramebuffer(gfxApi::Framebuffer* target);
+  void setTargetFramebuffer(gfxApi::Framebuffer* target) override;
 
   enum Topology
   {

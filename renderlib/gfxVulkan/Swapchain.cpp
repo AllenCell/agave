@@ -88,6 +88,7 @@ Swapchain::render(ViewerWindow& viewerWindow)
   }
 
   viewerWindow.setSize(static_cast<int>(m_extent.width), static_cast<int>(m_extent.height));
+  viewerWindow.redrawTo(m_framebuffers[imageIndex].get());
 
   VkCommandBuffer commandBuffer = m_backend->beginSingleTimeCommands();
   m_framebuffers[imageIndex]->transitionColorImage(commandBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
