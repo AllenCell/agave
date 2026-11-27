@@ -351,4 +351,424 @@ RenderVkPT::ensureFramebuffers(uint32_t w, uint32_t h)
   return true;
 }
 
+bool
+RenderVkPT::ensureFullscreenResources(VkFormat toneMapFormat)
+{
+  VkDevice device = m_backend.logicalDevice();
+
+  if (!m_quadVertexBuffer && !uploadHostBuffer(m_backend,
+                                               VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                               kFullscreenVertices.data(),
+                                               kFullscreenVertices.size(),
+                                               m_quadVertexBuffer)) {
+    return false;
+  }
+
+  if (!m_quadIndexBuffer && !uploadHostBuffer(m_backend,
+                                              VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                                              kFullscreenIndices.data(),
+                                              kFullscreenIndices.size(),
+                                              m_quadIndexBuffer)) {
+    return false;
+  }
+  m_quadIndexCount = static_cast<uint32_t>(kFullscreenIndices.size());
+
+  if (!m_accumUniformBuffer) {
+    auto buffer = createUniformBuffer(m_backend, sizeof(PtAccumUniforms));
+    if (!buffer) {
+      return false;
+    }
+    m_accumUniformBuffer = std::move(*buffer);
+  }
+  if (!m_toneMapUniformBuffer) {
+    auto buffer = createUniformBuffer(m_backend, sizeof(ToneMapUniforms));
+    if (!buffer) {
+      return false;
+    }
+    m_toneMapUniformBuffer = std::move(*buffer);
+  }
+
+  if (!m_framebufferSampler) {
+    VkSamplerCreateInfo samplerInfo = {};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    // NEAREST matches the OpenGL RenderGLPT path (GLFramebufferObject uses
+    // GL_NEAREST for its color textures). The path-trace accumulator and the
+    // tone-map input are sampled at fragment centers on a full-screen quad, so
+    // LINEAR filtering here would let sub-pixel rasterization offsets blend
+    // adjacent texels -- subtly bleeding partial-coverage neighbors into fully
+    // covered pixels and altering the visible edge softness relative to
+    // OpenGL.
+    samplerInfo.magFilter = VK_FILTER_NEAREST;
+    samplerInfo.minFilter = VK_FILTER_NEAREST;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.minLod = 0.0f;
+    samplerInfo.maxLod = 0.0f;
+    auto sampler = m_backend.device().createSampler(samplerInfo);
+    if (!sampler) {
+      return false;
+    }
+    m_framebufferSampler = std::move(*sampler);
+  }
+
+  if (!m_accumDescriptorSetLayout) {
+    std::array<VkDescriptorSetLayoutBinding, 3> bindings = {};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[2].binding = 2;
+    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[2].descriptorCount = 1;
+    bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings = bindings.data();
+    auto descriptorSetLayoutResource = m_backend.device().createDescriptorSetLayout(layoutInfo);
+    if (!descriptorSetLayoutResource) {
+      return false;
+    }
+    m_accumDescriptorSetLayout = std::move(*descriptorSetLayoutResource);
+
+    std::array<VkDescriptorPoolSize, 2> poolSizes = {};
+    poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSizes[0].descriptorCount = 1;
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[1].descriptorCount = 2;
+
+    VkDescriptorPoolCreateInfo poolInfo = {};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.maxSets = 1;
+    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+    poolInfo.pPoolSizes = poolSizes.data();
+    auto descriptorPool = m_backend.device().createDescriptorPool(poolInfo);
+    if (!descriptorPool) {
+      return false;
+    }
+    m_accumDescriptorPool = std::move(*descriptorPool);
+
+    VkDescriptorSetAllocateInfo allocateInfo = {};
+    allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocateInfo.descriptorPool = m_accumDescriptorPool.get();
+    allocateInfo.descriptorSetCount = 1;
+    VkDescriptorSetLayout descriptorSetLayout = m_accumDescriptorSetLayout.get();
+    allocateInfo.pSetLayouts = &descriptorSetLayout;
+    VkResult result = vkAllocateDescriptorSets(device, &allocateInfo, &m_accumDescriptorSet);
+    if (result != VK_SUCCESS) {
+      LOG_ERROR << "vkAllocateDescriptorSets for pathtrace accumulation failed with VkResult " << result;
+      return false;
+    }
+  }
+
+  if (!m_toneMapDescriptorSetLayout) {
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings = {};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings = bindings.data();
+    auto descriptorSetLayoutResource = m_backend.device().createDescriptorSetLayout(layoutInfo);
+    if (!descriptorSetLayoutResource) {
+      return false;
+    }
+    m_toneMapDescriptorSetLayout = std::move(*descriptorSetLayoutResource);
+
+    std::array<VkDescriptorPoolSize, 2> poolSizes = {};
+    poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSizes[0].descriptorCount = 1;
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[1].descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo poolInfo = {};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.maxSets = 1;
+    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+    poolInfo.pPoolSizes = poolSizes.data();
+    auto descriptorPool = m_backend.device().createDescriptorPool(poolInfo);
+    if (!descriptorPool) {
+      return false;
+    }
+    m_toneMapDescriptorPool = std::move(*descriptorPool);
+
+    VkDescriptorSetAllocateInfo allocateInfo = {};
+    allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocateInfo.descriptorPool = m_toneMapDescriptorPool.get();
+    allocateInfo.descriptorSetCount = 1;
+    VkDescriptorSetLayout descriptorSetLayout = m_toneMapDescriptorSetLayout.get();
+    allocateInfo.pSetLayouts = &descriptorSetLayout;
+    VkResult result = vkAllocateDescriptorSets(device, &allocateInfo, &m_toneMapDescriptorSet);
+    if (result != VK_SUCCESS) {
+      LOG_ERROR << "vkAllocateDescriptorSets for pathtrace tone map failed with VkResult " << result;
+      return false;
+    }
+  }
+
+  if (m_accumPipeline && m_toneMapPipeline && m_toneMapPipelineColorFormat == toneMapFormat) {
+    return true;
+  }
+
+  destroyPipelines();
+  m_toneMapPipelineColorFormat = toneMapFormat;
+
+  auto renderPass = createColorRenderPass(m_backend, VK_FORMAT_R32G32B32A32_SFLOAT);
+  if (!renderPass) {
+    return false;
+  }
+  m_accumRenderPass = std::move(*renderPass);
+
+  // Tone map is the final blit into the caller's framebuffer. Preserve
+  // existing contents (e.g. the gesture underlay's back-facing bounding-box
+  // edges drawn beforehand) so the tone-mapped volume can alpha-blend
+  // against them.
+  renderPass = createColorRenderPass(m_backend, toneMapFormat, VK_ATTACHMENT_LOAD_OP_LOAD);
+  if (!renderPass) {
+    return false;
+  }
+  m_toneMapRenderPass = std::move(*renderPass);
+
+  VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
+  pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  pipelineLayoutInfo.setLayoutCount = 1;
+  VkDescriptorSetLayout descriptorSetLayout = m_accumDescriptorSetLayout.get();
+  pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+  auto pipelineLayout = m_backend.device().createPipelineLayout(pipelineLayoutInfo);
+  if (!pipelineLayout) {
+    return false;
+  }
+  m_accumPipelineLayout = std::move(*pipelineLayout);
+
+  descriptorSetLayout = m_toneMapDescriptorSetLayout.get();
+  pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+  pipelineLayout = m_backend.device().createPipelineLayout(pipelineLayoutInfo);
+  if (!pipelineLayout) {
+    return false;
+  }
+  m_toneMapPipelineLayout = std::move(*pipelineLayout);
+
+  auto createFullscreenPipeline = [&](VkRenderPass renderPass,
+                                      VkPipelineLayout pipelineLayout,
+                                      const uint32_t* vertexWords,
+                                      size_t vertexWordCount,
+                                      const uint32_t* fragmentWords,
+                                      size_t fragmentWordCount,
+                                      bool includeUv,
+                                      bool enableBlend) -> std::optional<resources::UniquePipeline> {
+    auto vertexShader = m_backend.device().createShaderModule(vertexWords, vertexWordCount);
+    auto fragmentShader = m_backend.device().createShaderModule(fragmentWords, fragmentWordCount);
+    if (!vertexShader || !fragmentShader) {
+      return std::nullopt;
+    }
+
+    VkPipelineShaderStageCreateInfo vertexStage = {};
+    vertexStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertexStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vertexStage.module = vertexShader->get();
+    vertexStage.pName = "main";
+    VkPipelineShaderStageCreateInfo fragmentStage = {};
+    fragmentStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fragmentStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragmentStage.module = fragmentShader->get();
+    fragmentStage.pName = "main";
+    std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages = { vertexStage, fragmentStage };
+
+    VkVertexInputBindingDescription bindingDescription = {};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(FullscreenVertex);
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    std::array<VkVertexInputAttributeDescription, 2> attributes = {};
+    attributes[0].binding = 0;
+    attributes[0].location = 0;
+    attributes[0].format = includeUv ? VK_FORMAT_R32G32B32_SFLOAT : VK_FORMAT_R32G32_SFLOAT;
+    attributes[0].offset = offsetof(FullscreenVertex, position);
+    attributes[1].binding = 0;
+    attributes[1].location = 1;
+    attributes[1].format = VK_FORMAT_R32G32_SFLOAT;
+    attributes[1].offset = offsetof(FullscreenVertex, uv);
+
+    VkPipelineVertexInputStateCreateInfo vertexInput = {};
+    vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInput.vertexBindingDescriptionCount = 1;
+    vertexInput.pVertexBindingDescriptions = &bindingDescription;
+    vertexInput.vertexAttributeDescriptionCount = includeUv ? 2 : 1;
+    vertexInput.pVertexAttributeDescriptions = attributes.data();
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkPipelineViewportStateCreateInfo viewportState = {};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer = {};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.lineWidth = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo multisampling = {};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
+    colorBlendAttachment.blendEnable = enableBlend ? VK_TRUE : VK_FALSE;
+    if (enableBlend) {
+      // Straight-alpha blending: dst = src.rgb*src.a + dst.rgb*(1-src.a).
+      // Mirrors the OpenGL path (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA) so the
+      // tone-mapped path-traced image composites over the pre-drawn underlay.
+      colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+      colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+      colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    }
+    colorBlendAttachment.colorWriteMask =
+      VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo colorBlending = {};
+    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlending.attachmentCount = 1;
+    colorBlending.pAttachments = &colorBlendAttachment;
+
+    std::array<VkDynamicState, 2> dynamicStates = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dynamicState = {};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
+    VkGraphicsPipelineCreateInfo pipelineInfo = {};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
+    pipelineInfo.pStages = shaderStages.data();
+    pipelineInfo.pVertexInputState = &vertexInput;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &multisampling;
+    pipelineInfo.pColorBlendState = &colorBlending;
+    pipelineInfo.pDynamicState = &dynamicState;
+    pipelineInfo.layout = pipelineLayout;
+    pipelineInfo.renderPass = renderPass;
+    pipelineInfo.subpass = 0;
+
+    return m_backend.device().createPipeline(pipelineInfo);
+  };
+
+  auto pipeline = createFullscreenPipeline(m_accumRenderPass.get(),
+                                           m_accumPipelineLayout.get(),
+                                           ptAccum_vert_spv,
+                                           ptAccum_vert_spv_word_count,
+                                           ptAccum_frag_spv,
+                                           ptAccum_frag_spv_word_count,
+                                           false,
+                                           false);
+  if (!pipeline) {
+    return false;
+  }
+  m_accumPipeline = std::move(*pipeline);
+
+  pipeline = createFullscreenPipeline(m_toneMapRenderPass.get(),
+                                      m_toneMapPipelineLayout.get(),
+                                      toneMap_vert_spv,
+                                      toneMap_vert_spv_word_count,
+                                      toneMap_frag_spv,
+                                      toneMap_frag_spv_word_count,
+                                      true,
+                                      true);
+  if (!pipeline) {
+    return false;
+  }
+  m_toneMapPipeline = std::move(*pipeline);
+  return true;
+}
+
+bool
+RenderVkPT::updateAccumUniformBuffer()
+{
+  PtAccumUniforms uniforms;
+  uniforms.numIterations = std::max(1, m_renderSettings ? m_renderSettings->GetNoIterations() : 1);
+
+  void* mapped = nullptr;
+  vkMapMemory(m_backend.logicalDevice(), m_accumUniformBuffer.memory(), 0, sizeof(PtAccumUniforms), 0, &mapped);
+  std::memcpy(mapped, &uniforms, sizeof(PtAccumUniforms));
+  vkUnmapMemory(m_backend.logicalDevice(), m_accumUniformBuffer.memory());
+  return true;
+}
+
+bool
+RenderVkPT::updateToneMapUniformBuffer(const CCamera& camera)
+{
+  ToneMapUniforms uniforms;
+  uniforms.inverseExposure = 1.0f / std::max(camera.m_Film.m_Exposure, 0.0001f);
+
+  void* mapped = nullptr;
+  vkMapMemory(m_backend.logicalDevice(), m_toneMapUniformBuffer.memory(), 0, sizeof(ToneMapUniforms), 0, &mapped);
+  std::memcpy(mapped, &uniforms, sizeof(ToneMapUniforms));
+  vkUnmapMemory(m_backend.logicalDevice(), m_toneMapUniformBuffer.memory());
+  return true;
+}
+
+bool
+RenderVkPT::updateAccumDescriptorSet()
+{
+  VkDescriptorBufferInfo bufferInfo = {};
+  bufferInfo.buffer = m_accumUniformBuffer.get();
+  bufferInfo.offset = 0;
+  bufferInfo.range = sizeof(PtAccumUniforms);
+
+  VkDescriptorImageInfo renderInfo = {};
+  renderInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  renderInfo.imageView = m_sampleFramebuffer->colorImageView();
+  renderInfo.sampler = m_framebufferSampler.get();
+
+  VkDescriptorImageInfo accumInfo = {};
+  accumInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  accumInfo.imageView = m_accumFramebuffer->colorImageView();
+  accumInfo.sampler = m_framebufferSampler.get();
+
+  std::array<VkWriteDescriptorSet, 3> writes = {};
+  writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  writes[0].dstSet = m_accumDescriptorSet;
+  writes[0].dstBinding = 0;
+  writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  writes[0].descriptorCount = 1;
+  writes[0].pBufferInfo = &bufferInfo;
+  writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  writes[1].dstSet = m_accumDescriptorSet;
+  writes[1].dstBinding = 1;
+  writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  writes[1].descriptorCount = 1;
+  writes[1].pImageInfo = &renderInfo;
+  writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  writes[2].dstSet = m_accumDescriptorSet;
+  writes[2].dstBinding = 2;
+  writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  writes[2].descriptorCount = 1;
+  writes[2].pImageInfo = &accumInfo;
+
+  vkUpdateDescriptorSets(m_backend.logicalDevice(), static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+  return true;
+}
+
 } // namespace gfxvulkan
