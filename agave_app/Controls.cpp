@@ -453,21 +453,12 @@ QIntSlider::QIntSlider(QWidget* pParent /*= NULL*/)
   });
 
   QObject::connect(&m_spinner, QOverload<int>::of(&QSpinBox::valueChanged), [this](int v) {
-    // Disabling the spinner only because the valueChanged handler might do a long operation when the spinner is
-    // clicked.
-    //
-    // If the operation is "too long" then the mouserelease of the spinner will kick in after a certain timeout
-    // and trigger one more increment.
-    //
-    // If the owner has disabled tracking, that's a good bet that the increments are
-    // expected to be "too long".
-    if (!this->m_slider.hasTracking()) {
-      this->m_spinner.setEnabled(false);
-    }
+    // This used to disable the spinner around setValue, because a valueChanged
+    // handler could run a long blocking operation and the spinner's mouse-release
+    // auto-repeat would then fire an extra increment. The only slider that
+    // disabled tracking was the time slider, and time steps no longer block --
+    // they are queued on the loader thread -- so the workaround is gone.
     this->m_slider.setValue(v);
-    if (!this->m_slider.hasTracking()) {
-      this->m_spinner.setEnabled(true);
-    }
   });
 
   // only slider will emit the value...

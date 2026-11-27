@@ -7,6 +7,7 @@
 #include "RenderSettings.h"
 #include "StringUtil.h"
 #include "VolumeDimensions.h"
+#include "io/ApplyTimeStepToScene.h"
 
 #include "json/json.hpp"
 
@@ -555,6 +556,26 @@ LoadVolumeFromFileCommand::execute(ExecutionContext* c)
   }
 }
 
+std::shared_ptr<IFileReader>
+ExecutionContext::readerFor(const LoadSpec& spec)
+{
+  if (m_reader && m_readerPath == spec.filepath && m_readerIsImageSequence == spec.isImageSequence) {
+    return m_reader;
+  }
+  m_reader = std::shared_ptr<IFileReader>(FileReader::getReader(spec.filepath, spec.isImageSequence));
+  m_readerPath = spec.filepath;
+  m_readerIsImageSequence = spec.isImageSequence;
+  return m_reader;
+}
+
+void
+ExecutionContext::setReader(const LoadSpec& spec, std::shared_ptr<IFileReader> reader)
+{
+  m_reader = std::move(reader);
+  m_readerPath = spec.filepath;
+  m_readerIsImageSequence = spec.isImageSequence;
+}
+
 void
 SetTimeCommand::execute(ExecutionContext* c)
 {
@@ -571,7 +592,9 @@ SetTimeCommand::execute(ExecutionContext* c)
   std::shared_ptr<ImageXYZC> image;
   try {
 
-    image = FileReader::loadAndCache(loadSpec);
+    // Reuse the reader for this file rather than constructing one per time step,
+    // which discarded the reader's memoized metadata every time.
+    image = FileReader::loadAndCache(loadSpec, c->readerFor(loadSpec));
   } catch (...) {
     LOG_ERROR << "Failed to load time " << m_data.m_time << " from file " << c->m_loadSpec.toString();
     image = nullptr;
@@ -581,32 +604,23 @@ SetTimeCommand::execute(ExecutionContext* c)
     return;
   }
 
-  // successfully loaded; update loadspec in context
+  // We expect the scene volume dimensions to be the same and want to preserve
+  // all view settings, converting the old lookup tables to new ones so absolute
+  // transfer function settings survive the time step. Shared with the GUI
+  // timeline path so the two cannot drift apart.
+  //
+  // Applied before advancing the timeline or the context's loadSpec, so a
+  // rejected volume does not leave the scene claiming to be at a time it never
+  // reached.
+  if (!applyTimeStepToScene(c->m_appScene, image, c->m_renderSettings)) {
+    LOG_ERROR << "Failed to apply time " << m_data.m_time << " to the scene";
+    return;
+  }
+
+  // successfully loaded and applied; update loadspec in context
   c->m_loadSpec = loadSpec;
 
   c->m_appScene->m_timeLine.setCurrentTime(m_data.m_time);
-
-  // we expect the scene volume dimensions to be the same; we want to preserve all view settings here.
-  // BUT we want to convert the old lookup tables to new lookup tables
-  // if we are preserving absolute transfer function settings
-
-  // require sizeC to be the same for both previous image and new image
-  if (image->sizeC() != c->m_appScene->m_volume->sizeC()) {
-    LOG_ERROR << "Channel count mismatch for different times in same file";
-  }
-
-  // remap LUTs to preserve absolute thresholding
-  for (uint32_t i = 0; i < image->sizeC(); ++i) {
-    GradientData& lutInfo = c->m_appScene->m_material.m_gradientData[i];
-    lutInfo.convert(c->m_appScene->m_volume->channel(i)->m_histogram, image->channel(i)->m_histogram);
-    image->channel(i)->generateFromGradientData(lutInfo);
-  }
-
-  // now we're ready to lose the old channel histograms
-  c->m_appScene->m_volume = image;
-
-  c->m_renderSettings->m_DirtyFlags.SetFlag(VolumeDataDirty);
-  c->m_renderSettings->m_DirtyFlags.SetFlag(TransferFunctionDirty);
 
   // fire back some json immediately...
   nlohmann::json j;
@@ -670,6 +684,10 @@ LoadDataCommand::execute(ExecutionContext* c)
   }
 
   VolumeDimensions dims = reader->loadDimensions(m_data.m_path, m_data.m_scene);
+
+  // Hand the reader to the context so subsequent SetTime commands reuse it
+  // instead of reopening the file and re-parsing its metadata per time step.
+  c->setReader(c->m_loadSpec, reader);
 
   std::shared_ptr<ImageXYZC> image = FileReader::loadAndCache(c->m_loadSpec, reader);
   if (!image) {

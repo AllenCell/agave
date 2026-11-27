@@ -4,8 +4,9 @@
 
 #include <QFormLayout>
 
-CacheSettingsWidget::CacheSettingsWidget(QWidget* parent)
+CacheSettingsWidget::CacheSettingsWidget(QWidget* parent, AgaveSettingsData* settings)
   : QWidget(parent)
+  , m_settings(settings)
 {
   auto* layout = new QFormLayout(this);
 
@@ -31,32 +32,55 @@ CacheSettingsWidget::CacheSettingsWidget(QWidget* parent)
   m_applyButton = new QPushButton(tr("Apply"), this);
   m_clearDiskButton = new QPushButton(tr("Clear disk cache"), this);
 
+  m_prefetchEnabled = new QCheckBox(tr("Prefetch time steps"), this);
+  m_prefetchEnabled->setToolTip(
+    tr("Fill memory and disk with time steps ahead of the current one, in the background. How far ahead is bounded by "
+       "the RAM and disk limits above."));
+  m_prefetchEnabled->setStatusTip(
+    tr("Fill memory and disk with time steps ahead of the current one, in the background"));
+
+  connect(m_enableCache, &QCheckBox::toggled, this, [this](bool) { writeToSettings(); });
+  connect(m_enableDisk, &QCheckBox::toggled, this, [this](bool) { writeToSettings(); });
+  connect(m_ramLimitMB, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { writeToSettings(); });
+  connect(m_diskLimitGB, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { writeToSettings(); });
+  connect(m_prefetchEnabled, &QCheckBox::toggled, this, [this](bool) { writeToSettings(); });
+
   layout->addRow(m_enableCache);
   layout->addRow(m_enableDisk);
   layout->addRow(tr("RAM limit"), m_ramLimitMB);
   layout->addRow(tr("Disk limit"), m_diskLimitGB);
   layout->addRow(tr("Cache directory"), m_cacheDirLabel);
+  layout->addRow(new QLabel(tr("<b>Prefetch</b>"), this));
+  layout->addRow(m_prefetchEnabled);
   layout->addRow(QString(), m_applyButton);
   layout->addRow(QString(), m_clearDiskButton);
   setLayout(layout);
 }
 
 void
-CacheSettingsWidget::setSettings(const CacheSettingsData& data)
+CacheSettingsWidget::updateUiFromSettings()
 {
-  m_enableCache->setChecked(data.enabled);
-  m_enableDisk->setChecked(data.enableDisk);
-  m_ramLimitMB->setValue(static_cast<int>(data.maxRamBytes / (1024ULL * 1024ULL)));
-  m_diskLimitGB->setValue(static_cast<int>(data.maxDiskBytes / (1024ULL * 1024ULL * 1024ULL)));
+  if (!m_settings) {
+    return;
+  }
+  m_refreshingSettings = true;
+  m_enableCache->setChecked(m_settings->cache.enabled);
+  m_enableDisk->setChecked(m_settings->cache.enableDisk);
+  m_ramLimitMB->setValue(static_cast<int>(m_settings->cache.maxRamBytes / (1024ULL * 1024ULL)));
+  m_diskLimitGB->setValue(static_cast<int>(m_settings->cache.maxDiskBytes / (1024ULL * 1024ULL * 1024ULL)));
+  m_prefetchEnabled->setChecked(m_settings->timeSeries.prefetchEnabled);
+  m_refreshingSettings = false;
 }
 
-CacheSettingsData
-CacheSettingsWidget::getSettings() const
+void
+CacheSettingsWidget::writeToSettings()
 {
-  CacheSettingsData data;
-  data.enabled = m_enableCache->isChecked();
-  data.enableDisk = m_enableDisk->isChecked();
-  data.maxRamBytes = static_cast<std::uint64_t>(m_ramLimitMB->value()) * 1024ULL * 1024ULL;
-  data.maxDiskBytes = static_cast<std::uint64_t>(m_diskLimitGB->value()) * 1024ULL * 1024ULL * 1024ULL;
-  return data;
+  if (!m_settings || m_refreshingSettings) {
+    return;
+  }
+  m_settings->cache.enabled = m_enableCache->isChecked();
+  m_settings->cache.enableDisk = m_enableDisk->isChecked();
+  m_settings->cache.maxRamBytes = static_cast<std::uint64_t>(m_ramLimitMB->value()) * 1024ULL * 1024ULL;
+  m_settings->cache.maxDiskBytes = static_cast<std::uint64_t>(m_diskLimitGB->value()) * 1024ULL * 1024ULL * 1024ULL;
+  m_settings->timeSeries.prefetchEnabled = m_prefetchEnabled->isChecked();
 }

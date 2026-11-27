@@ -18,32 +18,40 @@
 
 FileReaderCzi::FileReaderCzi(const std::string& filepath) {}
 
-FileReaderCzi::~FileReaderCzi() {}
-
-class ScopedCziReader
+FileReaderCzi::~FileReaderCzi()
 {
-public:
-  ScopedCziReader(const std::string& filepath)
-  {
-    std::filesystem::path fpath(filepath);
-    const std::wstring widestr = fpath.wstring();
-
-    std::shared_ptr<libCZI::IStream> stream = libCZI::CreateStreamFromFile(widestr.c_str());
-    m_reader = libCZI::CreateCZIReader();
-
-    m_reader->Open(stream);
+  if (m_reader) {
+    m_reader->Close();
   }
-  ~ScopedCziReader()
-  {
-    if (m_reader) {
-      m_reader->Close();
-    }
-  }
-  std::shared_ptr<libCZI::ICZIReader> reader() { return m_reader; }
+}
 
-protected:
-  std::shared_ptr<libCZI::ICZIReader> m_reader;
-};
+std::shared_ptr<libCZI::ICZIReader>
+FileReaderCzi::openReader(const std::string& filepath)
+{
+  std::lock_guard<std::mutex> lock(m_readerMutex);
+
+  if (m_reader && m_openPath == filepath) {
+    return m_reader;
+  }
+
+  if (m_reader) {
+    // A reader instance is normally used for a single file; handle a change of
+    // path rather than silently returning data from the wrong one.
+    m_reader->Close();
+    m_reader.reset();
+    m_dims.clear();
+  }
+
+  std::filesystem::path fpath(filepath);
+  const std::wstring widestr = fpath.wstring();
+  std::shared_ptr<libCZI::IStream> stream = libCZI::CreateStreamFromFile(widestr.c_str());
+  std::shared_ptr<libCZI::ICZIReader> reader = libCZI::CreateCZIReader();
+  reader->Open(stream);
+
+  m_reader = reader;
+  m_openPath = filepath;
+  return m_reader;
+}
 
 libCZI::IntRect
 getSceneYXSize(libCZI::SubBlockStatistics& statistics, int sceneIndex = 0)
@@ -242,8 +250,7 @@ uint32_t
 FileReaderCzi::loadNumScenes(const std::string& filepath)
 {
   try {
-    ScopedCziReader scopedReader(filepath);
-    std::shared_ptr<libCZI::ICZIReader> cziReader = scopedReader.reader();
+    std::shared_ptr<libCZI::ICZIReader> cziReader = openReader(filepath);
 
     auto statistics = cziReader->GetStatistics();
     int sceneStart = 0;
@@ -266,21 +273,41 @@ FileReaderCzi::loadNumScenes(const std::string& filepath)
   return 0;
 }
 
+bool
+FileReaderCzi::cachedDimensions(const std::string& filepath, uint32_t scene, VolumeDimensions& dims)
+{
+  {
+    std::lock_guard<std::mutex> lock(m_readerMutex);
+    auto it = m_dims.find(scene);
+    if (it != m_dims.end()) {
+      dims = it->second;
+      return true;
+    }
+  }
+
+  std::shared_ptr<libCZI::ICZIReader> reader = openReader(filepath);
+  auto statistics = reader->GetStatistics();
+  VolumeDimensions read;
+  if (!readCziDimensions(reader, filepath, statistics, read, scene)) {
+    return false;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(m_readerMutex);
+    m_dims[scene] = read;
+  }
+  dims = read;
+  return true;
+}
+
 VolumeDimensions
 FileReaderCzi::loadDimensions(const std::string& filepath, uint32_t scene)
 {
-  VolumeDimensions dims;
   try {
-    ScopedCziReader scopedReader(filepath);
-    std::shared_ptr<libCZI::ICZIReader> cziReader = scopedReader.reader();
-
-    auto statistics = cziReader->GetStatistics();
-
-    bool dims_ok = readCziDimensions(cziReader, filepath, statistics, dims, scene);
-    if (!dims_ok) {
+    VolumeDimensions dims;
+    if (!cachedDimensions(filepath, scene, dims)) {
       return VolumeDimensions();
     }
-
     return dims;
 
   } catch (std::exception& e) {
@@ -294,7 +321,7 @@ FileReaderCzi::loadDimensions(const std::string& filepath, uint32_t scene)
 }
 
 std::shared_ptr<ImageXYZC>
-FileReaderCzi::loadFromFile(const LoadSpec& loadSpec)
+FileReaderCzi::loadVolumeBlocking(const LoadSpec& loadSpec, LoadProgress& progress)
 {
   std::string filepath = loadSpec.filepath;
   uint32_t scene = loadSpec.scene;
@@ -306,14 +333,14 @@ FileReaderCzi::loadFromFile(const LoadSpec& loadSpec)
   auto tStart = std::chrono::high_resolution_clock::now();
 
   try {
-    ScopedCziReader scopedReader(filepath);
-    std::shared_ptr<libCZI::ICZIReader> cziReader = scopedReader.reader();
+    // Reuses the already-open reader and the memoized metadata, so a time series
+    // pays the file-open and XML-parse cost once rather than per timepoint.
+    std::shared_ptr<libCZI::ICZIReader> cziReader = openReader(filepath);
 
     auto statistics = cziReader->GetStatistics();
 
     VolumeDimensions dims;
-    bool dims_ok = readCziDimensions(cziReader, filepath, statistics, dims, scene);
-    if (!dims_ok) {
+    if (!cachedDimensions(filepath, scene, dims)) {
       return emptyimage;
     }
     int startT = 0, sizeT = 0;
@@ -368,6 +395,10 @@ FileReaderCzi::loadFromFile(const LoadSpec& loadSpec)
       }
 
       for (uint32_t slice = 0; slice < dims.sizeZ; ++slice) {
+        // Cancellation boundary: one subblock read per plane.
+        if (progress.isCancelled()) {
+          return emptyimage;
+        }
         destptr = data + planesize * (channel * dims.sizeZ + slice);
 
         // adjust coordinates by offsets from dims
@@ -385,6 +416,8 @@ FileReaderCzi::loadFromFile(const LoadSpec& loadSpec)
           return emptyimage;
         }
       }
+
+      progress.setProgress(channel + 1, static_cast<uint32_t>(nch));
     }
 
     auto tEnd = std::chrono::high_resolution_clock::now();

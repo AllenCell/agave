@@ -7,7 +7,6 @@
 #include "ViewerState.h"
 
 #include "renderlib/AppScene.h"
-#include "renderlib/Logging.h"
 #include "renderlib/MoveTool.h"
 #include "renderlib/RenderSettings.h"
 #include "renderlib/RotateTool.h"
@@ -19,15 +18,17 @@
 #include "renderlib/renderlib.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 
 #include <QApplication>
+#include <QEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QResizeEvent>
 #include <QSizePolicy>
-#include <QTimer>
 #include <QWheelEvent>
+#include <QWindow>
 
 namespace {
 
@@ -99,10 +100,13 @@ VulkanView3D::VulkanView3D(QCamera* cam, QRenderSettings* qrs, RenderSettings* r
   QObject::connect(qrs, SIGNAL(ChangedRenderer(int)), this, SLOT(OnUpdateRenderer(int)));
   QObject::connect(qrs, SIGNAL(Selected(SceneObject*)), this, SLOT(OnSelectionChanged(SceneObject*)));
 
-  m_timer = new QTimer(this);
-  m_timer->setTimerType(Qt::PreciseTimer);
-  connect(m_timer, &QTimer::timeout, this, &VulkanView3D::renderFrame);
-  m_timer->start();
+  // Drive the render loop off QWindow::requestUpdate rather than a QTimer. The
+  // update event is paced by the compositor (one delivery per display refresh
+  // on desktop platforms) and is naturally throttled when the window is
+  // obscured or minimized, so we do not have to guess an interval or waste
+  // renders on frames that will never be composited. WA_NativeWindow is
+  // already set above, so windowHandle() returns a real QWindow here.
+  scheduleNextFrame();
 }
 
 VulkanView3D::~VulkanView3D()
@@ -330,17 +334,44 @@ VulkanView3D::captureQimage()
 void
 VulkanView3D::pauseRenderLoop()
 {
-  if (m_timer) {
-    m_timer->stop();
-  }
+  // No timer to stop -- the render loop self-suspends by not re-requesting an
+  // UpdateRequest at the end of the next renderFrame().
+  m_renderPaused = true;
 }
 
 void
 VulkanView3D::restartRenderLoop()
 {
-  if (m_timer) {
-    m_timer->start();
+  m_renderPaused = false;
+  scheduleNextFrame();
+}
+
+void
+VulkanView3D::scheduleNextFrame()
+{
+  if (m_renderPaused) {
+    return;
   }
+  // Only top-level widgets and widgets with WA_NativeWindow have a real QWindow.
+  // Constructing without one would have failed the swapchain setup already, but
+  // the guard keeps this safe if the widget is destroyed mid-tear-down.
+  if (QWindow* wh = windowHandle()) {
+    wh->requestUpdate();
+  }
+}
+
+bool
+VulkanView3D::event(QEvent* e)
+{
+  if (e->type() == QEvent::UpdateRequest) {
+    renderFrame();
+    // Self-sustain the loop. Skipping this in some future "converged, nothing
+    // to redraw" branch is how we would let the CPU actually idle instead of
+    // burning cycles on progressive iterations after the image stops changing.
+    scheduleNextFrame();
+    return true;
+  }
+  return QWidget::event(e);
 }
 
 void
@@ -475,6 +506,7 @@ VulkanView3D::renderFrame()
   if (!isEnabled() || !m_viewerWindow || !m_viewerWindow->m_renderer || !m_swapchain) {
     return;
   }
+
   m_swapchain->render(*m_viewerWindow);
 }
 

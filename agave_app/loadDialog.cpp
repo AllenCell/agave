@@ -147,6 +147,18 @@ LoadDialog::LoadDialog(std::string path, const std::vector<MultiscaleDims>& dims
   m_keepSettingsCheckbox = new QCheckBox(this);
   m_keepSettingsCheckbox->setChecked(true);
 
+  // since the row may not be added (if the file is not a time seres),
+  // don't parent the checkbox to anything yet.
+  m_prefetchWholeSeriesCheckbox = new QCheckBox();
+  // we expect the checkbox state to be seeded by setPrefetchTimeSeries() before exec();
+  // this is only the fallback for a caller that does not seed it.
+  m_prefetchWholeSeriesCheckbox->setChecked(false);
+  m_prefetchWholeSeriesCheckbox->setToolTip(
+    tr("Load time steps into memory and the disk cache in the background, ahead of the current one.\n"
+       "How far ahead is bounded by the RAM and disk cache limits in the Cache Settings dock.\n"
+       "Unchecked, time steps are loaded only as you reach them -- and still cached once loaded.\n"
+       "This is the same setting as \"Prefetch time steps\" in the Cache Settings dock."));
+
   QFormLayout* layout = new QFormLayout(this);
   layout->setLabelAlignment(Qt::AlignLeft);
   layout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
@@ -159,6 +171,8 @@ LoadDialog::LoadDialog(std::string path, const std::vector<MultiscaleDims>& dims
   }
   if (m_TimeSlider->isEnabled()) {
     layout->addRow("Time", m_TimeSlider);
+    // Only offer prefetch when the file actually has a series.
+    layout->addRow("Prefetch time series", m_prefetchWholeSeriesCheckbox);
     layout->addItem(new QSpacerItem(0, spacing, QSizePolicy::Expanding, QSizePolicy::Expanding));
   }
   layout->addRow(mChannelsSection);
@@ -361,4 +375,27 @@ LoadDialog::populateChannels(int level)
     listItem->setData(Qt::UserRole, QVariant::fromValue(i));
     mChannels->addItem(listItem);
   }
+}
+
+bool
+LoadDialog::hasTimeSeriesChoice() const
+{
+  return m_prefetchWholeSeriesCheckbox && m_TimeSlider && m_TimeSlider->isEnabled();
+}
+
+void
+LoadDialog::setPrefetchTimeSeries(bool enabled)
+{
+  if (m_prefetchWholeSeriesCheckbox) {
+    m_prefetchWholeSeriesCheckbox->setChecked(enabled);
+  }
+}
+
+bool
+LoadDialog::getPrefetchTimeSeries() const
+{
+  if (!hasTimeSeriesChoice()) {
+    return false;
+  }
+  return m_prefetchWholeSeriesCheckbox->isChecked();
 }
