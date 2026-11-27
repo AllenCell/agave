@@ -3,10 +3,12 @@
 #include "AppScene.h"
 #include "BoundingBoxTool.h"
 #include "CCamera.h"
+#include "ImageXYZC.h"
 #include "RenderSettings.h"
 #include "ScaleBarTool.h"
 #include "SceneView.h"
 #include "TimeStampTool.h"
+#include "VolumeDimensions.h"
 #include "gfxapi/Backend.h"
 #include "gfxapi/Framebuffer.h"
 #include "gfxapi/IGestureRenderer.h"
@@ -19,6 +21,8 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 namespace {
 
@@ -183,6 +187,72 @@ PythonRenderer::resizeGL(int x, int y)
   m_renderer->resize(static_cast<uint32_t>(x), static_cast<uint32_t>(y));
   m_framebuffer = renderlib::graphicsBackend()->createFramebuffer(
     { static_cast<uint32_t>(x), static_cast<uint32_t>(y), gfxApi::FramebufferColorFormat::Rgba8, true });
+}
+
+std::string
+PythonRenderer::loadVolume(std::shared_ptr<ImageXYZC> image,
+                           const VolumeDimensions& dimensions,
+                           const std::string& name)
+{
+  if (m_closed) {
+    throw std::runtime_error("Renderer is closed");
+  }
+  if (!image) {
+    throw PythonRendererValueError("Volume image must not be null");
+  }
+  if (image->sizeC() > MAX_CPU_CHANNELS) {
+    throw PythonRendererValueError("Volume contains more than 32 channels");
+  }
+
+  m_executionContext.m_loadSpec = LoadSpec{};
+  m_executionContext.m_loadSpec.filepath = name;
+  m_executionContext.setReader(m_executionContext.m_loadSpec, nullptr);
+
+  m_scene->m_timeLine.setRange(0, 0);
+  m_scene->m_timeLine.setCurrentTime(0);
+  m_scene->m_timeLine.setTimeUnit(dimensions.timeUnit);
+  m_scene->m_timeLine.setTimeUnits(dimensions.timeUnits);
+  m_scene->m_volume = image;
+  m_scene->initSceneFromImg(image);
+
+  m_camera->m_SceneBoundingBox.m_MinP = m_scene->m_boundingBox.GetMinP();
+  m_camera->m_SceneBoundingBox.m_MaxP = m_scene->m_boundingBox.GetMaxP();
+  m_camera->SetViewMode(ViewModeFront);
+
+  for (uint32_t channel = 0; channel < image->sizeC(); ++channel) {
+    m_scene->m_material.m_enabled[channel] = channel < ImageXYZC::FIRST_N_CHANNELS;
+    m_scene->m_material.m_opacity[channel] = 1.0f;
+  }
+  m_renderSettings->SetNoIterations(0);
+  m_renderSettings->m_DirtyFlags.SetFlag(CameraDirty);
+  m_renderSettings->m_DirtyFlags.SetFlag(VolumeDirty);
+  m_renderSettings->m_DirtyFlags.SetFlag(VolumeDataDirty);
+  m_renderSettings->m_DirtyFlags.SetFlag(TransferFunctionDirty);
+
+  nlohmann::json result;
+  result["name"] = name;
+  result["x"] = image->sizeX();
+  result["y"] = image->sizeY();
+  result["z"] = image->sizeZ();
+  result["c"] = image->sizeC();
+  result["t"] = 1;
+  result["pixel_size_x"] = image->physicalSizeX();
+  result["pixel_size_y"] = image->physicalSizeY();
+  result["pixel_size_z"] = image->physicalSizeZ();
+  result["spatial_units"] = image->spatialUnits();
+  result["channel_names"] = dimensions.channelNames;
+
+  std::vector<uint16_t> channelMins;
+  std::vector<uint16_t> channelMaxes;
+  channelMins.reserve(image->sizeC());
+  channelMaxes.reserve(image->sizeC());
+  for (uint32_t channel = 0; channel < image->sizeC(); ++channel) {
+    channelMins.push_back(image->channel(channel)->m_histogram.getDataMin());
+    channelMaxes.push_back(image->channel(channel)->m_histogram.getDataMax());
+  }
+  result["channel_min_intensity"] = channelMins;
+  result["channel_max_intensity"] = channelMaxes;
+  return result.dump();
 }
 
 PythonRendererResult
