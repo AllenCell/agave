@@ -2,6 +2,7 @@
 
 #include "Framebuffer.h"
 #include "Logging.h"
+#include "RenderVk.h"
 #include "RendererVkContext.h"
 #include "gfxapi/Framebuffer.h"
 #include "gfxapi/IGestureRenderer.h"
@@ -178,8 +179,9 @@ Backend::createRendererContext(gfxApi::IGLContext* externalContext)
 std::unique_ptr<gfxApi::IRenderWindow>
 Backend::createRenderWindow(gfxApi::RenderWindowKind kind, RenderSettings* renderSettings)
 {
-  (void)kind;
-  (void)renderSettings;
+  if (kind == gfxApi::RenderWindowKind::RaymarchBlended) {
+    return std::make_unique<RenderVk>(*this, renderSettings);
+  }
   return {};
 }
 
