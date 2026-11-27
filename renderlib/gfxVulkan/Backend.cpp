@@ -1,6 +1,8 @@
 #include "Backend.h"
 
+#include "Framebuffer.h"
 #include "Logging.h"
+#include "RendererVkContext.h"
 #include "gfxapi/Framebuffer.h"
 #include "gfxapi/IGestureRenderer.h"
 #include "gfxapi/IGLContext.h"
@@ -170,7 +172,7 @@ std::unique_ptr<gfxApi::IGLContext>
 Backend::createRendererContext(gfxApi::IGLContext* externalContext)
 {
   (void)externalContext;
-  return {};
+  return std::make_unique<RendererVkContext>(*this);
 }
 
 std::unique_ptr<gfxApi::IRenderWindow>
@@ -184,8 +186,7 @@ Backend::createRenderWindow(gfxApi::RenderWindowKind kind, RenderSettings* rende
 std::unique_ptr<gfxApi::Framebuffer>
 Backend::createFramebuffer(const gfxApi::FramebufferDesc& desc)
 {
-  (void)desc;
-  return {};
+  return std::make_unique<Framebuffer>(*this, desc);
 }
 
 void
