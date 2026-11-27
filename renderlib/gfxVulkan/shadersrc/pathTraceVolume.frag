@@ -429,7 +429,7 @@ const float UINT16_MAX = 65535.0;
 float
 GetNormalizedIntensityMax4ch(in vec3 P, out int ch)
 {
-  vec4 intensity = UINT16_MAX * texture(volumeTexture, PtoVolumeTex(P));
+  vec4 intensity = UINT16_MAX * textureLod(volumeTexture, PtoVolumeTex(P), 0.0);
 
   float maxIn = 0.0;
   ch = 0;
@@ -449,7 +449,7 @@ GetNormalizedIntensityMax4ch(in vec3 P, out int ch)
 float
 GetWeightedOpacity4ch(in vec3 P, out vec4 intensity, out vec4 opacity)
 {
-  intensity = UINT16_MAX * texture(volumeTexture, PtoVolumeTex(P));
+  intensity = UINT16_MAX * textureLod(volumeTexture, PtoVolumeTex(P), 0.0);
   intensity = evalTf4ch(intensity);
   opacity = vec4(0.0f);
 
@@ -482,7 +482,7 @@ SelectWeightedChannel(in vec4 opacity, inout uvec2 seed)
 float
 GetNormalizedIntensity(in vec3 P, in int ch)
 {
-  float intensity = UINT16_MAX * texture(volumeTexture, PtoVolumeTex(P))[ch];
+  float intensity = UINT16_MAX * textureLod(volumeTexture, PtoVolumeTex(P), 0.0)[ch];
   intensity = (intensity - g_intensityMin[ch]) / (g_intensityMax[ch] - g_intensityMin[ch]);
 
   intensity = evalTf(ch, intensity);
@@ -492,7 +492,7 @@ GetNormalizedIntensity(in vec3 P, in int ch)
 float
 GetNormalizedIntensity4ch(vec3 P, int ch)
 {
-  vec4 intensity = UINT16_MAX * texture(volumeTexture, PtoVolumeTex(P));
+  vec4 intensity = UINT16_MAX * textureLod(volumeTexture, PtoVolumeTex(P), 0.0);
   // select channel
   float intensityf = intensity[ch];
   intensityf = (intensityf - g_intensityMin[ch]) / (g_intensityMax[ch] - g_intensityMin[ch]);
@@ -504,7 +504,7 @@ GetNormalizedIntensity4ch(vec3 P, int ch)
 float
 GetRawIntensity(vec3 P, int ch)
 {
-  return texture(volumeTexture, PtoVolumeTex(P))[ch];
+  return textureLod(volumeTexture, PtoVolumeTex(P), 0.0)[ch];
 }
 
 // note that gInvGradientDelta is maxpixeldim of volume
@@ -547,7 +547,7 @@ GetDiffuseN(float NormalizedIntensity, vec3 Pe, int ch)
   //  g_intensityMin) / (g_intensityMax - g_intensityMin) i = (i-g_lutMin[ch])/(g_lutMax[ch]-g_lutMin[ch]) *
   //  g_opacity[ch]; return texture(g_colormapTexture[ch], vec2(i, 0.5)).xyz * g_diffuse[ch];
 
-  vec4 intensity = UINT16_MAX * texture(volumeTexture, PtoVolumeTex(Pe));
+  vec4 intensity = UINT16_MAX * textureLod(volumeTexture, PtoVolumeTex(Pe), 0.0);
   if (g_labels[ch] > 0.5) {
     return texelFetch(g_colormapTexture, ivec3(int(intensity[ch]) % 256, 0, ch), 0).xyz * g_diffuse[ch];
   } else {
