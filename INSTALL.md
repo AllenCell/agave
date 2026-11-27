@@ -13,7 +13,9 @@ The first time, you will get a warning from Windows Defender SmartScreen. Click 
 
 ## MacOS
 
-AGAVE supports Apple Silicon Macs.
+AGAVE supports Apple Silicon Macs. The macOS package includes the Vulkan loader
+and KosmicKrisp driver. KosmicKrisp rendering requires macOS 26 or later; on older
+macOS versions, launch the app with `--graphics_backend opengl`.
 
 Download the installer `agave-1.10.0-macos-arm64.dmg` and open it.
 

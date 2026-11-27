@@ -350,6 +350,13 @@ TEST_CASE("Commands can write and read from binary", "[command]")
     REQUIRE(cmd->toPythonString() == "set_multichannel_blend(1)");
     REQUIRE(cmd->m_data.m_mode == data.m_mode);
   }
+  SECTION("SetWoodcockTrackingCommand")
+  {
+    SetWoodcockTrackingCommandD data = { 1 };
+    auto cmd = testcodec<SetWoodcockTrackingCommand, SetWoodcockTrackingCommandD>(data);
+    REQUIRE(cmd->toPythonString() == "set_woodcock_tracking(1)");
+    REQUIRE(cmd->m_data.m_enabled == data.m_enabled);
+  }
   SECTION("SetBackgroundColorCommand")
   {
     SetBackgroundColorCommandD data = { 0.25, 0.5, 0.333 };

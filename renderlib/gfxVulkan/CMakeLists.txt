@@ -83,6 +83,8 @@ target_sources(renderlib PRIVATE
 if(APPLE)
 	target_sources(renderlib PRIVATE
 		"${CMAKE_CURRENT_SOURCE_DIR}/Swapchain_mac.mm"
+		"${CMAKE_CURRENT_SOURCE_DIR}/MacOSVulkanDriver.cpp"
+		"${CMAKE_CURRENT_SOURCE_DIR}/MacOSVulkanDriver.h"
 	)
 endif()
 
@@ -101,11 +103,13 @@ endif()
 target_compile_definitions(renderlib PUBLIC AGAVE_HAS_VULKAN=1)
 target_link_libraries(renderlib
 	Vulkan::Vulkan
-	${AGAVE_VULKAN_RUNTIME_LIBRARY}
 	Vulkan::shaderc_combined
 )
 
 if(APPLE)
+  target_compile_definitions(renderlib PRIVATE
+    AGAVE_KOSMICKRISP_BUILD_MANIFEST="${AGAVE_VULKAN_KOSMICKRISP_MANIFEST}"
+  )
 	target_link_libraries(renderlib
 		"-framework AppKit"
 		"-framework QuartzCore"

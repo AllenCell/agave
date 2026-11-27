@@ -1154,6 +1154,21 @@ class AgaveRenderer:
         # 54
         self.cb.add_command("SET_MULTICHANNEL_BLEND", mode)
 
+    def set_woodcock_tracking(self, enabled: int):
+        """
+        Enable or disable Woodcock (delta) tracking in the path tracer.
+
+        When disabled, fixed-step ray marching with the primary/secondary ray
+        step sizes is used.
+
+        Parameters
+        ----------
+        enabled: int
+            1 to enable Woodcock (delta) tracking, 0 to disable it.
+        """
+        # 55
+        self.cb.add_command("SET_WOODCOCK_TRACKING", enabled)
+
     def batch_render_turntable(
         self, number_of_frames=90, direction=1, output_name="frame", first_frame=0
     ):
