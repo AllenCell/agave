@@ -57,6 +57,7 @@ protected:
   // Volume/colormap GPU textures, owned by the base renderer but needed by the
   // path-trace subclass to bind into its own shading pipeline.
   const VolumeTextureVk& volumeTexture() const { return m_volume; }
+  VolumeTextureVk& volumeTexture() { return m_volume; }
 
   Backend& m_backend;
   RenderSettings* m_renderSettings = nullptr;
